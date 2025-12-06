@@ -128,8 +128,7 @@ func (t *Telegram) handleTextMessage(ctx context.Context, msg *tgbotapi.Message)
 		return
 
 	case "📊 Статус":
-		// простая заглушка статуса, можно расширить
-		_, err = t.Send(ctx, chatID, "ℹ️ Статус: бот работает в тестовом режиме.\nСкоро здесь будет подробный статус позиций/стратегии.")
+		go t.handleStatus(ctx, user)
 		return
 	}
 
@@ -166,12 +165,18 @@ func (t *Telegram) handleOkxKeys(ctx context.Context, msg *tgbotapi.Message) {
 
 	t.bot.Send(tgbotapi.NewMessage(chatID, "✅ Ключи OKX сохранены. Теперь можно запускать торговлю."))
 }
-
 func (t *Telegram) handleSettingsMenu(ctx context.Context, chatID int64) {
 	user, err := t.getUser(ctx, chatID)
 	if err != nil {
 		t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
 		return
+	}
+
+	confirmStatus := "выключено"
+	confirmBtnText := "⭕️ Подтверждение: выкл"
+	if user.TradingSettings.ConfirmRequired {
+		confirmStatus = "включено"
+		confirmBtnText = "✅ Подтверждение: вкл"
 	}
 
 	text := fmt.Sprintf(
@@ -182,13 +187,15 @@ func (t *Telegram) handleSettingsMenu(ctx context.Context, chatID int64) {
 			"Риск: %.2f%% на сделку\n"+
 			"Размер позиции: %.2f%% от баланса\n"+
 			"Плечо: x%d\n"+
-			"Макс. позиций: %d\n",
+			"Макс. позиций: %d\n"+
+			"Подтверждение сделок: *%s*\n",
 		user.TradingSettings.Timeframe,
 		user.TradingSettings.EMAShort, user.TradingSettings.EMALong,
 		user.TradingSettings.RSIPeriod, user.TradingSettings.RSIOverbought, user.TradingSettings.RSIOSold,
 		user.TradingSettings.RiskPct, user.TradingSettings.PositionPct,
 		user.TradingSettings.Leverage,
 		user.TradingSettings.MaxOpenPositions,
+		confirmStatus,
 	)
 
 	kb := tgbotapi.NewInlineKeyboardMarkup(
@@ -203,6 +210,9 @@ func (t *Telegram) handleSettingsMenu(ctx context.Context, chatID int64) {
 		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("🔑 Ключи OKX", "set_okx"),
 		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData(confirmBtnText, "toggle_confirm"),
+		),
 	)
 
 	msg := tgbotapi.NewMessage(chatID, text)
@@ -211,7 +221,6 @@ func (t *Telegram) handleSettingsMenu(ctx context.Context, chatID int64) {
 
 	_, err = t.SendMessage(ctx, msg)
 }
-
 func (t *Telegram) handleCallback(ctx context.Context, chatID int64, cb *tgbotapi.CallbackQuery) {
 	_, err := t.getUser(ctx, chatID)
 	if err != nil {
@@ -240,6 +249,9 @@ func (t *Telegram) handleCallback(ctx context.Context, chatID int64, cb *tgbotap
 		return
 	case "set_okx":
 		t.handleSetOkx(ctx, chatID, cb.Message)
+		return
+	case "toggle_confirm":
+		t.handleToggleConfirm(ctx, chatID, cb.Message)
 		return
 	}
 	// 2) EMA/RSI редактирование
@@ -480,4 +492,49 @@ func (t *Telegram) handleEmaRsiAdjust(
 	if _, err := t.bot.Send(edit); err != nil {
 		log.Printf("handleEmaRsiAdjust edit error: %v", err)
 	}
+}
+
+// в service.Telegram
+
+func (t *Telegram) handleStatus(ctx context.Context, user *models.UserSettings) {
+	text, err := t.manager.StatusForUser(ctx, user)
+	if err != nil {
+		log.Printf("StatusForUser error: %v", err)
+		_, _ = t.Send(ctx, user.UserID, "⚠️ Не удалось получить статус: "+err.Error())
+		return
+	}
+
+	msg := tgbotapi.NewMessage(user.UserID, text)
+	msg.ParseMode = "Markdown"
+	_, _ = t.SendMessage(ctx, msg)
+}
+
+func (t *Telegram) handleToggleConfirm(ctx context.Context, chatID int64, msg *tgbotapi.Message) {
+	user, err := t.getUser(ctx, chatID)
+	if err != nil {
+		_, _ = t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
+		return
+	}
+
+	user.TradingSettings.ConfirmRequired = !user.TradingSettings.ConfirmRequired
+
+	if err := t.repo.Update(ctx, user); err != nil {
+		log.Printf("update user confirmRequired error: %v", err)
+		_, _ = t.Send(ctx, chatID, "⚠️ Не удалось сохранить настройку.")
+		return
+	}
+
+	t.handleSettingsMenu(ctx, chatID)
+
+	//edit := tgbotapi.NewEditMessageTextAndMarkup(
+	//	chatID,
+	//	msg.MessageID,
+	//	text,
+	//	kb,
+	//)
+	//edit.ParseMode = "Markdown"
+	//
+	//if _, err := t.bot.Send(edit); err != nil {
+	//	log.Printf("handleToggleConfirm edit error: %v", err)
+	//}
 }

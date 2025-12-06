@@ -69,8 +69,6 @@ func (r *Runner) Start(parent context.Context) {
 	r.ctx, r.cancel = context.WithCancel(parent)
 	// запуск воркера подтверждений
 	go r.confirmWorker(r.ctx)
-	// health-лог
-	go r.healthLoop(r.ctx)
 
 	raw := r.mx.TopVolatile(r.cfg.TradingSettings.WatchTopN)
 
@@ -105,32 +103,6 @@ func (r *Runner) watchSymbols(ctx context.Context, symbols []string) {
 			}
 			log.Printf("[TICK] %s — %.4f", tick.InstID, tick.Close)
 			r.onCandle(ctx, tick.InstID, tick.Close)
-		}
-	}
-}
-
-func (r *Runner) healthLoop(ctx context.Context) {
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			// считаем активные символы (те, по которым уже были свечи)
-			r.healthMu.Lock()
-			symbols := len(r.lastTick)
-			r.healthMu.Unlock()
-
-			// открытые позиции на OKX
-			openCount := 0
-			if positions, err := r.mx.OpenPositions(ctx); err == nil {
-				openCount = len(positions)
-			}
-
-			qLen := len(r.queue)
-			r.n.SendF(ctx, r.cfg.UserID, "🩺 HEALTH | symbols=%d | queue=%d | openPositions=%d", symbols, qLen, openCount)
 		}
 	}
 }

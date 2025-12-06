@@ -39,21 +39,21 @@ func NewClient() *Client {
 }
 
 // SetCreds — сюда теперь кладём ключи OKX (пока с старыми env-именами MEXC_*)
-func (m *Client) SetCreds(key, secret, passphrase string) {
-	m.apiKey = key
-	m.apiSecret = secret
-	m.passph = passphrase
+func (c *Client) SetCreds(key, secret, passphrase string) {
+	c.apiKey = key
+	c.apiSecret = secret
+	c.passph = passphrase
 }
 
-func (m *Client) SetPrice(symbol string, price float64) {
-	m.mu.Lock()
-	m.prices[symbol] = price
-	m.mu.Unlock()
+func (c *Client) SetPrice(symbol string, price float64) {
+	c.mu.Lock()
+	c.prices[symbol] = price
+	c.mu.Unlock()
 }
 
 // ===== WebSocket: last price per instrument (OKX public tickers) =====
 
-func (m *Client) StreamPrices(ctx context.Context, instID string) <-chan float64 {
+func (c *Client) StreamPrices(ctx context.Context, instID string) <-chan float64 {
 	ch := make(chan float64)
 	go func() {
 		defer close(ch)
@@ -62,7 +62,7 @@ func (m *Client) StreamPrices(ctx context.Context, instID string) <-chan float64
 		retry := 0
 
 		for {
-			conn, _, err := m.wsDialer.Dial(url, nil)
+			conn, _, err := c.wsDialer.Dial(url, nil)
 			if err != nil {
 				retry++
 				if retry > 8 {
@@ -126,7 +126,7 @@ func (m *Client) StreamPrices(ctx context.Context, instID string) <-chan float64
 				if err != nil || p == 0 {
 					continue
 				}
-				m.SetPrice(instID, p)
+				c.SetPrice(instID, p)
 				ch <- p
 			}
 
@@ -143,13 +143,13 @@ func (m *Client) StreamPrices(ctx context.Context, instID string) <-chan float64
 
 // ===== REST: top volatile SWAP instruments (OKX) =====
 
-func (m *Client) TopVolatile(n int) []string {
+func (c *Client) TopVolatile(n int) []string {
 	if n <= 0 {
 		return nil
 	}
 
 	// все swap-инструменты
-	tickers, err := m.fetchSwapTickers()
+	tickers, err := c.fetchSwapTickers()
 	if err != nil || len(tickers) == 0 {
 		return nil
 	}
@@ -209,9 +209,9 @@ type okxTickerResp struct {
 	Data []okxTicker `json:"data"`
 }
 
-func (m *Client) fetchSwapTickers() ([]okxTicker, error) {
+func (c *Client) fetchSwapTickers() ([]okxTicker, error) {
 	req, _ := http.NewRequest("GET", "https://www.okx.com/api/v5/market/tickers?instType=SWAP", nil)
-	resp, err := m.http.Do(req)
+	resp, err := c.http.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -237,7 +237,7 @@ func (m *Client) fetchSwapTickers() ([]okxTicker, error) {
 
 // SetLeverage — выставляет плечо для инструмента на OKX.
 // lever = 3, mgnMode сейчас "cross", posSide "long"/"short" или "" (для обоих).
-func (m *Client) SetLeverage(ctx context.Context, instID string, lever int, posSide string) error {
+func (c *Client) SetLeverage(ctx context.Context, instID string, lever int, posSide string) error {
 
 	bodyMap := map[string]any{
 		"instId":  instID,
@@ -254,16 +254,16 @@ func (m *Client) SetLeverage(ctx context.Context, instID string, lever int, posS
 	requestPath := "/api/v5/account/set-leverage"
 	method := "POST"
 	ts := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
-	sign := m.sign(ts, method, requestPath, bodyStr)
+	sign := c.sign(ts, method, requestPath, bodyStr)
 
 	req, _ := http.NewRequestWithContext(ctx, method, "https://www.okx.com"+requestPath, strings.NewReader(bodyStr))
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("OK-ACCESS-KEY", m.apiKey)
+	req.Header.Set("OK-ACCESS-KEY", c.apiKey)
 	req.Header.Set("OK-ACCESS-SIGN", sign)
 	req.Header.Set("OK-ACCESS-TIMESTAMP", ts)
-	req.Header.Set("OK-ACCESS-PASSPHRASE", m.passph)
+	req.Header.Set("OK-ACCESS-PASSPHRASE", c.passph)
 
-	resp, err := m.http.Do(req)
+	resp, err := c.http.Do(req)
 	if err != nil {
 		return err
 	}
@@ -292,13 +292,13 @@ func (m *Client) SetLeverage(ctx context.Context, instID string, lever int, posS
 // side: 1 = открыть long, 3 = открыть short (как было в старой логике)
 // leverage и openType пока не используем, режим маржи фиксируем через tdMode.
 // PlaceMarket — маркет-ордер на OKX с установкой плеча и TP/SL.
-func (m *Client) PlaceMarket(
+func (c *Client) PlaceMarket(
 	ctx context.Context,
 	instID string,
 	vol float64,
 	side, leverage, openType int,
 ) (string, error) {
-	if m.apiKey == "" || m.apiSecret == "" || m.passph == "" {
+	if c.apiKey == "" || c.apiSecret == "" || c.passph == "" {
 		return "", errors.New("okx creds empty (ключ/секрет/пасфраза)")
 	}
 
@@ -320,7 +320,7 @@ func (m *Client) PlaceMarket(
 
 	// сначала best-effort выставляем плечо
 	if leverage > 0 {
-		_ = m.SetLeverage(ctx, instID, leverage, posSide)
+		_ = c.SetLeverage(ctx, instID, leverage, posSide)
 	}
 
 	bodyMap := map[string]any{
@@ -340,7 +340,7 @@ func (m *Client) PlaceMarket(
 	requestPath := "/api/v5/trade/order"
 	method := "POST"
 	ts := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
-	sign := m.sign(ts, method, requestPath, bodyStr)
+	sign := c.sign(ts, method, requestPath, bodyStr)
 
 	req, _ := http.NewRequestWithContext(
 		ctx,
@@ -349,12 +349,12 @@ func (m *Client) PlaceMarket(
 		strings.NewReader(bodyStr),
 	)
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("OK-ACCESS-KEY", m.apiKey)
+	req.Header.Set("OK-ACCESS-KEY", c.apiKey)
 	req.Header.Set("OK-ACCESS-SIGN", sign)
 	req.Header.Set("OK-ACCESS-TIMESTAMP", ts)
-	req.Header.Set("OK-ACCESS-PASSPHRASE", m.passph)
+	req.Header.Set("OK-ACCESS-PASSPHRASE", c.passph)
 
-	resp, err := m.http.Do(req)
+	resp, err := c.http.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -391,88 +391,8 @@ func (m *Client) PlaceMarket(
 	return d.OrdID, nil
 }
 
-// OpenPosition — приведённый вид позиций под интерфейс бота
-// (значения мапятся из формата OKX /api/v5/account/positions).
-type OpenPosition struct {
-	Symbol       string  // instId
-	PositionType int     // 1 = long, 2 = short
-	HoldVol      float64 // pos
-	HoldAvgPrice float64 // avgPx
-	Leverage     int     // lever
-	Realised     float64 // пока не заполняем (0)
-}
-
-// OpenPositions вытаскивает открытые позиции с OKX и мапит их в упрощённую структуру
-// для использования в Telegram-нотифайере (команда /positions).
-func (m *Client) OpenPositions(ctx context.Context) ([]OpenPosition, error) {
-	if m.apiKey == "" || m.apiSecret == "" || m.passph == "" {
-		return nil, errors.New("okx creds empty (ключ/секрет/пасфраза)")
-	}
-
-	requestPath := "/api/v5/account/positions"
-	method := "GET"
-	bodyStr := ""
-	ts := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
-	sign := m.sign(ts, method, requestPath, bodyStr)
-
-	req, _ := http.NewRequestWithContext(ctx, method, "https://www.okx.com"+requestPath, nil)
-	req.Header.Set("OK-ACCESS-KEY", m.apiKey)
-	req.Header.Set("OK-ACCESS-SIGN", sign)
-	req.Header.Set("OK-ACCESS-TIMESTAMP", ts)
-	req.Header.Set("OK-ACCESS-PASSPHRASE", m.passph)
-
-	resp, err := m.http.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	rb, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode/100 != 2 {
-		return nil, fmt.Errorf("http %d: %s", resp.StatusCode, string(rb))
-	}
-
-	var wrap struct {
-		Code string `json:"code"`
-		Msg  string `json:"msg"`
-		Data []struct {
-			InstID  string `json:"instId"`
-			PosSide string `json:"posSide"`
-			Pos     string `json:"pos"`
-			AvgPx   string `json:"avgPx"`
-			Lever   string `json:"lever"`
-		} `json:"data"`
-	}
-	if err := json.Unmarshal(rb, &wrap); err != nil {
-		return nil, err
-	}
-	if wrap.Code != "0" {
-		return nil, fmt.Errorf("okx positions error: code=%s msg=%s", wrap.Code, wrap.Msg)
-	}
-
-	res := make([]OpenPosition, 0, len(wrap.Data))
-	for _, d := range wrap.Data {
-		hv, _ := strconv.ParseFloat(d.Pos, 64)
-		ap, _ := strconv.ParseFloat(d.AvgPx, 64)
-		lev, _ := strconv.Atoi(d.Lever)
-		pt := 1
-		if d.PosSide == "short" {
-			pt = 2
-		}
-		res = append(res, OpenPosition{
-			Symbol:       d.InstID,
-			PositionType: pt,
-			HoldVol:      hv,
-			HoldAvgPrice: ap,
-			Leverage:     lev,
-			Realised:     0,
-		})
-	}
-	return res, nil
-}
-
-func (m *Client) USDTBalance(ctx context.Context) (float64, error) {
-	if m.apiKey == "" || m.apiSecret == "" || m.passph == "" {
+func (c *Client) USDTBalance(ctx context.Context) (float64, error) {
+	if c.apiKey == "" || c.apiSecret == "" || c.passph == "" {
 		return 0, errors.New("okx creds empty (ключ/секрет/пасфраза)")
 	}
 
@@ -480,15 +400,15 @@ func (m *Client) USDTBalance(ctx context.Context) (float64, error) {
 	method := "GET"
 	bodyStr := ""
 	ts := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
-	sign := m.sign(ts, method, requestPath, bodyStr)
+	sign := c.sign(ts, method, requestPath, bodyStr)
 
 	req, _ := http.NewRequestWithContext(ctx, method, "https://www.okx.com"+requestPath, nil)
-	req.Header.Set("OK-ACCESS-KEY", m.apiKey)
+	req.Header.Set("OK-ACCESS-KEY", c.apiKey)
 	req.Header.Set("OK-ACCESS-SIGN", sign)
 	req.Header.Set("OK-ACCESS-TIMESTAMP", ts)
-	req.Header.Set("OK-ACCESS-PASSPHRASE", m.passph)
+	req.Header.Set("OK-ACCESS-PASSPHRASE", c.passph)
 
-	resp, err := m.http.Do(req)
+	resp, err := c.http.Do(req)
 	if err != nil {
 		return 0, err
 	}
@@ -628,10 +548,10 @@ func (c *Client) PlaceTpsl(ctx context.Context, instID, posSide string, sl, tp f
 
 }
 
-func (m *Client) sign(ts, method, requestPath, body string) string {
+func (c *Client) sign(ts, method, requestPath, body string) string {
 
 	msg := ts + strings.ToUpper(method) + requestPath + body
-	h := hmac.New(sha256.New, []byte(m.apiSecret))
+	h := hmac.New(sha256.New, []byte(c.apiSecret))
 	h.Write([]byte(msg))
 	return base64.StdEncoding.EncodeToString(h.Sum(nil))
 }
@@ -856,11 +776,11 @@ func (c *Client) getLastPrice(ctx context.Context, instID string) (float64, erro
 //}
 
 // Проверка: доступны ли свечи для инструмента
-func (m *Client) HasCandles(instID, tf string) bool {
+func (c *Client) HasCandles(instID, tf string) bool {
 	url := fmt.Sprintf("https://www.okx.com/api/v5/market/candles?instId=%s&bar=%s", instID, tf)
 
 	req, _ := http.NewRequest("GET", url, nil)
-	resp, err := m.http.Do(req)
+	resp, err := c.http.Do(req)
 	if err != nil {
 		return false
 	}

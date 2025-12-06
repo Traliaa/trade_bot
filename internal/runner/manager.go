@@ -3,7 +3,9 @@ package runner
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
+	"trade_bot/internal/exchange"
 	"trade_bot/internal/models"
 )
 
@@ -69,4 +71,59 @@ func (m *Manager) StopForUser(ctx context.Context, user *models.UserSettings) er
 	r.Stop()
 
 	return nil
+}
+
+func (m *Manager) StatusForUser(ctx context.Context, user *models.UserSettings) (string, error) {
+	// тут либо переиспользуешь существующий exchange.Client,
+	// либо создаёшь временный
+	mx := exchange.NewClient() // подставь свой конструктор
+	mx.SetCreds(
+		user.TradingSettings.OKXAPIKey,
+		user.TradingSettings.OKXAPISecret,
+		user.TradingSettings.OKXPassphrase,
+	)
+
+	positions, err := mx.OpenPositions(ctx)
+	if err != nil {
+		return "", fmt.Errorf("open positions: %w", err)
+	}
+
+	if len(positions) == 0 {
+		return "📊 Открытых позиций нет.", nil
+	}
+
+	var b strings.Builder
+	b.WriteString("*Открытые позиции:*\n\n")
+
+	var totalPnl float64
+
+	for _, p := range positions {
+		// подгони поля под свой тип PositionInfo
+		symbol := p.Symbol
+		side := strings.ToUpper(p.Side) // BUY/SELL или long/short
+		qty := p.Size                   // размер
+		entry := p.EntryPrice           // средняя цена входа
+		last := p.LastPrice             // последняя цена
+		upnl := p.UnrealizedPnl         // PnL в USDT
+		upnlPct := p.UnrealizedPnlPct   // PnL в %
+
+		totalPnl += upnl
+
+		fmt.Fprintf(&b,
+			"[%s] %s\n"+
+				"  Размер: `%.4f`\n"+
+				"  Вход:   `%.4f`\n"+
+				"  Сейчас: `%.4f`\n"+
+				"  PnL:    `%.2f USDT (%.2f%%)`\n\n",
+			symbol, side,
+			qty,
+			entry,
+			last,
+			upnl, upnlPct,
+		)
+	}
+
+	fmt.Fprintf(&b, "*Суммарный PnL:* `%.2f USDT`\n", totalPnl)
+
+	return b.String(), nil
 }

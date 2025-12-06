@@ -15,11 +15,11 @@ type CandleTick struct {
 
 // StreamCandles — поток закрытых свечей OKX по таймфрейму ("1m","5m","15m").
 // legacy: обёртка над батч-версией для одного инструмента.
-func (m *Client) StreamCandles(ctx context.Context, instID, timeframe string) <-chan float64 {
+func (c *Client) StreamCandles(ctx context.Context, instID, timeframe string) <-chan float64 {
 	out := make(chan float64)
 	go func() {
 		defer close(out)
-		ch := m.StreamCandlesBatch(ctx, []string{instID}, timeframe)
+		ch := c.StreamCandlesBatch(ctx, []string{instID}, timeframe)
 		for {
 			select {
 			case <-ctx.Done():
@@ -40,7 +40,7 @@ func (m *Client) StreamCandles(ctx context.Context, instID, timeframe string) <-
 
 // StreamCandlesBatch — один WebSocket на таймфрейм с пачкой инструментов в args.
 // Возвращает поток CandleTick: instId + цена закрытия последней закрытой свечи.
-func (m *Client) StreamCandlesBatch(ctx context.Context, instIDs []string, timeframe string) <-chan CandleTick {
+func (c *Client) StreamCandlesBatch(ctx context.Context, instIDs []string, timeframe string) <-chan CandleTick {
 	ch := make(chan CandleTick)
 	go func() {
 		defer close(ch)
@@ -63,7 +63,7 @@ func (m *Client) StreamCandlesBatch(ctx context.Context, instIDs []string, timef
 
 		for {
 			log.Printf("[WS] batch connect %s %d symbols", channel, len(instIDs))
-			conn, _, err := m.wsDialer.Dial(url, nil)
+			conn, _, err := c.wsDialer.Dial(url, nil)
 			if err != nil {
 				log.Printf("[WS] batch dial error %s: %v", channel, err)
 				time.Sleep(time.Second)
@@ -134,7 +134,7 @@ func (m *Client) StreamCandlesBatch(ctx context.Context, instIDs []string, timef
 					continue
 				}
 
-				m.SetPrice(frame.Arg.InstID, p)
+				c.SetPrice(frame.Arg.InstID, p)
 				select {
 				case ch <- CandleTick{InstID: frame.Arg.InstID, Close: p}:
 				case <-ctx.Done():
