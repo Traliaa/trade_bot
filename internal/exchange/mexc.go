@@ -1,7 +1,6 @@
 package exchange
 
 import (
-	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -469,83 +468,90 @@ func formatPx(v float64) string {
 	return strconv.FormatFloat(v, 'f', -1, 64)
 }
 
+type placeAlgoResp struct {
+	Code string `json:"code"`
+	Msg  string `json:"msg"`
+	Data []struct {
+		AlgoId string `json:"algoId"`
+		SCode  string `json:"sCode"`
+		SMsg   string `json:"sMsg"`
+	} `json:"data"`
+}
+
 // PlaceTpsl ставит TP/SL на позицию через OKX /api/v5/trade/order-algo (ordType=tpsl).
 // instID  — например "BTC-USDT-SWAP"
 // posSide — "long" или "short"
 // sl, tp  — уровни стоп-лосса и тейк-профита по последней цене
-func (c *Client) PlaceTpsl(ctx context.Context, instID, posSide string, sl, tp float64) error {
-	if sl <= 0 && tp <= 0 {
-		return fmt.Errorf("both SL and TP are <= 0")
+func (c *Client) PlaceTpsl(
+	ctx context.Context,
+	instId string,
+	posSide string, // "long" / "short"
+	size float64,
+	sl float64,
+	tp float64,
+) error {
+
+	// Для закрытия long позиции нужен side=sell, для short — side=buy
+	side := "sell"
+	if strings.EqualFold(posSide, "short") {
+		side = "buy"
 	}
 
-	side := "sell" // закрываем long
-	if posSide == "short" {
-		side = "buy" // закрываем short
+	body := map[string]string{
+		"instId":  instId,
+		"tdMode":  "cross", // или из конфига, если ты торгуешь isolated
+		"side":    side,
+		"posSide": posSide, // "long"/"short", если у тебя хедж-режим
+		"ordType": "conditional",
+		"sz":      formatSize(size), // размер позиции
 	}
 
-	payload := map[string]string{
-		"instId":        instID,
-		"tdMode":        "cross",       // если у тебя isolated – поменяй
-		"ordType":       "conditional", // условный TP/SL
-		"side":          side,
-		"posSide":       posSide, // "long" / "short"
-		"closeFraction": "1",     // Вся позиция
-	}
-
-	// --- TP ---
-	if tp > 0 {
-		payload["tpTriggerPx"] = formatPx(tp)
-		// "-1" = исполнение по рынку при срабатывании
-		payload["tpOrdPx"] = "-1"
-	}
-
-	// --- SL ---
 	if sl > 0 {
-		payload["slTriggerPx"] = formatPx(sl)
-		payload["slOrdPx"] = "-1"
+		body["slTriggerPx"] = formatPrice(sl)
+		// "-1" = рыночное исполнение при срабатывании триггера
+		body["slOrdPx"] = "-1"
+	}
+	if tp > 0 {
+		body["tpTriggerPx"] = formatPrice(tp)
+		body["tpOrdPx"] = "-1"
 	}
 
-	body, err := json.Marshal(payload) // ВАЖНО: без [] вокруг!
-	if err != nil {
-		return fmt.Errorf("marshal tpsl: %w", err)
-	}
+	payload, _ := json.Marshal([]map[string]string{body})
 
-	requestPath := "/api/v5/trade/order-algo"
-	ts := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
-	sign := c.sign(ts, http.MethodPost, requestPath, string(body))
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		"https://www.okx.com"+requestPath, // если у тебя другая базовая URL, вставь свою
-		bytes.NewReader(body),
-	)
-	if err != nil {
-		return fmt.Errorf("new request: %w", err)
-	}
-	req.Header.Set("OK-ACCESS-KEY", c.apiKey)
-	req.Header.Set("OK-ACCESS-SIGN", sign)
-	req.Header.Set("OK-ACCESS-TIMESTAMP", ts)
-	req.Header.Set("OK-ACCESS-PASSPHRASE", c.passph)
-	req.Header.Set("Content-Type", "application/json")
-
+	req := c.generateRequest(ctx, http.MethodPost, "/api/v5/trade/order-algo", string(payload))
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("do request: %w", err)
+		return err
 	}
 	defer resp.Body.Close()
 
-	var res struct {
-		Code string `json:"code"`
-		Msg  string `json:"msg"`
-		Data any    `json:"data"`
+	rb, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode/100 != 2 {
+		return fmt.Errorf("http %d: %s", resp.StatusCode, string(rb))
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
-		return fmt.Errorf("decode tpsl response: %w", err)
-	}
-	if res.Code != "0" {
-		return fmt.Errorf("okx error %s: %s", res.Code, res.Msg)
-	}
-	return nil
 
+	var r placeAlgoResp
+	if err := json.Unmarshal(rb, &r); err != nil {
+		return err
+	}
+	if r.Code != "0" {
+		return fmt.Errorf("okx tpsl error: code=%s msg=%s", r.Code, r.Msg)
+	}
+	if len(r.Data) == 0 {
+		return fmt.Errorf("okx tpsl error: empty data: %s", string(rb))
+	}
+	if r.Data[0].SCode != "0" {
+		return fmt.Errorf("okx tpsl error: sCode=%s sMsg=%s", r.Data[0].SCode, r.Data[0].SMsg)
+	}
+
+	return nil
+}
+func formatPrice(p float64) string {
+	return strconv.FormatFloat(p, 'f', -1, 64)
+}
+
+func formatSize(s float64) string {
+	return strconv.FormatFloat(s, 'f', -1, 64)
 }
 
 func (c *Client) sign(ts, method, requestPath, body string) string {

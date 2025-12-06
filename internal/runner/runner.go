@@ -291,7 +291,7 @@ func (r *Runner) confirmWorker(ctx context.Context) {
 				params.RR, params.RiskPct, params.Size,
 			)
 
-			if err := r.mx.PlaceTpsl(ctx, req.symbol, posSide, params.SL, params.TP); err != nil {
+			if err := r.mx.PlaceTpsl(ctx, req.symbol, posSide, params.Size, params.SL, params.TP); err != nil {
 				r.n.SendF(ctx, r.cfg.UserID,
 					"⚠️ [%s] TP/SL не выставлены на OKX: %v", req.symbol, err)
 			}
