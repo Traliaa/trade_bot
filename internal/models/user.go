@@ -44,9 +44,10 @@ type TradingSettings struct {
 	WatchTopN          int           `json:"watch_top_n"`
 	ConfirmQueuePolicy string        `json:"confirm_queue_policy"`
 
-	RiskPct      float64 `yaml:"risk_pct"`       // риск от депозита, напр. 1.0 => 1% equity
-	StopPct      float64 `yaml:"stop_pct"`       // расстояние до SL от цены, напр. 0.5 => 0.5%
-	TakeProfitRR float64 `yaml:"take_profit_rr"` // мультипликатор TP к стопу, напр. 3.0 => TP = 3 * S
+	// Сколько от депозита мы готовы потерять по СТОПУ, а не по ликвидации
+	RiskPct      float64 `yaml:"risk_pct"`       // например 1.0 => 1% equity
+	TakeProfitRR float64 `yaml:"take_profit_rr"` // например 3.0 => TP = 3R
+
 }
 
 func NewTradingSettingsFromDefaults(userID int64, cfg *config.Config) *UserSettings {
@@ -72,7 +73,6 @@ func NewTradingSettingsFromDefaults(userID int64, cfg *config.Config) *UserSetti
 			WatchTopN:         cfg.DefaultWatchTopN,
 
 			RiskPct:      cfg.DefaultRiskPct,
-			StopPct:      cfg.DefaultStopPct,
 			TakeProfitRR: cfg.DefaultTakeProfitRR,
 		},
 	}

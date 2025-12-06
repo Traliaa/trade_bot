@@ -650,6 +650,7 @@ func (c *Client) GetInstrumentMeta(ctx context.Context, instID string) (
 	price float64,
 	stepSize float64,
 	minSz float64,
+	tickSize float64,
 	err error,
 ) {
 	// 1. Получаем инструменты
@@ -657,12 +658,12 @@ func (c *Client) GetInstrumentMeta(ctx context.Context, instID string) (
 		"https://www.okx.com/api/v5/public/instruments?instType=SWAP",
 		nil)
 	if err != nil {
-		return 0, 0, 0, fmt.Errorf("build request: %w", err)
+		return 0, 0, 0, 0, fmt.Errorf("build request: %w", err)
 	}
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return 0, 0, 0, fmt.Errorf("do request: %w", err)
+		return 0, 0, 0, 0, fmt.Errorf("do request: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -673,11 +674,11 @@ func (c *Client) GetInstrumentMeta(ctx context.Context, instID string) (
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		return 0, 0, 0, fmt.Errorf("decode: %w", err)
+		return 0, 0, 0, 0, fmt.Errorf("decode: %w", err)
 	}
 
 	if data.Code != "0" {
-		return 0, 0, 0, fmt.Errorf("okx error %s: %s", data.Code, data.Msg)
+		return 0, 0, 0, 0, fmt.Errorf("okx error %s: %s", data.Code, data.Msg)
 	}
 
 	// 2. Находим нужный инструмент
@@ -690,27 +691,38 @@ func (c *Client) GetInstrumentMeta(ctx context.Context, instID string) (
 	}
 
 	if inst == nil {
-		return 0, 0, 0, fmt.Errorf("instrument %s not found", instID)
+		return 0, 0, 0, 0, fmt.Errorf("instrument %s not found", instID)
 	}
 
 	// 3. Парсим шаги и лимиты
 	stepSize, err = strconv.ParseFloat(inst.LotSz, 64)
 	if err != nil {
-		return 0, 0, 0, fmt.Errorf("parse lotSz: %w", err)
+		return 0, 0, 0, 0, fmt.Errorf("parse lotSz: %w", err)
 	}
 
 	minSz, err = strconv.ParseFloat(inst.MinSz, 64)
 	if err != nil {
-		return 0, 0, 0, fmt.Errorf("parse minSz: %w", err)
+		return 0, 0, 0, 0, fmt.Errorf("parse minSz: %w", err)
 	}
 
 	// 4. Берём цену инструмента из tickers
 	tkPrice, err := c.getLastPrice(ctx, instID)
 	if err != nil {
-		return 0, 0, 0, fmt.Errorf("ticker: %w", err)
+		return 0, 0, 0, 0, fmt.Errorf("ticker: %w", err)
+	}
+	// 4. Парсим шаг цены (tickSz)
+	if inst.TickSz != "" {
+		tickSize, err = strconv.ParseFloat(inst.TickSz, 64)
+		if err != nil {
+			err = fmt.Errorf("parse tickSz: %w", err)
+			return
+		}
+	} else {
+		// на всякий случай — если tickSz по какой-то причине пустой
+		tickSize = 0
 	}
 
-	return tkPrice, stepSize, minSz, nil
+	return tkPrice, stepSize, minSz, tickSize, nil
 }
 
 func (c *Client) getLastPrice(ctx context.Context, instID string) (float64, error) {

@@ -29,9 +29,17 @@ type Config struct {
 	} `yaml:"service"`
 
 	// Дефолты риска
-	DefaultRiskPct      float64 `yaml:"risk_pct"`       // риск от депозита, напр. 1.0 => 1% equity
-	DefaultStopPct      float64 `yaml:"stop_pct"`       // расстояние до SL от цены, напр. 0.5 => 0.5%
-	DefaultTakeProfitRR float64 `yaml:"take_profit_rr"` // мультипликатор TP к стопу, напр. 3.0 => TP = 3 * S
+	// Сколько от депозита мы готовы потерять по СТОПУ, а не по ликвидации
+	DefaultRiskPct float64 `yaml:"risk_pct"` // например 1.0 => 1% equity
+	// Как считать тейк:
+	// вариант 1 — через RR (tp = entry ± RR*dist до SL)
+	// вариант 2 — фиксированный процент от цены (tp = entry ± TakeProfitPct%)
+	DefaultUseRR         bool    `yaml:"use_rr"`
+	DefaultTakeProfitRR  float64 `yaml:"take_profit_rr"`  // например 3.0 => TP = 3R
+	DefaultTakeProfitPct float64 `yaml:"take_profit_pct"` // например 1.2 => TP = 1.2%
+
+	DefaultStopPct float64 `yaml:"stop_pct"` // расстояние до SL от цены, напр. 0.5 => 0.5%
+	//DefaultTakeProfitRR float64 `yaml:"take_profit_rr"` // мультипликатор TP к стопу, напр. 3.0 => TP = 3 * S
 
 	// Watchlist / раннер
 	DefaultWatchTopN   int

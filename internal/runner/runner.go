@@ -135,6 +135,13 @@ func (r *Runner) healthLoop(ctx context.Context) {
 	}
 }
 
+// Stop — мягко гасит раннер.
+func (r *Runner) Stop() {
+	if r.cancel != nil {
+		r.cancel()
+	}
+}
+
 //func (r *Runner) runSymbol(ctx context.Context, symbol string) {
 //	log.Printf("[RUNNER] ▶️ Старт отслеживания %s", symbol)
 //	stream := r.mx.StreamCandles(ctx, symbol, r.cfg.Timeframe)
@@ -233,7 +240,7 @@ func (r *Runner) confirmWorker(ctx context.Context) {
 			return
 
 		case req := <-r.queue:
-			// 0. Проверяем лимит открытых позиций
+			// 0. Лимит открытых позиций
 			if r.cfg.TradingSettings.MaxOpenPositions > 0 {
 				if positions, err := r.mx.OpenPositions(ctx); err == nil &&
 					len(positions) >= r.cfg.TradingSettings.MaxOpenPositions {
@@ -264,54 +271,27 @@ func (r *Runner) confirmWorker(ctx context.Context) {
 				continue
 			}
 
-			// 1. Считаем SL/TP из StopPct и TakeProfitRR
-			stopPct := r.cfg.TradingSettings.StopPct / 100.0 // напр. 0.5% => 0.005
-			if stopPct <= 0 {
-				stopPct = 0.005 // дефолт 0.5%, если забыли настроить
-			}
-			priceRisk := req.price * stopPct
-
-			var sl, tp float64
-			rr := r.cfg.TradingSettings.TakeProfitRR
-			if rr <= 0 {
-				rr = 3.0
-			}
-
-			if strings.EqualFold(req.side, "BUY") {
-				sl = req.price - priceRisk
-				tp = req.price + rr*priceRisk
-			} else {
-				sl = req.price + priceRisk
-				tp = req.price - rr*priceRisk
-			}
-
-			// 2. Считаем размер позиции по риску (через SL)
-			sz, err := r.calcSizeByRisk(ctx, req.symbol, req.price, sl)
+			// 1. Считаем все параметры сделки (SL/TP/size и т.д.)
+			params, err := r.calcTradeParams(ctx, req.symbol, req.side, req.price)
 			if err != nil {
 				r.n.SendF(ctx, r.cfg.UserID,
-					"❗️ [%s] Ошибка расчёта размера позиции: %v", req.symbol, err)
-				r.setPending(req.symbol, false)
-				continue
-			}
-			if sz <= 0 {
-				r.n.SendF(ctx, r.cfg.UserID,
-					"❗️ [%s] Некорректный размер позиции (sz=%.8f)", req.symbol, sz)
+					"❗️ [%s] Ошибка расчёта параметров сделки: %v", req.symbol, err)
 				r.setPending(req.symbol, false)
 				continue
 			}
 
-			// 3. Открываем рыночный ордер
+			// 2. Открываем рыночный ордер
 			openType := 1
 			var sideInt int
-			if strings.EqualFold(req.side, "BUY") {
+			if strings.EqualFold(params.Direction, "BUY") {
 				sideInt = 1
 			} else {
 				sideInt = 3
 			}
 
 			orderID, err := r.mx.PlaceMarket(
-				ctx, req.symbol, sz, sideInt,
-				r.cfg.TradingSettings.Leverage, openType,
+				ctx, req.symbol, params.Size, sideInt,
+				params.Leverage, openType,
 			)
 			if err != nil {
 				r.n.SendF(ctx, r.cfg.UserID,
@@ -320,15 +300,20 @@ func (r *Runner) confirmWorker(ctx context.Context) {
 				continue
 			}
 
-			// 4. TP/SL
+			// 3. TP/SL
 			posSide := "long"
-			if strings.EqualFold(req.side, "SELL") {
+			if strings.EqualFold(params.Direction, "SELL") {
 				posSide = "short"
 			}
-			r.n.SendF(ctx, r.cfg.UserID,
-				"[%s] DEBUG SL=%.6f TP=%.6f side=%s", req.symbol, sl, tp, req.side)
 
-			if err := r.mx.PlaceTpsl(ctx, req.symbol, posSide, sl, tp); err != nil {
+			r.n.SendF(ctx, r.cfg.UserID,
+				"[%s] DEBUG entry=%.6f SL=%.6f TP=%.6f 1R=%.6f RR=%.2f risk=%.2f%% size=%.4f",
+				req.symbol,
+				params.Entry, params.SL, params.TP, params.RiskDist,
+				params.RR, params.RiskPct, params.Size,
+			)
+
+			if err := r.mx.PlaceTpsl(ctx, req.symbol, posSide, params.SL, params.TP); err != nil {
 				r.n.SendF(ctx, r.cfg.UserID,
 					"⚠️ [%s] TP/SL не выставлены на OKX: %v", req.symbol, err)
 			}
@@ -336,8 +321,8 @@ func (r *Runner) confirmWorker(ctx context.Context) {
 			r.n.SendF(ctx,
 				r.cfg.UserID,
 				"✅ [%s] Вход подтверждён | OPEN %-4s @ %.4f | SL=%.4f TP=%.4f lev=%dx size=%.4f | %s (orderId=%s)",
-				req.symbol, req.side, req.price, sl, tp,
-				r.cfg.TradingSettings.Leverage, sz,
+				req.symbol, params.Direction, params.Entry, params.SL, params.TP,
+				params.Leverage, params.Size,
 				r.stg.Dump(req.symbol), orderID,
 			)
 
@@ -346,46 +331,128 @@ func (r *Runner) confirmWorker(ctx context.Context) {
 	}
 }
 
-// calcSizeByRisk считает размер позиции так, чтобы риск по стоп-лоссу
-// был равен RiskPct от equity, с учётом шагов stepSize и minSz.
-func (r *Runner) calcSizeByRisk(
+// TradeParams содержит все рассчитанные параметры сделки.
+type TradeParams struct {
+	Entry     float64
+	SL        float64
+	TP        float64
+	Size      float64
+	TickSize  float64
+	RiskPct   float64
+	RR        float64
+	RiskDist  float64
+	Leverage  int
+	Direction string // "BUY" или "SELL"
+}
+
+// calcTradeParams считает SL, TP, размер позиции и сопутствующие параметры
+// по текущим настройкам стратегии.
+func (r *Runner) calcTradeParams(
 	ctx context.Context,
-	instID string,
+	symbol string,
+	side string,
+	entry float64,
+) (*TradeParams, error) {
+	side = strings.ToUpper(side)
+
+	// 1. Настройки риска
+	riskPct := r.cfg.TradingSettings.RiskPct / 100.0 // 3 => 0.03
+	if riskPct <= 0 {
+		return nil, fmt.Errorf("riskPct <= 0")
+	}
+	rr := r.cfg.TradingSettings.TakeProfitRR
+	if rr <= 0 {
+		rr = 3.0
+	}
+	lev := r.cfg.TradingSettings.Leverage
+
+	// 2. Забираем мету инструмента (включая tickSize)
+	price, stepSize, minSz, tickSize, err := r.mx.GetInstrumentMeta(ctx, symbol)
+	if err != nil {
+		return nil, fmt.Errorf("GetInstrumentMeta: %w", err)
+	}
+	if entry <= 0 {
+		entry = price
+	}
+	if entry <= 0 {
+		return nil, fmt.Errorf("entry <= 0")
+	}
+
+	// 3. Считаем сырой SL
+	var sl float64
+	if side == "BUY" {
+		sl = entry * (1 - riskPct)
+	} else {
+		sl = entry * (1 + riskPct)
+	}
+
+	// 4. Округляем SL по tickSize
+	sl = roundToTick(sl, tickSize)
+
+	// 5. 1R и TP (1R считаем уже по округлённому SL)
+	riskDist := math.Abs(entry - sl)
+
+	var tp float64
+	if side == "BUY" {
+		tp = entry + rr*riskDist
+	} else {
+		tp = entry - rr*riskDist
+	}
+	// Округляем TP
+	tp = roundToTick(tp, tickSize)
+
+	// 6. Считаем размер позиции с учётом того SL, который реально уйдёт на биржу
+	size, err := r.calcSizeByRiskWithMeta(ctx, symbol, entry, sl, stepSize, minSz, tickSize)
+	if err != nil {
+		return nil, fmt.Errorf("calcSizeByRisk: %w", err)
+	}
+	if size <= 0 {
+		return nil, fmt.Errorf("size <= 0")
+	}
+
+	params := &TradeParams{
+		Entry:     entry,
+		SL:        sl,
+		TP:        tp,
+		Size:      size,
+		TickSize:  tickSize,
+		RiskPct:   r.cfg.TradingSettings.RiskPct,
+		RR:        rr,
+		RiskDist:  riskDist,
+		Leverage:  lev,
+		Direction: side,
+	}
+	return params, nil
+}
+func roundToTick(px, tick float64) float64 {
+	if tick <= 0 {
+		return px
+	}
+	steps := math.Round(px/tick + 1e-9)
+	return steps * tick
+}
+func (r *Runner) calcSizeByRiskWithMeta(
+	ctx context.Context,
+	symbol string,
 	entryPrice float64,
 	slPrice float64,
+	stepSize float64,
+	minSz float64,
+	tickSize float64,
 ) (float64, error) {
 
-	// 1. Получаем цену/шаг/минимальный размер
-	price, stepSize, minSz, err := r.mx.GetInstrumentMeta(ctx, instID)
-	if err != nil {
-		r.n.SendF(ctx, r.cfg.UserID,
-			"❗️ [%s] Ошибка получения параметров инструмента: %v",
-			instID, err,
-		)
-		r.setPending(instID, false)
-		return 0, fmt.Errorf("get instrument meta: %w", err)
+	if entryPrice <= 0 || slPrice <= 0 {
+		return 0, fmt.Errorf("entry/sl <= 0")
 	}
 
-	// Если явно не передали entry, берём рыночную цену
-	if entryPrice <= 0 {
-		entryPrice = price
-	}
-
-	if entryPrice <= 0 {
-		return 0, fmt.Errorf("entryPrice <= 0")
-	}
-	if slPrice <= 0 {
-		return 0, fmt.Errorf("slPrice <= 0")
-	}
-
-	// 2. Дистанция до стопа (в абсолюте и в процентах)
+	// дистанция до стопа
 	stopDist := math.Abs(entryPrice - slPrice)
 	if stopDist <= 0 {
-		return 0, fmt.Errorf("нулевая дистанция до стопа")
+		return 0, fmt.Errorf("нулевой стоп")
 	}
-	stopDistPct := stopDist / entryPrice // например 0.005 = 0.5%
+	stopPct := stopDist / entryPrice
 
-	// 3. Берём equity
+	// equity
 	equity, err := r.mx.USDTBalance(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("get equity: %w", err)
@@ -394,20 +461,16 @@ func (r *Runner) calcSizeByRisk(
 		return 0, fmt.Errorf("equity <= 0")
 	}
 
-	// 4. Риск на сделку (в USDT)
-	riskPercent := r.cfg.TradingSettings.RiskPct // например 1.0 => 1%
-	riskFraction := riskPercent / 100.0
+	riskFraction := r.cfg.TradingSettings.RiskPct / 100.0
 	if riskFraction <= 0 {
 		return 0, fmt.Errorf("riskFraction <= 0")
 	}
-	riskUSDT := equity * riskFraction // напр. 400 * 0.01 = 4 USDT
+	riskUSDT := equity * riskFraction
 
-	// 5. Стоимость позиции так, чтобы при движении до SL
-	//    потерять ровно riskUSDT:
-	//    positionValue * stopDistPct ≈ riskUSDT
-	positionValue := riskUSDT / stopDistPct
+	// сколько должна стоить позиция
+	positionValue := riskUSDT / stopPct
 
-	// 6. Ограничиваем размер позы плечом (макс notional)
+	// ограничение плечом
 	lev := float64(r.cfg.TradingSettings.Leverage)
 	if lev > 0 {
 		maxPositionValue := equity * lev
@@ -416,25 +479,18 @@ func (r *Runner) calcSizeByRisk(
 		}
 	}
 
-	// 7. Сырой размер (в контрактах/монетах)
 	rawSz := positionValue / entryPrice
 
-	// 8. Приводим к minSz и stepSize
+	// приводим к minSz
 	if rawSz < minSz {
 		rawSz = minSz
 	}
+
 	steps := math.Floor(rawSz/stepSize + 1e-9)
 	sz := steps * stepSize
 	if sz <= 0 {
-		return 0, fmt.Errorf("после округления размер позиции <= 0")
+		return 0, fmt.Errorf("ноль после округления")
 	}
 
 	return sz, nil
-}
-
-// Stop — мягко гасит раннер.
-func (r *Runner) Stop() {
-	if r.cancel != nil {
-		r.cancel()
-	}
 }
