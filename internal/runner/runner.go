@@ -345,7 +345,7 @@ func (r *Runner) calcTradeParams(
 	lev := r.cfg.TradingSettings.Leverage
 
 	// 2. Забираем мету инструмента (включая tickSize)
-	price, stepSize, minSz, tickSize, err := r.mx.GetInstrumentMeta(ctx, symbol)
+	price, stepSize, minSz, tickSize, maxMktSz, err := r.mx.GetInstrumentMeta(ctx, symbol)
 	if err != nil {
 		return nil, fmt.Errorf("GetInstrumentMeta: %w", err)
 	}
@@ -380,7 +380,7 @@ func (r *Runner) calcTradeParams(
 	tp = roundToTick(tp, tickSize)
 
 	// 6. Считаем размер позиции с учётом того SL, который реально уйдёт на биржу
-	size, err := r.calcSizeByRiskWithMeta(ctx, symbol, entry, sl, stepSize, minSz, tickSize)
+	size, err := r.calcSizeByRiskWithMeta(ctx, symbol, entry, sl, stepSize, minSz, tickSize, maxMktSz)
 	if err != nil {
 		return nil, fmt.Errorf("calcSizeByRisk: %w", err)
 	}
@@ -417,6 +417,7 @@ func (r *Runner) calcSizeByRiskWithMeta(
 	stepSize float64,
 	minSz float64,
 	tickSize float64,
+	maxMktSz float64, // 👈 новый параметр
 ) (float64, error) {
 
 	if entryPrice <= 0 || slPrice <= 0 {
@@ -429,7 +430,6 @@ func (r *Runner) calcSizeByRiskWithMeta(
 	}
 	stopPct := stopDist / entryPrice
 
-	// equity
 	equity, err := r.mx.USDTBalance(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("get equity: %w", err)
@@ -438,17 +438,15 @@ func (r *Runner) calcSizeByRiskWithMeta(
 		return 0, fmt.Errorf("equity <= 0")
 	}
 
-	// риск в доле и деньгах
 	riskFraction := r.cfg.TradingSettings.RiskPct / 100.0
 	if riskFraction <= 0 {
 		return 0, fmt.Errorf("riskFraction <= 0")
 	}
 	riskUSDT := equity * riskFraction
 
-	// базовое значение позиции из риска
 	positionValue := riskUSDT / stopPct
 
-	// 🔒 верхний лимит по размеру позиции от баланса (PositionPct)
+	// 🔒 кап по PositionPct * equity * leverage
 	if pp := r.cfg.TradingSettings.PositionPct; pp > 0 {
 		maxFrac := pp / 100.0
 		maxByPositionPct := equity * maxFrac * float64(r.cfg.TradingSettings.Leverage)
@@ -457,17 +455,16 @@ func (r *Runner) calcSizeByRiskWithMeta(
 		}
 	}
 
-	// 🔒 (опционально) жёсткий лимит, чтобы точно не упираться в 51202
-	const hardMaxNotional = 500.0 // USDT, настроить под себя / вынести в конфиг
-	if positionValue > hardMaxNotional {
-		positionValue = hardMaxNotional
-	}
-
-	// считаем size в контрактных единицах
 	rawSz := positionValue / entryPrice
 
+	// минимум
 	if rawSz < minSz {
 		rawSz = minSz
+	}
+
+	// 🔒 КАП ПО МАКСИМАЛЬНОМУ РАЗМЕРУ РЫНОЧНОГО ОРДЕРА ДЛЯ ЭТОГО ИНСТРУМЕНТА
+	if maxMktSz > 0 && rawSz > maxMktSz {
+		rawSz = maxMktSz
 	}
 
 	steps := math.Floor(rawSz/stepSize + 1e-9)

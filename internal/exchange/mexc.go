@@ -519,6 +519,9 @@ func (c *Client) PlaceTpsl(
 	payload, _ := json.Marshal([]map[string]string{body})
 
 	req := c.generateRequest(ctx, http.MethodPost, "/api/v5/trade/order-algo", string(payload))
+
+	req.Header.Set("Content-Type", "application/json")
+
 	resp, err := c.http.Do(req)
 	if err != nil {
 		return err
@@ -563,13 +566,14 @@ func (c *Client) sign(ts, method, requestPath, body string) string {
 }
 
 type Instrument struct {
-	InstID string `json:"instId"`
-	TickSz string `json:"tickSz"`
-	LotSz  string `json:"lotSz"`
-	MinSz  string `json:"minSz"`
-	CtVal  string `json:"ctVal"`
-	CtMult string `json:"ctMult"`
-	State  string `json:"state"`
+	InstID   string `json:"instId"`
+	TickSz   string `json:"tickSz"`
+	LotSz    string `json:"lotSz"`
+	MinSz    string `json:"minSz"`
+	CtVal    string `json:"ctVal"`
+	CtMult   string `json:"ctMult"`
+	State    string `json:"state"`
+	MaxMktSz string `json:"maxMktSz"`
 }
 
 func (c *Client) GetInstrumentMeta(ctx context.Context, instID string) (
@@ -577,6 +581,7 @@ func (c *Client) GetInstrumentMeta(ctx context.Context, instID string) (
 	stepSize float64,
 	minSz float64,
 	tickSize float64,
+	maxMktSz float64,
 	err error,
 ) {
 	// 1. Получаем инструменты
@@ -584,12 +589,12 @@ func (c *Client) GetInstrumentMeta(ctx context.Context, instID string) (
 		"https://www.okx.com/api/v5/public/instruments?instType=SWAP",
 		nil)
 	if err != nil {
-		return 0, 0, 0, 0, fmt.Errorf("build request: %w", err)
+		return 0, 0, 0, 0, 0, fmt.Errorf("build request: %w", err)
 	}
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return 0, 0, 0, 0, fmt.Errorf("do request: %w", err)
+		return 0, 0, 0, 0, 0, fmt.Errorf("do request: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -600,11 +605,11 @@ func (c *Client) GetInstrumentMeta(ctx context.Context, instID string) (
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
-		return 0, 0, 0, 0, fmt.Errorf("decode: %w", err)
+		return 0, 0, 0, 0, 0, fmt.Errorf("decode: %w", err)
 	}
 
 	if data.Code != "0" {
-		return 0, 0, 0, 0, fmt.Errorf("okx error %s: %s", data.Code, data.Msg)
+		return 0, 0, 0, 0, 0, fmt.Errorf("okx error %s: %s", data.Code, data.Msg)
 	}
 
 	// 2. Находим нужный инструмент
@@ -617,24 +622,24 @@ func (c *Client) GetInstrumentMeta(ctx context.Context, instID string) (
 	}
 
 	if inst == nil {
-		return 0, 0, 0, 0, fmt.Errorf("instrument %s not found", instID)
+		return 0, 0, 0, 0, 0, fmt.Errorf("instrument %s not found", instID)
 	}
 
 	// 3. Парсим шаги и лимиты
 	stepSize, err = strconv.ParseFloat(inst.LotSz, 64)
 	if err != nil {
-		return 0, 0, 0, 0, fmt.Errorf("parse lotSz: %w", err)
+		return 0, 0, 0, 0, 0, fmt.Errorf("parse lotSz: %w", err)
 	}
 
 	minSz, err = strconv.ParseFloat(inst.MinSz, 64)
 	if err != nil {
-		return 0, 0, 0, 0, fmt.Errorf("parse minSz: %w", err)
+		return 0, 0, 0, 0, 0, fmt.Errorf("parse minSz: %w", err)
 	}
 
 	// 4. Берём цену инструмента из tickers
 	tkPrice, err := c.getLastPrice(ctx, instID)
 	if err != nil {
-		return 0, 0, 0, 0, fmt.Errorf("ticker: %w", err)
+		return 0, 0, 0, 0, 0, fmt.Errorf("ticker: %w", err)
 	}
 	// 4. Парсим шаг цены (tickSz)
 	if inst.TickSz != "" {
@@ -647,8 +652,9 @@ func (c *Client) GetInstrumentMeta(ctx context.Context, instID string) (
 		// на всякий случай — если tickSz по какой-то причине пустой
 		tickSize = 0
 	}
+	maxMktSz, _ = strconv.ParseFloat(inst.MaxMktSz, 64)
 
-	return tkPrice, stepSize, minSz, tickSize, nil
+	return tkPrice, stepSize, minSz, tickSize, maxMktSz, nil
 }
 
 func (c *Client) getLastPrice(ctx context.Context, instID string) (float64, error) {
