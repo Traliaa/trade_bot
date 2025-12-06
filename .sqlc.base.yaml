@@ -1,0 +1,23 @@
+version: "2"
+sql:
+  - engine: "postgresql"
+    queries: .
+    schema: migrations
+    source:
+      - "internal/modules/telegram_bot/service/pg/user_settings/sql/query.sql"
+    gen:
+      go:
+        output_files_suffix: "_sqlc"
+        output_db_file_name: "db_sqlc.go"
+        emit_pointers_for_null_types: true
+        emit_result_struct_pointers: true
+        emit_params_struct_pointers: true
+        omit_unused_structs: true
+        emit_methods_with_db_argument: true
+        emit_db_tags: true
+        sql_package: pgx/v5
+        overrides:
+          - db_type: "jsonb"
+            go_type: "string"
+          - db_type: "json"
+            go_type: "string"

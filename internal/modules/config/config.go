@@ -97,15 +97,15 @@ func NewConfig() (*Config, error) {
 		log.Fatalf("Failed to decode config file: %v", err)
 	}
 
-	//token := os.Getenv(tokenTelegramENV)
-	//if token != "" {
-	//	config.Telegram.Token = token
-	//}
-	//
-	//dsn := os.Getenv(databaseDSN)
-	//if dsn != "" {
-	//	config.DB = dsn
-	//}
+	token := os.Getenv(tokenTelegramENV)
+	if token != "" {
+		config.Telegram.Token = token
+	}
+
+	dsn := os.Getenv(databaseDSN)
+	if dsn != "" {
+		config.DB = dsn
+	}
 
 	return &config, nil
 }

@@ -1,72 +1,108 @@
 package user_settings
 
-//import (
-//	"context"
-//	"fmt"
-//
-//	"github.com/Traliaa/KineticVPN-Bot/internal/dto"
-//	"github.com/Traliaa/KineticVPN-Bot/internal/pg/user_settings/sql"
-//	"github.com/pkg/errors"
-//)
-//
-//// UserSettings implement db store
-//type UserSettings struct {
-//	sql *sql.Queries
-//}
-//
-//// New instance
-//func New() *UserSettings {
-//	return &UserSettings{
-//		sql: sql.New(),
-//	}
-//}
-//
-//func (u *UserSettings) Insert(ctx context.Context, tx pgx.Tx, user *dto.UserSettings) (out *dto.UserSettings, err error) {
-//	defer func() {
-//		if err != nil {
-//			err = fmt.Errorf("UserSettings.Insert: %w", err)
-//		}
-//	}()
-//	resp, err := u.sql.Insert(ctx, tx, &sql.InsertParams{
-//		Chatid:   user.ChatID,
-//		Name:     user.Name,
-//		AuthCode: user.AuthCode,
-//		Step:     user.Step,
-//	})
-//	if err != nil {
-//		return user, err
-//	}
-//	out = user
-//	out.ID = resp
-//	return
-//}
-//
-//func (u *UserSettings) Update(ctx context.Context, tx pgx.Tx, user *dto.UserSettings) (err error) {
-//	defer func() {
-//		if err != nil {
-//			err = fmt.Errorf("UserSettings.Update: %w", err)
-//		}
-//	}()
-//	return u.sql.Update(ctx, tx, &sql.UpdateParams{
-//		Chatid:   user.ChatID,
-//		Name:     user.Name,
-//		AuthCode: user.AuthCode,
-//		Step:     user.Step,
-//	})
-//}
-//
-//func (u *UserSettings) Delete(ctx context.Context, tx pgx.Tx, user *dto.UserSettings) (err error) {
-//	defer func() {
-//		if err != nil {
-//			err = fmt.Errorf("UserSettings.Delete: %w", err)
-//		}
-//	}()
-//	return u.sql.Delete(ctx, tx, &sql.DeleteParams{
-//		Chatid: user.ChatID,
-//		ID:     user.ID,
-//	})
-//}
-//func (u *UserSettings) GetAll(ctx context.Context, tx pgx.Tx) (users []*dto.UserSettings, err error) {
+import (
+	"context"
+	"fmt"
+	"trade_bot/internal/models"
+	"trade_bot/internal/modules/telegram_bot/service/pg/user_settings/sql"
+
+	"github.com/bytedance/sonic"
+	"github.com/jackc/pgx/v5"
+)
+
+// UserSettings implement db store
+type UserSettings struct {
+	sql *sql.Queries
+}
+
+// New instance
+func New() *UserSettings {
+	return &UserSettings{
+		sql: sql.New(),
+	}
+}
+
+func (u *UserSettings) Insert(ctx context.Context, tx pgx.Tx, user *models.UserSettings) (err error) {
+	defer func() {
+		if err != nil {
+			err = fmt.Errorf("UserSettings.Insert: %w", err)
+		}
+	}()
+
+	var data []byte
+	data, err = sonic.Marshal(user.TradingSettings)
+	if err != nil {
+		return err
+	}
+	_, err = u.sql.Insert(ctx, tx, &sql.InsertParams{
+		Chatid:   user.UserID,
+		Name:     user.Name,
+		Settings: data,
+		Step:     user.Step,
+	})
+	if err != nil {
+		return err
+	}
+	return
+}
+
+func (u *UserSettings) Update(ctx context.Context, tx pgx.Tx, user *models.UserSettings) (err error) {
+	defer func() {
+		if err != nil {
+			err = fmt.Errorf("UserSettings.Update: %w", err)
+		}
+	}()
+	var data []byte
+	data, err = sonic.Marshal(user.TradingSettings)
+	if err != nil {
+		return err
+	}
+	return u.sql.Update(ctx, tx, &sql.UpdateParams{
+		Chatid:   user.UserID,
+		Name:     user.Name,
+		Settings: data,
+		Step:     user.Step,
+	})
+}
+
+func (u *UserSettings) Delete(ctx context.Context, tx pgx.Tx, user *models.UserSettings) (err error) {
+	defer func() {
+		if err != nil {
+			err = fmt.Errorf("UserSettings.Delete: %w", err)
+		}
+	}()
+	return u.sql.Delete(ctx, tx, &sql.DeleteParams{
+		Chatid: user.UserID,
+		ID:     user.ID,
+	})
+}
+
+func (u *UserSettings) GetById(ctx context.Context, tx pgx.Tx, chatID int64) (user *models.UserSettings, err error) {
+	defer func() {
+		if err != nil {
+			err = fmt.Errorf("UserSettings.GetById: %w", err)
+		}
+	}()
+	resp, err := u.sql.GetById(ctx, tx, chatID)
+	if err != nil {
+		return nil, err
+	}
+
+	var t models.TradingSettings
+	err = sonic.Unmarshal(resp.Settings, &t)
+	if err != nil {
+		return nil, err
+	}
+	return &models.UserSettings{
+		ID:              resp.ID,
+		UserID:          chatID,
+		Name:            resp.Name,
+		TradingSettings: t,
+		Step:            resp.Step,
+	}, nil
+}
+
+//func (u *UserSettings) GetAll(ctx context.Context, tx pgx.Tx) (users []*models.UserSettings, err error) {
 //	defer func() {
 //		if err != nil {
 //			err = fmt.Errorf("UserSettings.GetAll: %w", err)
@@ -88,27 +124,4 @@ package user_settings
 //		})
 //	}
 //	return users, nil
-//}
-//func (u *UserSettings) GetById(ctx context.Context, tx pgx.Tx, chatID int64) (user *dto.UserSettings, err error) {
-//	defer func() {
-//		if err != nil {
-//			err = fmt.Errorf("UserSettings.GetById: %w", err)
-//		}
-//	}()
-//	resp, err := u.sql.GetById(ctx, tx, chatID)
-//	if err != nil {
-//		if errors.Is(err, pgx.ErrNoRows) {
-//			err = nil
-//			return
-//		}
-//		return nil, err
-//	}
-//
-//	return &dto.UserSettings{
-//		ID:       resp.ID,
-//		ChatID:   chatID,
-//		Name:     resp.Name,
-//		AuthCode: resp.AuthCode,
-//		Step:     resp.Step,
-//	}, nil
 //}

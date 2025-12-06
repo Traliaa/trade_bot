@@ -2,26 +2,24 @@ package pg
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
-	"sync"
 	"trade_bot/internal/models"
+	"trade_bot/internal/modules/telegram_bot/service/pg/user_settings"
 	"trade_bot/pkg/db"
+
+	"github.com/jackc/pgx/v5"
 )
 
 type User struct {
-	db *db.PgTxManager
-
-	mu   sync.RWMutex
-	data map[int64]*models.UserSettings
+	db   *db.PgTxManager
+	user *user_settings.UserSettings
 }
 
 // NewUser instance
-func NewUser() *User {
+func NewUser(db *db.PgTxManager) *User {
 	return &User{
-		//db:   db,
-		//user: user_settings.New(),
-		data: make(map[int64]*models.UserSettings),
+		db:   db,
+		user: user_settings.New(),
 	}
 }
 
@@ -35,17 +33,14 @@ func (u *User) Create(
 			err = fmt.Errorf("pg.CreateEvent: %w", err)
 		}
 	}()
-	//err = u.db.RunMaster(ctx,
-	//	func(ctxTx context.Context, tx pgx.Tx) error {
-	//		out, err = u.user.Insert(ctx, tx, user)
-	//		if err != nil {
-	//			return err
-	//		}
-	//		return nil
-	//	})
-	u.mu.Lock()
-	defer u.mu.Unlock()
-	u.data[user.UserID] = user
+	err = u.db.RunMaster(ctx,
+		func(ctxTx context.Context, tx pgx.Tx) error {
+			err = u.user.Insert(ctx, tx, user)
+			if err != nil {
+				return err
+			}
+			return nil
+		})
 	return nil
 
 }
@@ -60,15 +55,11 @@ func (u *User) Update(
 			err = fmt.Errorf("pg.CreateEvent: %w", err)
 		}
 	}()
-	//err = u.db.RunMaster(ctx,
-	//	func(ctxTx context.Context, tx pgx.Tx) error {
-	//		return u.user.Update(ctx, tx, user)
-	//	})
-
-	u.mu.Lock()
-	defer u.mu.Unlock()
-	u.data[user.UserID] = user
-	return nil
+	err = u.db.RunMaster(ctx,
+		func(ctxTx context.Context, tx pgx.Tx) error {
+			return u.user.Update(ctx, tx, user)
+		})
+	return err
 }
 
 // Get in db
@@ -82,23 +73,16 @@ func (u *User) Get(
 		}
 	}()
 
-	u.mu.RLock()
-	defer u.mu.RUnlock()
-	user, ok := u.data[userID]
-	if !ok {
-		return nil, sql.ErrNoRows
-	}
+	err = u.db.RunMaster(ctx,
+		func(ctxTx context.Context, tx pgx.Tx) error {
+			user, err = u.user.GetById(ctx, tx, userID)
+			if err != nil {
+				return err
+			}
+			return nil
+		})
 
-	//err = u.db.RunMaster(ctx,
-	//	func(ctxTx context.Context, tx pgx.Tx) error {
-	//		user, err = u.user.GetById(ctx, tx, ChatID)
-	//		if err != nil {
-	//			return err
-	//		}
-	//		return nil
-	//	})
-
-	return user, nil
+	return user, err
 }
 
 // Delete in db
@@ -111,14 +95,9 @@ func (u *User) Delete(
 			err = fmt.Errorf("pg.CreateEvent: %w", err)
 		}
 	}()
-	//err = u.db.RunMaster(ctx,
-	//	func(ctxTx context.Context, tx pgx.Tx) error {
-	//		return u.user.Delete(ctx, tx, user)
-	//	})
-
-	u.mu.Lock()
-	defer u.mu.Unlock()
-	delete(u.data, user.UserID)
-
-	return nil
+	err = u.db.RunMaster(ctx,
+		func(ctxTx context.Context, tx pgx.Tx) error {
+			return u.user.Delete(ctx, tx, user)
+		})
+	return err
 }
