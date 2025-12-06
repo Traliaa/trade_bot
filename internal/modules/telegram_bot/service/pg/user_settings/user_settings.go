@@ -1,0 +1,114 @@
+package user_settings
+
+//import (
+//	"context"
+//	"fmt"
+//
+//	"github.com/Traliaa/KineticVPN-Bot/internal/dto"
+//	"github.com/Traliaa/KineticVPN-Bot/internal/pg/user_settings/sql"
+//	"github.com/pkg/errors"
+//)
+//
+//// UserSettings implement db store
+//type UserSettings struct {
+//	sql *sql.Queries
+//}
+//
+//// New instance
+//func New() *UserSettings {
+//	return &UserSettings{
+//		sql: sql.New(),
+//	}
+//}
+//
+//func (u *UserSettings) Insert(ctx context.Context, tx pgx.Tx, user *dto.UserSettings) (out *dto.UserSettings, err error) {
+//	defer func() {
+//		if err != nil {
+//			err = fmt.Errorf("UserSettings.Insert: %w", err)
+//		}
+//	}()
+//	resp, err := u.sql.Insert(ctx, tx, &sql.InsertParams{
+//		Chatid:   user.ChatID,
+//		Name:     user.Name,
+//		AuthCode: user.AuthCode,
+//		Step:     user.Step,
+//	})
+//	if err != nil {
+//		return user, err
+//	}
+//	out = user
+//	out.ID = resp
+//	return
+//}
+//
+//func (u *UserSettings) Update(ctx context.Context, tx pgx.Tx, user *dto.UserSettings) (err error) {
+//	defer func() {
+//		if err != nil {
+//			err = fmt.Errorf("UserSettings.Update: %w", err)
+//		}
+//	}()
+//	return u.sql.Update(ctx, tx, &sql.UpdateParams{
+//		Chatid:   user.ChatID,
+//		Name:     user.Name,
+//		AuthCode: user.AuthCode,
+//		Step:     user.Step,
+//	})
+//}
+//
+//func (u *UserSettings) Delete(ctx context.Context, tx pgx.Tx, user *dto.UserSettings) (err error) {
+//	defer func() {
+//		if err != nil {
+//			err = fmt.Errorf("UserSettings.Delete: %w", err)
+//		}
+//	}()
+//	return u.sql.Delete(ctx, tx, &sql.DeleteParams{
+//		Chatid: user.ChatID,
+//		ID:     user.ID,
+//	})
+//}
+//func (u *UserSettings) GetAll(ctx context.Context, tx pgx.Tx) (users []*dto.UserSettings, err error) {
+//	defer func() {
+//		if err != nil {
+//			err = fmt.Errorf("UserSettings.GetAll: %w", err)
+//		}
+//	}()
+//	resp, err := u.sql.GetAll(ctx, tx)
+//	if err != nil {
+//		return nil, err
+//	}
+//	users = make([]*dto.UserSettings, len(resp))
+//
+//	for i := range resp {
+//		users = append(users, &dto.UserSettings{
+//			ID:       resp[i].ID,
+//			ChatID:   resp[i].Chatid,
+//			Name:     resp[i].Name,
+//			AuthCode: resp[i].AuthCode,
+//			Step:     resp[i].Step,
+//		})
+//	}
+//	return users, nil
+//}
+//func (u *UserSettings) GetById(ctx context.Context, tx pgx.Tx, chatID int64) (user *dto.UserSettings, err error) {
+//	defer func() {
+//		if err != nil {
+//			err = fmt.Errorf("UserSettings.GetById: %w", err)
+//		}
+//	}()
+//	resp, err := u.sql.GetById(ctx, tx, chatID)
+//	if err != nil {
+//		if errors.Is(err, pgx.ErrNoRows) {
+//			err = nil
+//			return
+//		}
+//		return nil, err
+//	}
+//
+//	return &dto.UserSettings{
+//		ID:       resp.ID,
+//		ChatID:   chatID,
+//		Name:     resp.Name,
+//		AuthCode: resp.AuthCode,
+//		Step:     resp.Step,
+//	}, nil
+//}

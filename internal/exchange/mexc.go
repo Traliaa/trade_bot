@@ -1,16 +1,18 @@
 package exchange
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
-	"encoding/hex"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -18,43 +20,47 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-type MexcClient struct {
+type Client struct {
 	mu        sync.RWMutex
 	prices    map[string]float64
 	http      *http.Client
 	wsDialer  *websocket.Dialer
 	apiKey    string
 	apiSecret string
+	passph    string
 }
 
-func NewMexcClient() *MexcClient {
-	return &MexcClient{
+func NewClient() *Client {
+	return &Client{
 		prices:   make(map[string]float64),
 		http:     &http.Client{Timeout: 10 * time.Second},
 		wsDialer: &websocket.Dialer{},
 	}
 }
 
-func (m *MexcClient) SetCreds(key, secret string) { m.apiKey, m.apiSecret = key, secret }
-func (m *MexcClient) SetPrice(symbol string, price float64) {
+// SetCreds — сюда теперь кладём ключи OKX (пока с старыми env-именами MEXC_*)
+func (m *Client) SetCreds(key, secret, passphrase string) {
+	m.apiKey = key
+	m.apiSecret = secret
+	m.passph = passphrase
+}
+
+func (m *Client) SetPrice(symbol string, price float64) {
 	m.mu.Lock()
 	m.prices[symbol] = price
 	m.mu.Unlock()
 }
-func (m *MexcClient) GetPrice(symbol string) float64 {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.prices[symbol]
-}
 
-// ===== WS: last price per symbol =====
+// ===== WebSocket: last price per instrument (OKX public tickers) =====
 
-func (m *MexcClient) StreamPrices(ctx context.Context, symbol string) <-chan float64 {
+func (m *Client) StreamPrices(ctx context.Context, instID string) <-chan float64 {
 	ch := make(chan float64)
 	go func() {
 		defer close(ch)
-		url := "wss://contract.mexc.com/edge"
+
+		url := "wss://ws.okx.com:8443/ws/v5/public"
 		retry := 0
+
 		for {
 			conn, _, err := m.wsDialer.Dial(url, nil)
 			if err != nil {
@@ -66,11 +72,20 @@ func (m *MexcClient) StreamPrices(ctx context.Context, symbol string) <-chan flo
 				continue
 			}
 			retry = 0
-			_ = conn.WriteJSON(map[string]any{"method": "sub.ticker", "param": map[string]string{"symbol": symbol}})
 
+			sub := map[string]any{
+				"op": "subscribe",
+				"args": []map[string]string{{
+					"channel": "tickers",
+					"instId":  instID,
+				}},
+			}
+			_ = conn.WriteJSON(sub)
+
+			// пингуем, чтобы соединение жило
 			stopPing := make(chan struct{})
 			go func() {
-				t := time.NewTicker(15 * time.Second)
+				t := time.NewTicker(20 * time.Second)
 				defer t.Stop()
 				for {
 					select {
@@ -79,7 +94,7 @@ func (m *MexcClient) StreamPrices(ctx context.Context, symbol string) <-chan flo
 					case <-ctx.Done():
 						return
 					case <-t.C:
-						_ = conn.WriteJSON(map[string]string{"method": "ping"})
+						_ = conn.WriteJSON(map[string]string{"op": "ping"})
 					}
 				}
 			}()
@@ -91,18 +106,28 @@ func (m *MexcClient) StreamPrices(ctx context.Context, symbol string) <-chan flo
 					_ = conn.Close()
 					break
 				}
+
 				var frame struct {
-					Channel string `json:"channel"`
-					Data    struct {
-						Last float64 `json:"lastPrice"`
+					Arg struct {
+						Channel string `json:"channel"`
+						InstID  string `json:"instId"`
+					} `json:"arg"`
+					Data []struct {
+						Last string `json:"last"`
 					} `json:"data"`
 				}
-				if err := json.Unmarshal(msg, &frame); err == nil && frame.Channel == "push.ticker" {
-					if frame.Data.Last != 0 {
-						m.SetPrice(symbol, frame.Data.Last)
-						ch <- frame.Data.Last
-					}
+				if err := json.Unmarshal(msg, &frame); err != nil {
+					continue
 				}
+				if frame.Arg.Channel != "tickers" || len(frame.Data) == 0 {
+					continue
+				}
+				p, err := strconv.ParseFloat(frame.Data[0].Last, 64)
+				if err != nil || p == 0 {
+					continue
+				}
+				m.SetPrice(instID, p)
+				ch <- p
 			}
 
 			select {
@@ -116,14 +141,15 @@ func (m *MexcClient) StreamPrices(ctx context.Context, symbol string) <-chan flo
 	return ch
 }
 
-// ===== REST: топ волатильных контрактов =====
+// ===== REST: top volatile SWAP instruments (OKX) =====
 
-func (m *MexcClient) TopVolatile(n int) []string {
+func (m *Client) TopVolatile(n int) []string {
 	if n <= 0 {
 		return nil
 	}
 
-	tickers, err := m.fetchFuturesTickers()
+	// все swap-инструменты
+	tickers, err := m.fetchSwapTickers()
 	if err != nil || len(tickers) == 0 {
 		return nil
 	}
@@ -132,21 +158,28 @@ func (m *MexcClient) TopVolatile(n int) []string {
 		sym   string
 		score float64
 	}
+
 	arr := make([]rec, 0, len(tickers))
 	for _, t := range tickers {
-		if !strings.HasSuffix(t.Symbol, "_USDT") {
+		// берём только USDT-perp SWAP, вида BTC-USDT-SWAP
+		if !strings.HasSuffix(t.InstID, "-USDT-SWAP") {
 			continue
 		}
-		if t.LastPrice <= 0 {
+
+		last, err1 := strconv.ParseFloat(t.Last, 64)
+		high, err2 := strconv.ParseFloat(t.High24h, 64)
+		low, err3 := strconv.ParseFloat(t.Low24h, 64)
+		if err1 != nil || err2 != nil || err3 != nil || last <= 0 {
 			continue
 		}
-		range24 := t.High24 - t.Low24
+		range24 := high - low
 		if range24 <= 0 {
 			continue
 		}
-		score := range24 / t.LastPrice
-		arr = append(arr, rec{sym: t.Symbol, score: score})
+		score := range24 / last
+		arr = append(arr, rec{sym: t.InstID, score: score})
 	}
+
 	if len(arr) == 0 {
 		return nil
 	}
@@ -162,158 +195,681 @@ func (m *MexcClient) TopVolatile(n int) []string {
 	return res
 }
 
-func (m *MexcClient) fetchFuturesTickers() ([]futuresTicker, error) {
-	req, _ := http.NewRequest("GET", "https://contract.mexc.com/api/v1/contract/ticker", nil)
+type okxTicker struct {
+	InstType string `json:"instType"`
+	InstID   string `json:"instId"`
+	Last     string `json:"last"`
+	High24h  string `json:"high24h"`
+	Low24h   string `json:"low24h"`
+}
+
+type okxTickerResp struct {
+	Code string      `json:"code"`
+	Msg  string      `json:"msg"`
+	Data []okxTicker `json:"data"`
+}
+
+func (m *Client) fetchSwapTickers() ([]okxTicker, error) {
+	req, _ := http.NewRequest("GET", "https://www.okx.com/api/v5/market/tickers?instType=SWAP", nil)
 	resp, err := m.http.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
+
 	if resp.StatusCode/100 != 2 {
-		return nil, errors.New("non-2xx status")
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("non-2xx: %d %s", resp.StatusCode, string(body))
 	}
+
 	body, _ := io.ReadAll(resp.Body)
-	var wrap futuresTickerResp
+	var wrap okxTickerResp
 	if err := json.Unmarshal(body, &wrap); err != nil {
 		return nil, err
 	}
-	if !wrap.Success {
-		return nil, errors.New("mexc: success=false")
+	if wrap.Code != "0" {
+		return nil, fmt.Errorf("okx error: code=%s msg=%s", wrap.Code, wrap.Msg)
 	}
-	var arr []futuresTicker
-	if err := json.Unmarshal(wrap.Data, &arr); err == nil && len(arr) > 0 {
-		return arr, nil
-	}
-	var one futuresTicker
-	if err := json.Unmarshal(wrap.Data, &one); err == nil && one.Symbol != "" {
-		return []futuresTicker{one}, nil
-	}
-	return nil, errors.New("unexpected data shape")
+	return wrap.Data, nil
 }
 
-type futuresTicker struct {
-	Symbol     string  `json:"symbol"`
-	LastPrice  float64 `json:"lastPrice"`
-	High24     float64 `json:"high24Price"`
-	Low24      float64 `json:"lower24Price"`
-	ChangeRate float64 `json:"riseFallRate"`
-}
+// ===== Private trading: place market order on OKX =====
 
-type futuresTickerResp struct {
-	Success bool            `json:"success"`
-	Code    int             `json:"code"`
-	Data    json.RawMessage `json:"data"`
-}
+// SetLeverage — выставляет плечо для инструмента на OKX.
+// lever = 3, mgnMode сейчас "cross", posSide "long"/"short" или "" (для обоих).
+func (m *Client) SetLeverage(ctx context.Context, instID string, lever int, posSide string) error {
 
-// ===== Private: открытие ордеров и чтение позиций =====
-
-func (m *MexcClient) sign(accessKey, secret, reqTime, paramString string) string {
-	s := accessKey + reqTime + paramString
-	h := hmac.New(sha256.New, []byte(secret))
-	h.Write([]byte(s))
-	return hex.EncodeToString(h.Sum(nil))
-}
-
-// Market order
-func (m *MexcClient) PlaceMarket(ctx context.Context, symbol string, vol float64, side, leverage, openType int) (string, error) {
-	if m.apiKey == "" || m.apiSecret == "" {
-		return "", errors.New("api creds empty")
+	bodyMap := map[string]any{
+		"instId":  instID,
+		"mgnMode": "cross", // можно потом сделать параметром
+		"lever":   strconv.Itoa(lever),
 	}
-	body := map[string]any{
-		"symbol":   symbol,
-		"price":    0,
-		"vol":      vol,
-		"type":     5,
-		"side":     side,
-		"openType": openType,
-		"leverage": leverage,
+	if posSide != "" {
+		bodyMap["posSide"] = posSide
 	}
-	b, _ := json.Marshal(body)
-	req, _ := http.NewRequestWithContext(ctx, "POST", "https://contract.mexc.com/api/v1/private/order/create", strings.NewReader(string(b)))
+
+	bodyBytes, _ := json.Marshal(bodyMap)
+	bodyStr := string(bodyBytes)
+
+	requestPath := "/api/v5/account/set-leverage"
+	method := "POST"
+	ts := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
+	sign := m.sign(ts, method, requestPath, bodyStr)
+
+	req, _ := http.NewRequestWithContext(ctx, method, "https://www.okx.com"+requestPath, strings.NewReader(bodyStr))
 	req.Header.Set("Content-Type", "application/json")
-	reqTime := time.Now().UTC().UnixMilli()
-	paramStr := string(b)
-	sig := m.sign(m.apiKey, m.apiSecret, fmt.Sprintf("%d", reqTime), paramStr)
-	req.Header.Set("ApiKey", m.apiKey)
-	req.Header.Set("Request-Time", fmt.Sprintf("%d", reqTime))
-	req.Header.Set("Signature", sig)
+	req.Header.Set("OK-ACCESS-KEY", m.apiKey)
+	req.Header.Set("OK-ACCESS-SIGN", sign)
+	req.Header.Set("OK-ACCESS-TIMESTAMP", ts)
+	req.Header.Set("OK-ACCESS-PASSPHRASE", m.passph)
+
+	resp, err := m.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	rb, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode/100 != 2 {
+		return fmt.Errorf("http %d (set-leverage): %s", resp.StatusCode, string(rb))
+	}
+
+	var wrap struct {
+		Code string `json:"code"`
+		Msg  string `json:"msg"`
+		Data []any  `json:"data"`
+	}
+	if err := json.Unmarshal(rb, &wrap); err != nil {
+		return err
+	}
+	if wrap.Code != "0" {
+		return fmt.Errorf("okx set-leverage error: code=%s msg=%s", wrap.Code, wrap.Msg)
+	}
+	return nil
+}
+
+// PlaceMarket — маршаллируем в /api/v5/trade/order
+// side: 1 = открыть long, 3 = открыть short (как было в старой логике)
+// leverage и openType пока не используем, режим маржи фиксируем через tdMode.
+// PlaceMarket — маркет-ордер на OKX с установкой плеча и TP/SL.
+func (m *Client) PlaceMarket(
+	ctx context.Context,
+	instID string,
+	vol float64,
+	side, leverage, openType int,
+) (string, error) {
+	if m.apiKey == "" || m.apiSecret == "" || m.passph == "" {
+		return "", errors.New("okx creds empty (ключ/секрет/пасфраза)")
+	}
+
+	var sideStr, posSide string
+	switch side {
+	case 1:
+		sideStr, posSide = "buy", "long"
+	case 3:
+		sideStr, posSide = "sell", "short"
+	default:
+		return "", fmt.Errorf("unsupported side %d", side)
+	}
+
+	// размер: vol как количество контрактов
+	sz := fmt.Sprintf("%.0f", vol)
+	if vol < 1 {
+		sz = "1"
+	}
+
+	// сначала best-effort выставляем плечо
+	if leverage > 0 {
+		_ = m.SetLeverage(ctx, instID, leverage, posSide)
+	}
+
+	bodyMap := map[string]any{
+		"instId":  instID,
+		"tdMode":  "cross",
+		"side":    sideStr,
+		"posSide": posSide,
+		"ordType": "market",
+		"sz":      sz,
+	}
+
+	// ⚠️ ВАЖНО: здесь НЕТ tp/sl полей, чтобы избежать 54070
+
+	bodyBytes, _ := json.Marshal(bodyMap)
+	bodyStr := string(bodyBytes)
+
+	requestPath := "/api/v5/trade/order"
+	method := "POST"
+	ts := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
+	sign := m.sign(ts, method, requestPath, bodyStr)
+
+	req, _ := http.NewRequestWithContext(
+		ctx,
+		method,
+		"https://www.okx.com"+requestPath,
+		strings.NewReader(bodyStr),
+	)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("OK-ACCESS-KEY", m.apiKey)
+	req.Header.Set("OK-ACCESS-SIGN", sign)
+	req.Header.Set("OK-ACCESS-TIMESTAMP", ts)
+	req.Header.Set("OK-ACCESS-PASSPHRASE", m.passph)
 
 	resp, err := m.http.Do(req)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
+
 	rb, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode/100 != 2 {
 		return "", fmt.Errorf("http %d: %s", resp.StatusCode, string(rb))
 	}
+
 	var wrap struct {
-		Success bool `json:"success"`
-		Code    int  `json:"code"`
-		Data    struct {
-			OrderID string `json:"orderId"`
+		Code string `json:"code"`
+		Msg  string `json:"msg"`
+		Data []struct {
+			OrdID string `json:"ordId"`
+			SCode string `json:"sCode"`
+			SMsg  string `json:"sMsg"`
 		} `json:"data"`
-		Message string `json:"message"`
 	}
 	if err := json.Unmarshal(rb, &wrap); err != nil {
 		return "", err
 	}
-	if !wrap.Success {
-		return "", fmt.Errorf("mexc error: code=%d msg=%s", wrap.Code, wrap.Message)
+
+	if len(wrap.Data) == 0 {
+		return "", fmt.Errorf("okx trade error: code=%s msg=%s (empty data)", wrap.Code, wrap.Msg)
 	}
-	return wrap.Data.OrderID, nil
+	d := wrap.Data[0]
+	if wrap.Code != "0" || d.SCode != "0" {
+		return "", fmt.Errorf(
+			"okx trade error: code=%s msg=%s sCode=%s sMsg=%s",
+			wrap.Code, wrap.Msg, d.SCode, d.SMsg,
+		)
+	}
+	return d.OrdID, nil
 }
 
-// Структура открытой позиции (упрощённо).
+// OpenPosition — приведённый вид позиций под интерфейс бота
+// (значения мапятся из формата OKX /api/v5/account/positions).
 type OpenPosition struct {
-	PositionID   int64   `json:"positionId"`
-	Symbol       string  `json:"symbol"`
-	PositionType int     `json:"positionType"` // 1 long, 2 short
-	OpenType     int     `json:"openType"`     // 1 isolated, 2 cross
-	HoldVol      float64 `json:"holdVol"`
-	HoldAvgPrice float64 `json:"holdAvgPrice"`
-	Leverage     int     `json:"leverage"`
-	MarginRatio  float64 `json:"marginRatio"`
-	Realised     float64 `json:"realised"`
+	Symbol       string  // instId
+	PositionType int     // 1 = long, 2 = short
+	HoldVol      float64 // pos
+	HoldAvgPrice float64 // avgPx
+	Leverage     int     // lever
+	Realised     float64 // пока не заполняем (0)
 }
 
-// GET /api/v1/private/position/open_positions
-func (m *MexcClient) OpenPositions(ctx context.Context) ([]OpenPosition, error) {
-	if m.apiKey == "" || m.apiSecret == "" {
-		return nil, errors.New("api creds empty")
+// OpenPositions вытаскивает открытые позиции с OKX и мапит их в упрощённую структуру
+// для использования в Telegram-нотифайере (команда /positions).
+func (m *Client) OpenPositions(ctx context.Context) ([]OpenPosition, error) {
+	if m.apiKey == "" || m.apiSecret == "" || m.passph == "" {
+		return nil, errors.New("okx creds empty (ключ/секрет/пасфраза)")
 	}
 
-	req, _ := http.NewRequestWithContext(ctx, "https://contract.mexc.com/api/v1/private/position/open_positions", nil)
+	requestPath := "/api/v5/account/positions"
+	method := "GET"
+	bodyStr := ""
+	ts := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
+	sign := m.sign(ts, method, requestPath, bodyStr)
 
-	reqTime := time.Now().UTC().UnixMilli()
-	paramStr := "" // без параметров
-	sig := m.sign(m.apiKey, m.apiSecret, fmt.Sprintf("%d", reqTime), paramStr)
-
-	req.Header.Set("ApiKey", m.apiKey)
-	req.Header.Set("Request-Time", fmt.Sprintf("%d", reqTime))
-	req.Header.Set("Signature", sig)
+	req, _ := http.NewRequestWithContext(ctx, method, "https://www.okx.com"+requestPath, nil)
+	req.Header.Set("OK-ACCESS-KEY", m.apiKey)
+	req.Header.Set("OK-ACCESS-SIGN", sign)
+	req.Header.Set("OK-ACCESS-TIMESTAMP", ts)
+	req.Header.Set("OK-ACCESS-PASSPHRASE", m.passph)
 
 	resp, err := m.http.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
+
 	rb, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode/100 != 2 {
 		return nil, fmt.Errorf("http %d: %s", resp.StatusCode, string(rb))
 	}
 
 	var wrap struct {
-		Success bool           `json:"success"`
-		Code    int            `json:"code"`
-		Data    []OpenPosition `json:"data"`
-		Message string         `json:"message"`
+		Code string `json:"code"`
+		Msg  string `json:"msg"`
+		Data []struct {
+			InstID  string `json:"instId"`
+			PosSide string `json:"posSide"`
+			Pos     string `json:"pos"`
+			AvgPx   string `json:"avgPx"`
+			Lever   string `json:"lever"`
+		} `json:"data"`
 	}
 	if err := json.Unmarshal(rb, &wrap); err != nil {
 		return nil, err
 	}
-	if !wrap.Success {
-		return nil, fmt.Errorf("mexc error: code=%d msg=%s", wrap.Code, wrap.Message)
+	if wrap.Code != "0" {
+		return nil, fmt.Errorf("okx positions error: code=%s msg=%s", wrap.Code, wrap.Msg)
 	}
-	return wrap.Data, nil
+
+	res := make([]OpenPosition, 0, len(wrap.Data))
+	for _, d := range wrap.Data {
+		hv, _ := strconv.ParseFloat(d.Pos, 64)
+		ap, _ := strconv.ParseFloat(d.AvgPx, 64)
+		lev, _ := strconv.Atoi(d.Lever)
+		pt := 1
+		if d.PosSide == "short" {
+			pt = 2
+		}
+		res = append(res, OpenPosition{
+			Symbol:       d.InstID,
+			PositionType: pt,
+			HoldVol:      hv,
+			HoldAvgPrice: ap,
+			Leverage:     lev,
+			Realised:     0,
+		})
+	}
+	return res, nil
+}
+
+func (m *Client) USDTBalance(ctx context.Context) (float64, error) {
+	if m.apiKey == "" || m.apiSecret == "" || m.passph == "" {
+		return 0, errors.New("okx creds empty (ключ/секрет/пасфраза)")
+	}
+
+	requestPath := "/api/v5/account/balance?ccy=USDT"
+	method := "GET"
+	bodyStr := ""
+	ts := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
+	sign := m.sign(ts, method, requestPath, bodyStr)
+
+	req, _ := http.NewRequestWithContext(ctx, method, "https://www.okx.com"+requestPath, nil)
+	req.Header.Set("OK-ACCESS-KEY", m.apiKey)
+	req.Header.Set("OK-ACCESS-SIGN", sign)
+	req.Header.Set("OK-ACCESS-TIMESTAMP", ts)
+	req.Header.Set("OK-ACCESS-PASSPHRASE", m.passph)
+
+	resp, err := m.http.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+
+	rb, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode/100 != 2 {
+		return 0, fmt.Errorf("http %d (balance): %s", resp.StatusCode, string(rb))
+	}
+
+	var wrap struct {
+		Code string `json:"code"`
+		Msg  string `json:"msg"`
+		Data []struct {
+			TotalEq string `json:"totalEq"`
+			Details []struct {
+				Ccy     string `json:"ccy"`
+				Eq      string `json:"eq"`
+				AvailEq string `json:"availEq"`
+			} `json:"details"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rb, &wrap); err != nil {
+		return 0, err
+	}
+	if wrap.Code != "0" || len(wrap.Data) == 0 {
+		return 0, fmt.Errorf("okx balance error: code=%s msg=%s", wrap.Code, wrap.Msg)
+	}
+
+	// сначала пытаемся взять availEq по USDT
+	for _, d := range wrap.Data[0].Details {
+		if d.Ccy != "USDT" {
+			continue
+		}
+		if d.AvailEq != "" {
+			if v, err := strconv.ParseFloat(d.AvailEq, 64); err == nil {
+				return v, nil
+			}
+		}
+		if d.Eq != "" {
+			if v, err := strconv.ParseFloat(d.Eq, 64); err == nil {
+				return v, nil
+			}
+		}
+	}
+
+	// fallback: totalEq
+	if wrap.Data[0].TotalEq != "" {
+		if v, err := strconv.ParseFloat(wrap.Data[0].TotalEq, 64); err == nil {
+			return v, nil
+		}
+	}
+	return 0, errors.New("okx balance: USDT not found")
+}
+
+func formatPx(v float64) string {
+	// под себя: количество знаков после запятой можно взять из метаданных инструмента
+	return strconv.FormatFloat(v, 'f', -1, 64)
+}
+
+// PlaceTpsl ставит TP/SL на позицию через OKX /api/v5/trade/order-algo (ordType=tpsl).
+// instID  — например "BTC-USDT-SWAP"
+// posSide — "long" или "short"
+// sl, tp  — уровни стоп-лосса и тейк-профита по последней цене
+func (c *Client) PlaceTpsl(ctx context.Context, instID, posSide string, sl, tp float64) error {
+	if sl <= 0 && tp <= 0 {
+		return fmt.Errorf("both SL and TP are <= 0")
+	}
+
+	side := "sell" // закрываем long
+	if posSide == "short" {
+		side = "buy" // закрываем short
+	}
+
+	payload := map[string]string{
+		"instId":        instID,
+		"tdMode":        "cross",       // если у тебя isolated – поменяй
+		"ordType":       "conditional", // условный TP/SL
+		"side":          side,
+		"posSide":       posSide, // "long" / "short"
+		"closeFraction": "1",     // Вся позиция
+	}
+
+	// --- TP ---
+	if tp > 0 {
+		payload["tpTriggerPx"] = formatPx(tp)
+		// "-1" = исполнение по рынку при срабатывании
+		payload["tpOrdPx"] = "-1"
+	}
+
+	// --- SL ---
+	if sl > 0 {
+		payload["slTriggerPx"] = formatPx(sl)
+		payload["slOrdPx"] = "-1"
+	}
+
+	body, err := json.Marshal(payload) // ВАЖНО: без [] вокруг!
+	if err != nil {
+		return fmt.Errorf("marshal tpsl: %w", err)
+	}
+
+	requestPath := "/api/v5/trade/order-algo"
+	ts := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
+	sign := c.sign(ts, http.MethodPost, requestPath, string(body))
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		"https://www.okx.com"+requestPath, // если у тебя другая базовая URL, вставь свою
+		bytes.NewReader(body),
+	)
+	if err != nil {
+		return fmt.Errorf("new request: %w", err)
+	}
+	req.Header.Set("OK-ACCESS-KEY", c.apiKey)
+	req.Header.Set("OK-ACCESS-SIGN", sign)
+	req.Header.Set("OK-ACCESS-TIMESTAMP", ts)
+	req.Header.Set("OK-ACCESS-PASSPHRASE", c.passph)
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("do request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var res struct {
+		Code string `json:"code"`
+		Msg  string `json:"msg"`
+		Data any    `json:"data"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&res); err != nil {
+		return fmt.Errorf("decode tpsl response: %w", err)
+	}
+	if res.Code != "0" {
+		return fmt.Errorf("okx error %s: %s", res.Code, res.Msg)
+	}
+	return nil
+
+}
+
+func (m *Client) sign(ts, method, requestPath, body string) string {
+
+	msg := ts + strings.ToUpper(method) + requestPath + body
+	h := hmac.New(sha256.New, []byte(m.apiSecret))
+	h.Write([]byte(msg))
+	return base64.StdEncoding.EncodeToString(h.Sum(nil))
+}
+
+type Instrument struct {
+	InstID string `json:"instId"`
+	TickSz string `json:"tickSz"`
+	LotSz  string `json:"lotSz"`
+	MinSz  string `json:"minSz"`
+	CtVal  string `json:"ctVal"`
+	CtMult string `json:"ctMult"`
+	State  string `json:"state"`
+}
+
+func (c *Client) GetInstrumentMeta(ctx context.Context, instID string) (
+	price float64,
+	stepSize float64,
+	minSz float64,
+	err error,
+) {
+	// 1. Получаем инструменты
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		"https://www.okx.com/api/v5/public/instruments?instType=SWAP",
+		nil)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("build request: %w", err)
+	}
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("do request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var data struct {
+		Code string       `json:"code"`
+		Msg  string       `json:"msg"`
+		Data []Instrument `json:"data"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return 0, 0, 0, fmt.Errorf("decode: %w", err)
+	}
+
+	if data.Code != "0" {
+		return 0, 0, 0, fmt.Errorf("okx error %s: %s", data.Code, data.Msg)
+	}
+
+	// 2. Находим нужный инструмент
+	var inst *Instrument
+	for i := range data.Data {
+		if data.Data[i].InstID == instID {
+			inst = &data.Data[i]
+			break
+		}
+	}
+
+	if inst == nil {
+		return 0, 0, 0, fmt.Errorf("instrument %s not found", instID)
+	}
+
+	// 3. Парсим шаги и лимиты
+	stepSize, err = strconv.ParseFloat(inst.LotSz, 64)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("parse lotSz: %w", err)
+	}
+
+	minSz, err = strconv.ParseFloat(inst.MinSz, 64)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("parse minSz: %w", err)
+	}
+
+	// 4. Берём цену инструмента из tickers
+	tkPrice, err := c.getLastPrice(ctx, instID)
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("ticker: %w", err)
+	}
+
+	return tkPrice, stepSize, minSz, nil
+}
+
+func (c *Client) getLastPrice(ctx context.Context, instID string) (float64, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
+		"https://www.okx.com/api/v5/market/ticker?instId="+instID,
+		nil)
+	if err != nil {
+		return 0, fmt.Errorf("build ticker request: %w", err)
+	}
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return 0, fmt.Errorf("execute ticker request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	var data struct {
+		Code string `json:"code"`
+		Msg  string `json:"msg"`
+		Data []struct {
+			Last string `json:"last"`
+		} `json:"data"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return 0, fmt.Errorf("decode ticker: %w", err)
+	}
+
+	if data.Code != "0" || len(data.Data) == 0 {
+		return 0, fmt.Errorf("ticker error %s: %s", data.Code, data.Msg)
+	}
+
+	price, err := strconv.ParseFloat(data.Data[0].Last, 64)
+	if err != nil {
+		return 0, fmt.Errorf("parse last price: %w", err)
+	}
+
+	return price, nil
+}
+
+//// StreamCandles — поток закрытых свечей OKX по таймфрейму ("1m","5m","15m").
+//// На выход отдаём цену закрытия последней закрытой свечи.
+//func (m *Client) StreamCandles(ctx context.Context, instID, timeframe string) <-chan float64 {
+//	ch := make(chan float64)
+//	go func() {
+//		defer close(ch)
+//
+//		channel := "candle" + timeframe
+//		url := "wss://ws.okx.com:8443/ws/v5/public"
+//
+//		for {
+//			log.Printf("[WS] connect %s %s", channel, instID)
+//			conn, _, err := m.wsDialer.Dial(url, nil)
+//			if err != nil {
+//				log.Printf("[WS] dial error %s %s: %v", channel, instID, err)
+//				time.Sleep(time.Second)
+//				continue
+//			}
+//
+//			sub := map[string]any{
+//				"op": "subscribe",
+//				"args": []map[string]string{{
+//					"channel": channel,
+//					"instId":  instID,
+//				}},
+//			}
+//			if err := conn.WriteJSON(sub); err != nil {
+//				log.Printf("[WS] subscribe error %s %s: %v", channel, instID, err)
+//				_ = conn.Close()
+//				continue
+//			}
+//
+//			// 🔴 вот это новое — ping каждые 20s
+//			stopPing := make(chan struct{})
+//			go func() {
+//				defer close(stopPing)
+//				t := time.NewTicker(20 * time.Second)
+//				defer t.Stop()
+//				for {
+//					select {
+//					case <-ctx.Done():
+//						return
+//					case <-stopPing:
+//						return
+//					case <-t.C:
+//						_ = conn.WriteJSON(map[string]string{"op": "ping"})
+//					}
+//				}
+//			}()
+//
+//			for {
+//				_, msg, err := conn.ReadMessage()
+//				if err != nil {
+//					log.Printf("[WS] read error %s %s: %v", channel, instID, err)
+//					_ = conn.Close()
+//					break
+//				}
+//
+//				var frame struct {
+//					Arg struct {
+//						Channel string `json:"channel"`
+//						InstID  string `json:"instId"`
+//					} `json:"arg"`
+//					Data []struct {
+//						Last string `json:"last"`
+//					} `json:"data"`
+//				}
+//				if err := json.Unmarshal(msg, &frame); err != nil {
+//					continue
+//				}
+//				if frame.Arg.Channel != "tickers" || len(frame.Data) == 0 {
+//					continue
+//				}
+//				p, err := strconv.ParseFloat(frame.Data[0].Last, 64)
+//				if err != nil || p == 0 {
+//					continue
+//				}
+//				m.SetPrice(instID, p)
+//				ch <- p
+//			}
+//
+//			select {
+//			case <-ctx.Done():
+//				return
+//			default:
+//				time.Sleep(time.Second)
+//			}
+//		}
+//	}()
+//	return ch
+//}
+
+// Проверка: доступны ли свечи для инструмента
+func (m *Client) HasCandles(instID, tf string) bool {
+	url := fmt.Sprintf("https://www.okx.com/api/v5/market/candles?instId=%s&bar=%s", instID, tf)
+
+	req, _ := http.NewRequest("GET", url, nil)
+	resp, err := m.http.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode/100 != 2 {
+		return false
+	}
+
+	var wrap struct {
+		Code string     `json:"code"`
+		Msg  string     `json:"msg"`
+		Data [][]string `json:"data"`
+	}
+	b, _ := io.ReadAll(resp.Body)
+	if err := json.Unmarshal(b, &wrap); err != nil {
+		return false
+	}
+
+	if wrap.Code != "0" || len(wrap.Data) == 0 {
+		return false
+	}
+	return true
 }

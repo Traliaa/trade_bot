@@ -10,6 +10,9 @@ type EMARSI struct {
 	emaShort map[string]float64
 	emaLong  map[string]float64
 	rsi      map[string]*rsiState
+
+	samples  map[string]int    // сколько тиков/свечей обработано
+	lastSide map[string]string // последний сгенерённый сигнал BUY/SELL
 }
 
 type rsiState struct {
@@ -20,57 +23,89 @@ type rsiState struct {
 }
 
 func NewEMARSI() *EMARSI {
-	return &EMARSI{emaShort: map[string]float64{}, emaLong: map[string]float64{}, rsi: map[string]*rsiState{}}
+	return &EMARSI{
+		emaShort: map[string]float64{},
+		emaLong:  map[string]float64{},
+		rsi:      map[string]*rsiState{},
+		samples:  map[string]int{},
+		lastSide: map[string]string{},
+	}
 }
 
-func (s *EMARSI) Update(symbol string, price float64, emaShortN, emaLongN, rsiN int, ob, os float64) (string, bool) {
+func (s *EMARSI) Update(symbol string, price float64,
+	emaShortN, emaLongN, rsiN int, ob, os float64) (string, bool) {
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	// EMA
 	kShort := 2.0 / float64(emaShortN+1)
 	kLong := 2.0 / float64(emaLongN+1)
 	s.emaShort[symbol] = s.emaShort[symbol] + kShort*(price-s.emaShort[symbol])
 	s.emaLong[symbol] = s.emaLong[symbol] + kLong*(price-s.emaLong[symbol])
 
-	r := s.rsi[symbol]
-	if r == nil {
-		r = &rsiState{}
-		s.rsi[symbol] = r
+	// RSI
+	st := s.rsi[symbol]
+	if st == nil {
+		st = &rsiState{}
+		s.rsi[symbol] = st
 	}
-	if !r.initialized {
-		r.prev = price
-		r.initialized = true
+	if !st.initialized {
+		st.prev = price
+		st.initialized = true
 		return "", false
 	}
-	change := price - r.prev
-	gain := 0.0
-	loss := 0.0
+
+	change := price - st.prev
+	gain, loss := 0.0, 0.0
 	if change > 0 {
 		gain = change
 	} else {
 		loss = -change
 	}
+
 	alpha := 1.0 / float64(rsiN)
-	if r.avgGain == 0 && r.avgLoss == 0 {
-		r.avgGain, r.avgLoss = gain, loss
+	if st.avgGain == 0 && st.avgLoss == 0 {
+		st.avgGain, st.avgLoss = gain, loss
 	} else {
-		r.avgGain = (1-alpha)*r.avgGain + alpha*gain
-		r.avgLoss = (1-alpha)*r.avgLoss + alpha*loss
+		st.avgGain = (1-alpha)*st.avgGain + alpha*gain
+		st.avgLoss = (1-alpha)*st.avgLoss + alpha*loss
 	}
-	r.prev = price
+	st.prev = price
+
 	rs := 0.0
-	if r.avgLoss != 0 {
-		rs = r.avgGain / r.avgLoss
+	if st.avgLoss != 0 {
+		rs = st.avgGain / st.avgLoss
 	}
 	rsi := 100 - (100 / (1 + rs))
 
+	// прогрев: ждём достаточно точек
+	s.samples[symbol]++
+	warmup := emaLongN
+	if rsiN+1 > warmup {
+		warmup = rsiN + 1
+	}
+	if s.samples[symbol] < warmup {
+		return "", false
+	}
+
+	// «идеальный» сигнал по текущему состоянию
+	side := ""
 	if s.emaShort[symbol] > s.emaLong[symbol] && rsi < os {
-		return "BUY", true
+		side = "BUY"
+	} else if s.emaShort[symbol] < s.emaLong[symbol] && rsi > ob {
+		side = "SELL"
 	}
-	if s.emaShort[symbol] < s.emaLong[symbol] && rsi > ob {
-		return "SELL", true
+	if side == "" {
+		return "", false
 	}
-	return "", false
+
+	// один сигнал на смену стороны
+	if side == s.lastSide[symbol] {
+		return "", false
+	}
+	s.lastSide[symbol] = side
+	return side, true
 }
 
 func (s *EMARSI) Dump(symbol string) string {
