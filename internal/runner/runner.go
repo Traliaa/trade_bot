@@ -279,6 +279,12 @@ func (r *Runner) confirmWorker(ctx context.Context) {
 				r.setPending(req.symbol, false)
 				continue
 			}
+			r.n.SendF(ctx, r.cfg.UserID,
+				"[%s] DEBUG entry=%.6f SL=%.6f TP=%.6f 1R=%.6f RR=%.2f risk=%.2f%% size=%.4f",
+				req.symbol,
+				params.Entry, params.SL, params.TP, params.RiskDist,
+				params.RR, params.RiskPct, params.Size,
+			)
 
 			// 2. Открываем рыночный ордер
 			openType := 1
@@ -445,7 +451,6 @@ func (r *Runner) calcSizeByRiskWithMeta(
 		return 0, fmt.Errorf("entry/sl <= 0")
 	}
 
-	// дистанция до стопа
 	stopDist := math.Abs(entryPrice - slPrice)
 	if stopDist <= 0 {
 		return 0, fmt.Errorf("нулевой стоп")
@@ -461,27 +466,34 @@ func (r *Runner) calcSizeByRiskWithMeta(
 		return 0, fmt.Errorf("equity <= 0")
 	}
 
+	// риск в доле и деньгах
 	riskFraction := r.cfg.TradingSettings.RiskPct / 100.0
 	if riskFraction <= 0 {
 		return 0, fmt.Errorf("riskFraction <= 0")
 	}
 	riskUSDT := equity * riskFraction
 
-	// сколько должна стоить позиция
+	// базовое значение позиции из риска
 	positionValue := riskUSDT / stopPct
 
-	// ограничение плечом
-	lev := float64(r.cfg.TradingSettings.Leverage)
-	if lev > 0 {
-		maxPositionValue := equity * lev
-		if positionValue > maxPositionValue {
-			positionValue = maxPositionValue
+	// 🔒 верхний лимит по размеру позиции от баланса (PositionPct)
+	if pp := r.cfg.TradingSettings.PositionPct; pp > 0 {
+		maxFrac := pp / 100.0
+		maxByPositionPct := equity * maxFrac * float64(r.cfg.TradingSettings.Leverage)
+		if positionValue > maxByPositionPct {
+			positionValue = maxByPositionPct
 		}
 	}
 
+	// 🔒 (опционально) жёсткий лимит, чтобы точно не упираться в 51202
+	const hardMaxNotional = 500.0 // USDT, настроить под себя / вынести в конфиг
+	if positionValue > hardMaxNotional {
+		positionValue = hardMaxNotional
+	}
+
+	// считаем size в контрактных единицах
 	rawSz := positionValue / entryPrice
 
-	// приводим к minSz
 	if rawSz < minSz {
 		rawSz = minSz
 	}
