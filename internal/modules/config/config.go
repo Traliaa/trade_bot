@@ -28,6 +28,11 @@ type Config struct {
 		AdminPort  int    `yaml:"admin_port"`
 	} `yaml:"service"`
 
+	// Дефолты риска
+	DefaultRiskPct      float64 `yaml:"risk_pct"`       // риск от депозита, напр. 1.0 => 1% equity
+	DefaultStopPct      float64 `yaml:"stop_pct"`       // расстояние до SL от цены, напр. 0.5 => 0.5%
+	DefaultTakeProfitRR float64 `yaml:"take_profit_rr"` // мультипликатор TP к стопу, напр. 3.0 => TP = 3 * S
+
 	// Watchlist / раннер
 	DefaultWatchTopN   int
 	ConfirmQueueMax    int
@@ -41,8 +46,6 @@ type Config struct {
 	DefaultRSIOverbought float64
 	DefaultRSIOSold      float64
 
-	// Дефолты риска
-	DefaultRiskPct          float64
 	DefaultPositionPct      float64
 	DefaultLeverage         int
 	DefaultMaxOpenPositions int
@@ -71,6 +74,10 @@ func NewConfig() (*Config, error) {
 
 	decoder := yaml.NewDecoder(file)
 	config := Config{
+		DefaultRiskPct:      1.0,
+		DefaultStopPct:      0.5,
+		DefaultTakeProfitRR: 3.0,
+
 		DefaultWatchTopN:   intFromEnv("DEFAULT_WATCHLIST_TOP_N", 100),
 		ConfirmQueueMax:    intFromEnv("CONFIRM_QUEUE_MAX", 20),
 		ConfirmQueuePolicy: getenvDefault("CONFIRM_QUEUE_POLICY", "drop_same_symbol"),
@@ -82,7 +89,6 @@ func NewConfig() (*Config, error) {
 		DefaultRSIOverbought: floatFromEnv("RSI_OVERBOUGHT", 70),
 		DefaultRSIOSold:      floatFromEnv("RSI_OVERSOLD", 30),
 
-		DefaultRiskPct:          floatFromEnv("RISK_PCT", 1.0),
 		DefaultPositionPct:      floatFromEnv("POSITION_PCT", 1.0),
 		DefaultLeverage:         intFromEnv("LEVERAGE", 20),
 		DefaultMaxOpenPositions: intFromEnv("MAX_OPEN_POSITIONS", 10),

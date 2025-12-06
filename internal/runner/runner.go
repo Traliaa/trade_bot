@@ -231,21 +231,28 @@ func (r *Runner) confirmWorker(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
+
 		case req := <-r.queue:
-			// ещё раз проверяем лимит позиций перед входом
+			// 0. Проверяем лимит открытых позиций
 			if r.cfg.TradingSettings.MaxOpenPositions > 0 {
-				if positions, err := r.mx.OpenPositions(ctx); err == nil && len(positions) >= r.cfg.TradingSettings.MaxOpenPositions {
+				if positions, err := r.mx.OpenPositions(ctx); err == nil &&
+					len(positions) >= r.cfg.TradingSettings.MaxOpenPositions {
 					r.setPending(req.symbol, false)
-					r.n.SendF(ctx, r.cfg.UserID, "⚠️ [%s] Лимит открытых позиций (%d) достигнут, сигнал пропущен", req.symbol, r.cfg.TradingSettings.MaxOpenPositions)
+					r.n.SendF(ctx, r.cfg.UserID,
+						"⚠️ [%s] Лимит открытых позиций (%d) достигнут, сигнал пропущен",
+						req.symbol, r.cfg.TradingSettings.MaxOpenPositions,
+					)
 					continue
 				}
 			}
 
-			prompt := fmt.Sprintf("🔔 [%s] SIGNAL %s @ %.4f\nSL/TP будут выставлены после входа. Войти?", req.symbol, req.side, req.price)
+			prompt := fmt.Sprintf(
+				"🔔 [%s] SIGNAL %s @ %.4f\nSL/TP будут выставлены после входа. Войти?",
+				req.symbol, req.side, req.price,
+			)
 
 			ok := true
 			if r.cfg.TradingSettings.ConfirmRequired {
-				// подтверждение живёт своей жизнью, не завязано на общий ctx
 				ok = r.n.Confirm(ctx, r.cfg.UserID, prompt, r.cfg.TradingSettings.ConfirmTimeout)
 			}
 			if !ok {
@@ -257,42 +264,44 @@ func (r *Runner) confirmWorker(ctx context.Context) {
 				continue
 			}
 
-			instID := req.symbol // у тебя в логах уже вида MON-USDT-SWAP
-
-			// 1. Получаем equity и мету инструмента
-			price, stepSize, minSz, err := r.mx.GetInstrumentMeta(ctx, instID)
-			if err != nil {
-				r.n.SendF(ctx, r.cfg.UserID, "❗️ [%s] Ошибка получения параметров инструмента: %v", req.symbol, err)
-				r.setPending(req.symbol, false)
-				continue
+			// 1. Считаем SL/TP из StopPct и TakeProfitRR
+			stopPct := r.cfg.TradingSettings.StopPct / 100.0 // напр. 0.5% => 0.005
+			if stopPct <= 0 {
+				stopPct = 0.005 // дефолт 0.5%, если забыли настроить
 			}
-
-			// 2. Считаем размер позиции из процента баланса
-			riskPercent := r.cfg.TradingSettings.RiskPct // например 1.0 => 1% баланса
-			riskFraction := riskPercent / 100.0          // Превращаем в долю [0..1]
-			leverage := float64(r.cfg.TradingSettings.Leverage)
-			sz, err := r.calcSizeByRisk(ctx, riskFraction, price, leverage, stepSize, minSz)
-			if sz <= 0 {
-				r.n.SendF(ctx, r.cfg.UserID, "❗️ [%s] Некорректный размер позиции (sz=%.8f)", req.symbol, sz)
-				r.setPending(req.symbol, false)
-				continue
-			}
-
-			// 3. Risk-management по цене: отступ SL/TP
-			// r.cfg.RiskPct — процент от цены (например 1%)
-			priceRisk := req.price * (r.cfg.TradingSettings.RiskPct / 100.0)
+			priceRisk := req.price * stopPct
 
 			var sl, tp float64
-			if strings.EqualFold(req.side, "BUY") {
-				sl = req.price - priceRisk
-				tp = req.price + 3*priceRisk
-			} else {
-				sl = req.price + priceRisk
-				tp = req.price - 3*priceRisk
+			rr := r.cfg.TradingSettings.TakeProfitRR
+			if rr <= 0 {
+				rr = 3.0
 			}
 
-			// 4. Открываем рыночный ордер на рассчитанный объём
-			openType := 1 // как у тебя и было
+			if strings.EqualFold(req.side, "BUY") {
+				sl = req.price - priceRisk
+				tp = req.price + rr*priceRisk
+			} else {
+				sl = req.price + priceRisk
+				tp = req.price - rr*priceRisk
+			}
+
+			// 2. Считаем размер позиции по риску (через SL)
+			sz, err := r.calcSizeByRisk(ctx, req.symbol, req.price, sl)
+			if err != nil {
+				r.n.SendF(ctx, r.cfg.UserID,
+					"❗️ [%s] Ошибка расчёта размера позиции: %v", req.symbol, err)
+				r.setPending(req.symbol, false)
+				continue
+			}
+			if sz <= 0 {
+				r.n.SendF(ctx, r.cfg.UserID,
+					"❗️ [%s] Некорректный размер позиции (sz=%.8f)", req.symbol, sz)
+				r.setPending(req.symbol, false)
+				continue
+			}
+
+			// 3. Открываем рыночный ордер
+			openType := 1
 			var sideInt int
 			if strings.EqualFold(req.side, "BUY") {
 				sideInt = 1
@@ -300,28 +309,36 @@ func (r *Runner) confirmWorker(ctx context.Context) {
 				sideInt = 3
 			}
 
-			orderID, err := r.mx.PlaceMarket(ctx, instID, sz, sideInt, r.cfg.TradingSettings.Leverage, openType)
+			orderID, err := r.mx.PlaceMarket(
+				ctx, req.symbol, sz, sideInt,
+				r.cfg.TradingSettings.Leverage, openType,
+			)
 			if err != nil {
-				r.n.SendF(ctx, r.cfg.UserID, "❗️ [%s] Ошибка открытия ордера: %v", req.symbol, err)
+				r.n.SendF(ctx, r.cfg.UserID,
+					"❗️ [%s] Ошибка открытия ордера: %v", req.symbol, err)
 				r.setPending(req.symbol, false)
 				continue
 			}
 
-			// 5. Вешаем TP/SL через order-algo
+			// 4. TP/SL
 			posSide := "long"
 			if strings.EqualFold(req.side, "SELL") {
 				posSide = "short"
 			}
-			r.n.SendF(ctx, r.cfg.UserID, "[%s] DEBUG SL=%.6f TP=%.6f side=%s", req.symbol, sl, tp, req.side)
+			r.n.SendF(ctx, r.cfg.UserID,
+				"[%s] DEBUG SL=%.6f TP=%.6f side=%s", req.symbol, sl, tp, req.side)
 
-			if err := r.mx.PlaceTpsl(ctx, instID, posSide, sl, tp); err != nil {
-				r.n.SendF(ctx, r.cfg.UserID, "⚠️ [%s] TP/SL не выставлены на OKX: %v", req.symbol, err)
-				// позиция уже открыта, поэтому pending всё равно снимаем
+			if err := r.mx.PlaceTpsl(ctx, req.symbol, posSide, sl, tp); err != nil {
+				r.n.SendF(ctx, r.cfg.UserID,
+					"⚠️ [%s] TP/SL не выставлены на OKX: %v", req.symbol, err)
 			}
 
 			r.n.SendF(ctx,
-				r.cfg.UserID, "✅ [%s] Вход подтверждён | OPEN %-4s @ %.4f | SL=%.4f TP=%.4f lev=%dx size=%.4f | %s (orderId=%s)",
-				req.symbol, req.side, req.price, sl, tp, r.cfg.TradingSettings.Leverage, sz, r.stg.Dump(req.symbol), orderID,
+				r.cfg.UserID,
+				"✅ [%s] Вход подтверждён | OPEN %-4s @ %.4f | SL=%.4f TP=%.4f lev=%dx size=%.4f | %s (orderId=%s)",
+				req.symbol, req.side, req.price, sl, tp,
+				r.cfg.TradingSettings.Leverage, sz,
+				r.stg.Dump(req.symbol), orderID,
 			)
 
 			r.setPending(req.symbol, false)
@@ -329,43 +346,89 @@ func (r *Runner) confirmWorker(ctx context.Context) {
 	}
 }
 
-// stepSize и minSz можно взять из /public/instruments
-func (r *Runner) calcSizeByRisk(ctx context.Context, riskFraction, price, leverage, stepSize, minSz float64) (float64, error) {
+// calcSizeByRisk считает размер позиции так, чтобы риск по стоп-лоссу
+// был равен RiskPct от equity, с учётом шагов stepSize и minSz.
+func (r *Runner) calcSizeByRisk(
+	ctx context.Context,
+	instID string,
+	entryPrice float64,
+	slPrice float64,
+) (float64, error) {
 
+	// 1. Получаем цену/шаг/минимальный размер
+	price, stepSize, minSz, err := r.mx.GetInstrumentMeta(ctx, instID)
+	if err != nil {
+		r.n.SendF(ctx, r.cfg.UserID,
+			"❗️ [%s] Ошибка получения параметров инструмента: %v",
+			instID, err,
+		)
+		r.setPending(instID, false)
+		return 0, fmt.Errorf("get instrument meta: %w", err)
+	}
+
+	// Если явно не передали entry, берём рыночную цену
+	if entryPrice <= 0 {
+		entryPrice = price
+	}
+
+	if entryPrice <= 0 {
+		return 0, fmt.Errorf("entryPrice <= 0")
+	}
+	if slPrice <= 0 {
+		return 0, fmt.Errorf("slPrice <= 0")
+	}
+
+	// 2. Дистанция до стопа (в абсолюте и в процентах)
+	stopDist := math.Abs(entryPrice - slPrice)
+	if stopDist <= 0 {
+		return 0, fmt.Errorf("нулевая дистанция до стопа")
+	}
+	stopDistPct := stopDist / entryPrice // например 0.005 = 0.5%
+
+	// 3. Берём equity
 	equity, err := r.mx.USDTBalance(ctx)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("get equity: %w", err)
 	}
-
 	if equity <= 0 {
-		return 0, fmt.Errorf("")
-	}
-	if price <= 0 {
-		return 0, fmt.Errorf("")
-	}
-	if leverage <= 0 {
-		return 0, fmt.Errorf("")
+		return 0, fmt.Errorf("equity <= 0")
 	}
 
-	// 1. Сколько USDT мы готовы потерять по SL
-	riskUSDT := equity * riskFraction // 400 * 0.01 = 4 USDT
+	// 4. Риск на сделку (в USDT)
+	riskPercent := r.cfg.TradingSettings.RiskPct // например 1.0 => 1%
+	riskFraction := riskPercent / 100.0
+	if riskFraction <= 0 {
+		return 0, fmt.Errorf("riskFraction <= 0")
+	}
+	riskUSDT := equity * riskFraction // напр. 400 * 0.01 = 4 USDT
 
-	// 2. Размер позиции в деньгах с учётом плеча
-	positionValue := riskUSDT * leverage // 4 * 20 = 80 USDT позиции
+	// 5. Стоимость позиции так, чтобы при движении до SL
+	//    потерять ровно riskUSDT:
+	//    positionValue * stopDistPct ≈ riskUSDT
+	positionValue := riskUSDT / stopDistPct
 
-	// 3. Сырой размер в контрактах
-	rawSz := positionValue / price
+	// 6. Ограничиваем размер позы плечом (макс notional)
+	lev := float64(r.cfg.TradingSettings.Leverage)
+	if lev > 0 {
+		maxPositionValue := equity * lev
+		if positionValue > maxPositionValue {
+			positionValue = maxPositionValue
+		}
+	}
 
-	// 4. Приводим к шагу и минимуму
+	// 7. Сырой размер (в контрактах/монетах)
+	rawSz := positionValue / entryPrice
+
+	// 8. Приводим к minSz и stepSize
 	if rawSz < minSz {
 		rawSz = minSz
 	}
-
 	steps := math.Floor(rawSz/stepSize + 1e-9)
 	sz := steps * stepSize
 	if sz <= 0 {
-		return 0, nil
+		return 0, fmt.Errorf("после округления размер позиции <= 0")
 	}
+
 	return sz, nil
 }
 
