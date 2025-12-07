@@ -493,29 +493,30 @@ func (c *Client) PlaceTpsl(
 	tp float64,
 ) error {
 
-	// Для закрытия long позиции нужен side=sell, для short — side=buy
 	side := "sell"
-	if strings.EqualFold(posSide, "short") {
+	if posSide == "short" {
 		side = "buy"
 	}
 
 	body := map[string]string{
 		"instId":  instId,
-		"tdMode":  "cross", // или из конфига, если ты торгуешь isolated
+		"tdMode":  "cross",
 		"side":    side,
-		"posSide": posSide, // "long"/"short", если у тебя хедж-режим
+		"posSide": posSide,
 		"ordType": "conditional",
-		"sz":      formatSize(size), // размер позиции
+		"sz":      formatSize(size),
 	}
 
 	if sl > 0 {
 		body["slTriggerPx"] = formatPrice(sl)
-		// "-1" = рыночное исполнение при срабатывании триггера
 		body["slOrdPx"] = "-1"
+		body["slTriggerPxType"] = "last"
 	}
+
 	if tp > 0 {
 		body["tpTriggerPx"] = formatPrice(tp)
 		body["tpOrdPx"] = "-1"
+		body["tpTriggerPxType"] = "last" // ← ОБЯЗАТЕЛЬНО
 	}
 
 	payload, err := sonic.Marshal(body) // ВАЖНО: без [] вокруг!
@@ -546,23 +547,27 @@ func (c *Client) PlaceTpsl(
 	}
 	defer resp.Body.Close()
 
-	rb, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode/100 != 2 {
-		return fmt.Errorf("http %d: %s", resp.StatusCode, string(rb))
-	}
+	data, _ := io.ReadAll(resp.Body)
 
-	var r placeAlgoResp
-	if err := json.Unmarshal(rb, &r); err != nil {
-		return err
+	var r struct {
+		Code string `json:"code"`
+		Msg  string `json:"msg"`
+		Data []struct {
+			AlgoId string `json:"algoId"`
+			SCode  string `json:"sCode"`
+			SMsg   string `json:"sMsg"`
+		} `json:"data"`
 	}
+	json.Unmarshal(data, &r)
+
 	if r.Code != "0" {
-		return fmt.Errorf("okx tpsl error: code=%s msg=%s", r.Code, r.Msg)
+		return fmt.Errorf("okx algo error: %s %s", r.Code, r.Msg)
 	}
 	if len(r.Data) == 0 {
-		return fmt.Errorf("okx tpsl error: empty data: %s", string(rb))
+		return fmt.Errorf("algo empty response: %s", string(data))
 	}
 	if r.Data[0].SCode != "0" {
-		return fmt.Errorf("okx tpsl error: sCode=%s sMsg=%s", r.Data[0].SCode, r.Data[0].SMsg)
+		return fmt.Errorf("algo reject: sCode=%s sMsg=%s", r.Data[0].SCode, r.Data[0].SMsg)
 	}
 
 	return nil
