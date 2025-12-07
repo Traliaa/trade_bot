@@ -572,6 +572,85 @@ func (c *Client) PlaceTpsl(
 
 	return nil
 }
+
+func (c *Client) PlaceSingleAlgo(
+	ctx context.Context,
+	instId string,
+	posSide string,
+	side string,
+	size float64,
+	triggerPx float64,
+	isTP bool,
+) error {
+	body := map[string]string{
+		"instId":  instId,
+		"tdMode":  "cross",
+		"side":    side, // sell for long, buy for short
+		"posSide": posSide,
+		"ordType": "conditional",
+		"sz":      formatSize(size),
+	}
+
+	if isTP {
+		body["tpTriggerPx"] = formatPrice(triggerPx)
+		body["tpOrdPx"] = "-1"
+		body["tpTriggerPxType"] = "last"
+	} else {
+		body["slTriggerPx"] = formatPrice(triggerPx)
+		body["slOrdPx"] = "-1"
+		body["slTriggerPxType"] = "last"
+	}
+	payload, err := sonic.Marshal(body) // ВАЖНО: без [] вокруг!
+	if err != nil {
+		return fmt.Errorf("marshal tpsl: %w", err)
+	}
+	requestPath := "/api/v5/trade/order-algo"
+	ts := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
+	sign := c.sign(ts, http.MethodPost, requestPath, string(payload))
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		"https://www.okx.com"+requestPath, // если у тебя другая базовая URL, вставь свою
+		bytes.NewReader(payload),
+	)
+	if err != nil {
+		return fmt.Errorf("new request: %w", err)
+	}
+	req.Header.Set("OK-ACCESS-KEY", c.apiKey)
+	req.Header.Set("OK-ACCESS-SIGN", sign)
+	req.Header.Set("OK-ACCESS-TIMESTAMP", ts)
+	req.Header.Set("OK-ACCESS-PASSPHRASE", c.passph)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	data, _ := io.ReadAll(resp.Body)
+	var r struct {
+		Code string `json:"code"`
+		Msg  string `json:"msg"`
+		Data []struct {
+			AlgoId string `json:"algoId"`
+			SCode  string `json:"sCode"`
+			SMsg   string `json:"sMsg"`
+		} `json:"data"`
+	}
+	json.Unmarshal(data, &r)
+
+	if r.Code != "0" {
+		return fmt.Errorf("algo error: %s %s", r.Code, r.Msg)
+	}
+	if len(r.Data) == 0 {
+		return fmt.Errorf("empty algo response: %s", string(data))
+	}
+	if r.Data[0].SCode != "0" {
+		return fmt.Errorf("algo rejected: sCode=%s msg=%s", r.Data[0].SCode, r.Data[0].SMsg)
+	}
+
+	return nil
+}
+
 func formatPrice(p float64) string {
 	return strconv.FormatFloat(p, 'f', -1, 64)
 }

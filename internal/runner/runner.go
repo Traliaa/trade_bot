@@ -290,11 +290,27 @@ func (r *Runner) confirmWorker(ctx context.Context) {
 				params.Entry, params.SL, params.TP, params.RiskDist,
 				params.RR, params.RiskPct, params.Size,
 			)
+			// BUY => posSide="long", side="sell" (закрытие позиции)
+			side := "sell"
 
-			if err := r.mx.PlaceTpsl(ctx, req.symbol, posSide, params.Size, params.SL, params.TP); err != nil {
+			// 1) Stop-loss
+			err = r.mx.PlaceSingleAlgo(ctx, req.symbol, posSide, side, params.Size, params.SL, false)
+			if err != nil {
 				r.n.SendF(ctx, r.cfg.UserID,
 					"⚠️ [%s] TP/SL не выставлены на OKX: %v", req.symbol, err)
 			}
+
+			// 2) Take-profit
+			err = r.mx.PlaceSingleAlgo(ctx, req.symbol, posSide, side, params.Size, params.TP, true)
+			if err != nil {
+				r.n.SendF(ctx, r.cfg.UserID,
+					"⚠️ [%s] TP/SL не выставлены на OKX: %v", req.symbol, err)
+
+			}
+			//if err := r.mx.PlaceTpsl(ctx, req.symbol, posSide, params.Size, params.SL, params.TP); err != nil {
+			//	r.n.SendF(ctx, r.cfg.UserID,
+			//		"⚠️ [%s] TP/SL не выставлены на OKX: %v", req.symbol, err)
+			//}
 
 			r.n.SendF(ctx,
 				r.cfg.UserID,
