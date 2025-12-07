@@ -1,6 +1,7 @@
 package exchange
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -16,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/bytedance/sonic"
 	"github.com/gorilla/websocket"
 )
 
@@ -516,10 +518,26 @@ func (c *Client) PlaceTpsl(
 		body["tpOrdPx"] = "-1"
 	}
 
-	payload, _ := json.Marshal([]map[string]string{body})
+	payload, err := sonic.Marshal(body) // ВАЖНО: без [] вокруг!
+	if err != nil {
+		return fmt.Errorf("marshal tpsl: %w", err)
+	}
 
-	req := c.generateRequest(ctx, http.MethodPost, "/api/v5/trade/order-algo", string(payload))
+	requestPath := "/api/v5/trade/order-algo"
+	ts := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
+	sign := c.sign(ts, http.MethodPost, requestPath, string(payload))
 
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		"https://www.okx.com"+requestPath, // если у тебя другая базовая URL, вставь свою
+		bytes.NewReader(payload),
+	)
+	if err != nil {
+		return fmt.Errorf("new request: %w", err)
+	}
+	req.Header.Set("OK-ACCESS-KEY", c.apiKey)
+	req.Header.Set("OK-ACCESS-SIGN", sign)
+	req.Header.Set("OK-ACCESS-TIMESTAMP", ts)
+	req.Header.Set("OK-ACCESS-PASSPHRASE", c.passph)
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.http.Do(req)
