@@ -63,6 +63,9 @@ type Config struct {
 	DefaultCooldownPerSymbol time.Duration
 	DefaultConfirmTimeout    time.Duration
 	DefaultAutoOnTimeout     string
+
+	DefaultDonchianPeriod int // период канала, N свечей (обычно 20)
+	DefaultTrendEmaPeriod int // EMA для фильтра тренда (обычно 50)
 }
 
 func NewConfig() (*Config, error) {
@@ -82,9 +85,11 @@ func NewConfig() (*Config, error) {
 
 	decoder := yaml.NewDecoder(file)
 	config := Config{
-		DefaultRiskPct:      1.0,
-		DefaultStopPct:      0.5,
-		DefaultTakeProfitRR: 3.0,
+		DefaultRiskPct:        1.0,
+		DefaultStopPct:        0.5,
+		DefaultTakeProfitRR:   3.0,
+		DefaultDonchianPeriod: 20,
+		DefaultTrendEmaPeriod: 50,
 
 		DefaultWatchTopN:   intFromEnv("DEFAULT_WATCHLIST_TOP_N", 100),
 		ConfirmQueueMax:    intFromEnv("CONFIRM_QUEUE_MAX", 20),

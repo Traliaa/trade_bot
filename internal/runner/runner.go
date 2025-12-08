@@ -33,7 +33,7 @@ type Runner struct {
 
 	cfg *models.UserSettings
 	mx  *exchange.Client
-	stg *strategy.EMARSI
+	stg *strategy.Donchian
 	n   TelegramNotifier
 
 	queue       chan signalReq
@@ -53,10 +53,16 @@ func New(cfg *models.UserSettings, n TelegramNotifier) *Runner {
 	if qsize <= 0 {
 		qsize = 20
 	}
+	donCfg := strategy.DonchianConfig{
+		Period:    cfg.TradingSettings.DonchianPeriod,
+		TrendEma:  cfg.TradingSettings.TrendEmaPeriod,
+		MinWarmup: 0, // авто
+	}
+	stg := strategy.NewDonchian(donCfg)
 	return &Runner{
 		cfg:         cfg,
 		mx:          mx,
-		stg:         strategy.NewEMARSI(),
+		stg:         stg,
 		n:           n,
 		queue:       make(chan signalReq, qsize),
 		pending:     make(map[string]bool),
@@ -102,7 +108,13 @@ func (r *Runner) watchSymbols(ctx context.Context, symbols []string) {
 				return
 			}
 			log.Printf("[TICK] %s — %.4f", tick.InstID, tick.Close)
-			r.onCandle(ctx, tick.InstID, tick.Close)
+			c := strategy.Candle{
+				Open:  tick.Open,
+				High:  tick.High,
+				Low:   tick.Low,
+				Close: tick.Close,
+			}
+			r.onCandle(ctx, tick.InstID, c)
 		}
 	}
 }
@@ -131,69 +143,89 @@ func (r *Runner) Stop() {
 //	}
 //}
 
-func (r *Runner) onCandle(ctx context.Context, symbol string, price float64) {
-	// обновляем время последней свечи по символу (для health-лога)
+// onCandle вызывается на закрытии каждой свечи по символу.
+func (r *Runner) onCandle(ctx context.Context, symbol string, candle strategy.Candle) {
+	// 1. Обновляем время последней свечи по символу (для health-логов)
+	now := time.Now()
 	r.healthMu.Lock()
-	r.lastTick[symbol] = time.Now()
+	r.lastTick[symbol] = now
 	r.healthMu.Unlock()
 
-	// лимит по открытым позициям на OKX
+	// 2. Лимит по открытым позициям на OKX
 	if r.cfg.TradingSettings.MaxOpenPositions > 0 {
-		if positions, err := r.mx.OpenPositions(ctx); err == nil && len(positions) >= r.cfg.TradingSettings.MaxOpenPositions {
+		if positions, err := r.mx.OpenPositions(ctx); err == nil &&
+			len(positions) >= r.cfg.TradingSettings.MaxOpenPositions {
 			return
 		}
 	}
 
-	log.Printf("[EVAL] %s candle-check", symbol)
-	side, ok := r.stg.Update(
-		symbol,
-		price,
-		r.cfg.TradingSettings.EMAShort,
-		r.cfg.TradingSettings.EMALong,
-		r.cfg.TradingSettings.RSIPeriod,
-		r.cfg.TradingSettings.RSIOverbought,
-		r.cfg.TradingSettings.RSIOSold,
-	)
-	if !ok {
+	log.Printf("[EVAL] %s candle-check close=%.6f", symbol, candle.Close)
+
+	// 3. Обновляем стратегию (Donchian) и получаем сигнал
+	sig := r.stg.OnCandle(symbol, candle)
+	if sig.Side == strategy.SideNone {
+		// сигнала нет — выходим
 		return
 	}
+
+	side := string(sig.Side)
+	price := sig.Price
+	if price <= 0 {
+		price = candle.Close
+	}
+
+	log.Printf("[STRAT] %s signal=%s @ %.6f | %s", symbol, side, price, sig.Reason)
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	// кулдаун по символу
-	if until, ok := r.cooldownTil[symbol]; ok && time.Now().Before(until) {
+	// 4. Кулдаун по символу
+	if until, ok := r.cooldownTil[symbol]; ok && now.Before(until) {
 		return
 	}
-	// если уже висит в ожидании — не добавляем
+
+	// 5. Если уже висит неподтверждённый сигнал — не добавляем
 	if r.pending[symbol] {
 		return
 	}
 
-	// попытка положить в очередь
+	req := signalReq{
+		symbol: symbol,
+		price:  price,
+		side:   side,
+	}
+
+	// 6. Пытаемся положить сигнал в очередь
 	select {
-	case r.queue <- signalReq{symbol: symbol, price: price, side: side}:
+	case r.queue <- req:
 		log.Printf("[SIGNAL] %s %s @ %.4f", symbol, side, price)
 		r.pending[symbol] = true
+
 	default:
+		// очередь забита — применяем политику
 		policy := r.cfg.TradingSettings.ConfirmQueuePolicy
-		if policy == "drop_oldest" {
+
+		switch policy {
+		case "drop_oldest":
+			// выкидываем самый старый и ещё раз пытаемся положить
 			select {
 			case <-r.queue:
 			default:
 			}
 			select {
-			case r.queue <- signalReq{symbol: symbol, price: price, side: side}:
+			case r.queue <- req:
 				log.Printf("[SIGNAL] %s %s @ %.4f (after drop_oldest)", symbol, side, price)
 				r.pending[symbol] = true
 			default:
-				// очередь переполнена
+				// всё равно не влез — молча дропаем
 			}
-		} else if policy == "drop_same_symbol" {
-			// молча дропаем
+
+		case "drop_same_symbol":
+			// просто игнорируем новый сигнал по этому символу
 			return
-		} else {
-			// по умолчанию просто не добавляем
+
+		default:
+			// по умолчанию — ничего не делаем, сигнал дропается
 			return
 		}
 	}

@@ -48,6 +48,9 @@ type TradingSettings struct {
 	RiskPct      float64 `yaml:"risk_pct"`       // например 1.0 => 1% equity
 	TakeProfitRR float64 `yaml:"take_profit_rr"` // например 3.0 => TP = 3R
 
+	DonchianPeriod int `yaml:"donchain_period"`   // период канала, N свечей (обычно 20)
+	TrendEmaPeriod int `yaml:"trena_ema__period"` // EMA для фильтра тренда (обычно 50)
+
 }
 
 func NewTradingSettingsFromDefaults(userID int64, cfg *config.Config) *UserSettings {
@@ -72,8 +75,10 @@ func NewTradingSettingsFromDefaults(userID int64, cfg *config.Config) *UserSetti
 			AutoOnTimeout:     cfg.DefaultAutoOnTimeout,
 			WatchTopN:         cfg.DefaultWatchTopN,
 
-			RiskPct:      cfg.DefaultRiskPct,
-			TakeProfitRR: cfg.DefaultTakeProfitRR,
+			RiskPct:        cfg.DefaultRiskPct,
+			TakeProfitRR:   cfg.DefaultTakeProfitRR,
+			DonchianPeriod: cfg.DefaultDonchianPeriod,
+			TrendEmaPeriod: cfg.DefaultTrendEmaPeriod,
 		},
 	}
 

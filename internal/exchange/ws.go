@@ -10,7 +10,38 @@ import (
 
 type CandleTick struct {
 	InstID string
-	Close  float64
+
+	Open  float64
+	High  float64
+	Low   float64
+	Close float64
+
+	Volume       float64   // объём в контрактах (row[5])
+	QuoteVolume  float64   // объём в quote (row[7]) — по желанию
+	Start        time.Time // время начала свечи (ts)
+	End          time.Time // время конца свечи (Start + duration)
+	TimeframeRaw string    // "1m", "5m" — на всякий случай
+}
+
+func timeframeToDuration(tf string) time.Duration {
+	switch tf {
+	case "1m":
+		return time.Minute
+	case "3m":
+		return 3 * time.Minute
+	case "5m":
+		return 5 * time.Minute
+	case "15m":
+		return 15 * time.Minute
+	case "30m":
+		return 30 * time.Minute
+	case "1H", "1h":
+		return time.Hour
+	case "4H", "4h":
+		return 4 * time.Hour
+	default:
+		return 0 // неизвестный — оставим End = Start
+	}
 }
 
 // StreamCandles — поток закрытых свечей OKX по таймфрейму ("1m","5m","15m").
@@ -39,9 +70,10 @@ func (c *Client) StreamCandles(ctx context.Context, instID, timeframe string) <-
 }
 
 // StreamCandlesBatch — один WebSocket на таймфрейм с пачкой инструментов в args.
-// Возвращает поток CandleTick: instId + цена закрытия последней закрытой свечи.
+// Возвращает поток CandleTick: instId + полная информация по закрытой свече.
 func (c *Client) StreamCandlesBatch(ctx context.Context, instIDs []string, timeframe string) <-chan CandleTick {
 	ch := make(chan CandleTick)
+
 	go func() {
 		defer close(ch)
 
@@ -51,6 +83,7 @@ func (c *Client) StreamCandlesBatch(ctx context.Context, instIDs []string, timef
 
 		channel := "candle" + timeframe // "1m" -> "candle1m"
 		url := "wss://ws.okx.com:8443/ws/v5/business"
+		tfDur := timeframeToDuration(timeframe)
 
 		// подготавливаем args сразу пачкой
 		args := make([]map[string]string, 0, len(instIDs))
@@ -98,6 +131,7 @@ func (c *Client) StreamCandlesBatch(ctx context.Context, instIDs []string, timef
 				}
 			}()
 
+			// основной read-loop
 			for {
 				_, msg, err := conn.ReadMessage()
 				if err != nil {
@@ -120,26 +154,76 @@ func (c *Client) StreamCandlesBatch(ctx context.Context, instIDs []string, timef
 					continue
 				}
 
-				row := frame.Data[0]
-				if len(row) < 5 {
-					continue
-				}
-				// формат data: [ts,o,h,l,c,vol,volCcy,volCcyQuote,confirm]
-				if len(row) >= 9 && row[8] != "1" {
-					continue // ждём закрытую свечу
-				}
-				closeStr := row[4]
-				p, err := strconv.ParseFloat(closeStr, 64)
-				if err != nil || p <= 0 {
-					continue
-				}
+				// у OKX может приходить несколько свечей в одном кадре — пройдёмся по всем
+				for _, row := range frame.Data {
+					// ожидаемый формат data:
+					// [ts, o, h, l, c, vol, volCcy, volCcyQuote, confirm]
+					if len(row) < 5 {
+						continue
+					}
 
-				c.SetPrice(frame.Arg.InstID, p)
-				select {
-				case ch <- CandleTick{InstID: frame.Arg.InstID, Close: p}:
-				case <-ctx.Done():
-					_ = conn.Close()
-					return
+					// confirm всегда в последнем элементе, не хардкодим индекс 8
+					if row[len(row)-1] != "1" {
+						continue // ждём закрытую свечу
+					}
+
+					// 0: ts (ms)
+					tsMs, err := strconv.ParseInt(row[0], 10, 64)
+					if err != nil {
+						continue
+					}
+					start := time.UnixMilli(tsMs)
+					end := start
+					if tfDur > 0 {
+						end = start.Add(tfDur)
+					}
+
+					// 1..4: OHLC
+					open, err1 := strconv.ParseFloat(row[1], 64)
+					high, err2 := strconv.ParseFloat(row[2], 64)
+					low, err3 := strconv.ParseFloat(row[3], 64)
+					closep, err4 := strconv.ParseFloat(row[4], 64)
+					if err1 != nil || err2 != nil || err3 != nil || err4 != nil {
+						continue
+					}
+					if closep <= 0 {
+						continue
+					}
+
+					// 5: объём в контрактах
+					var vol float64
+					if len(row) >= 6 {
+						vol, _ = strconv.ParseFloat(row[5], 64)
+					}
+
+					// 7: объём в quote (если есть)
+					var volQuote float64
+					if len(row) >= 8 {
+						volQuote, _ = strconv.ParseFloat(row[7], 64)
+					}
+
+					// обновляем last price кэшем
+					c.SetPrice(frame.Arg.InstID, closep)
+
+					tick := CandleTick{
+						InstID:       frame.Arg.InstID,
+						Open:         open,
+						High:         high,
+						Low:          low,
+						Close:        closep,
+						Volume:       vol,
+						QuoteVolume:  volQuote,
+						Start:        start,
+						End:          end,
+						TimeframeRaw: timeframe,
+					}
+
+					select {
+					case ch <- tick:
+					case <-ctx.Done():
+						_ = conn.Close()
+						return
+					}
 				}
 			}
 
@@ -151,5 +235,6 @@ func (c *Client) StreamCandlesBatch(ctx context.Context, instIDs []string, timef
 			}
 		}
 	}()
+
 	return ch
 }
