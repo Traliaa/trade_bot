@@ -2,6 +2,7 @@ package strategy
 
 import (
 	"fmt"
+	"log"
 	"math"
 	"sync"
 )
@@ -101,17 +102,20 @@ func (s *Donchian) OnCandle(symbol string, c Candle) Signal {
 
 	st := s.get(symbol)
 
-	// обновляем EMA тренда по закрытию
+	// EMA по закрытию
 	st.ema.Update(c.Close)
 
-	// если ещё не наполнили окно — просто копим и выходим
+	// если ещё не набрали окно — просто копим и выходим
 	if len(st.highs) < s.cfg.Period {
 		st.highs = append(st.highs, c.High)
 		st.lows = append(st.lows, c.Low)
+
+		log.Printf("[DON] %s warmup highs=%d/%d emaReady=%v close=%.6f",
+			symbol, len(st.highs), s.cfg.Period, st.ema.Ready(), c.Close)
+
 		return Signal{Symbol: symbol, Side: SideNone}
 	}
 
-	// здесь в st.highs/st.lows лежат предыдущие N свечей (без текущей)
 	prevHighs := st.highs
 	prevLows := st.lows
 
@@ -119,36 +123,39 @@ func (s *Donchian) OnCandle(symbol string, c Candle) Signal {
 	dl := minSlice(prevLows)
 	ema := st.ema.Value()
 
-	var side Side
-	var reason string
+	// лог состояния канала
+	log.Printf("[DON] %s state: close=%.6f dh=%.6f dl=%.6f ema=%.6f len=%d emaReady=%v",
+		symbol, c.Close, dh, dl, ema, len(prevHighs), st.ema.Ready())
 
-	// фильтр прогрева EMA
+	// прогрев EMA
 	if !st.ema.Ready() {
-		// но окно Дончиана уже обновим
 		st.highs = append(st.highs[1:], c.High)
 		st.lows = append(st.lows[1:], c.Low)
 		return Signal{Symbol: symbol, Side: SideNone}
 	}
 
-	// пробой вверх: close выше канала и выше EMA
+	var side Side
+	var reason string
+
 	if c.Close > dh && c.Close > ema {
 		side = SideBuy
 		reason = fmt.Sprintf("Donchian breakout UP: close=%.5f > dh=%.5f & ema=%.5f", c.Close, dh, ema)
 	}
 
-	// пробой вниз: close ниже канала и ниже EMA
 	if c.Close < dl && c.Close < ema {
 		side = SideSell
 		reason = fmt.Sprintf("Donchian breakout DOWN: close=%.5f < dl=%.5f & ema=%.5f", c.Close, dl, ema)
 	}
 
-	// теперь обновляем окно (сдвиг + текущая свеча)
+	// сдвигаем окно
 	st.highs = append(st.highs[1:], c.High)
 	st.lows = append(st.lows[1:], c.Low)
 
 	if side == SideNone {
 		return Signal{Symbol: symbol, Side: SideNone}
 	}
+
+	log.Printf("[DON] %s SIGNAL %s @ %.6f | %s", symbol, side, c.Close, reason)
 
 	st.lastSignal = side
 

@@ -132,12 +132,10 @@ func (r *Runner) onCandle(ctx context.Context, tick exchange.CandleTick) {
 	symbol := tick.InstID
 	now := time.Now()
 
-	// 1. health — время последнего тика по символу
 	r.healthMu.Lock()
 	r.lastTick[symbol] = now
 	r.healthMu.Unlock()
 
-	// 2. Лимит по открытым позициям
 	if r.cfg.TradingSettings.MaxOpenPositions > 0 {
 		if positions, err := r.mx.OpenPositions(ctx); err == nil &&
 			len(positions) >= r.cfg.TradingSettings.MaxOpenPositions {
@@ -147,15 +145,12 @@ func (r *Runner) onCandle(ctx context.Context, tick exchange.CandleTick) {
 
 	log.Printf("[EVAL] %s candle-check close=%.6f", symbol, tick.Close)
 
-	// 3. Формируем Candle для стратегии
-	c := strategy.Candle{
+	sig := r.stg.OnCandle(symbol, strategy.Candle{
 		Open:  tick.Open,
 		High:  tick.High,
 		Low:   tick.Low,
 		Close: tick.Close,
-	}
-
-	sig := r.stg.OnCandle(symbol, c)
+	})
 	if sig.Side == strategy.SideNone {
 		return
 	}
