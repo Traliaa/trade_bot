@@ -123,41 +123,49 @@ func (s *Donchian) OnCandle(symbol string, c Candle) Signal {
 
 	st := s.get(symbol)
 
-	// обновляем EMA тренда по закрытию
+	// EMA обновляем по закрытию
 	st.ema.Update(c.Close)
 
-	// добавляем high/low в буфер
-	st.highs = append(st.highs, c.High)
-	st.lows = append(st.lows, c.Low)
-	if len(st.highs) > s.cfg.Period {
-		st.highs = st.highs[1:]
-		st.lows = st.lows[1:]
-	}
-
-	// ещё не достаточно данных
-	if len(st.highs) < s.cfg.Period || !st.ema.Ready() {
+	// Если ещё не набрали окно — просто копим и выходим
+	if len(st.highs) < s.cfg.Period {
+		st.highs = append(st.highs, c.High)
+		st.lows = append(st.lows, c.Low)
 		return Signal{Symbol: symbol, Side: SideNone}
 	}
 
-	// считаем Donchian high/low
-	dh := maxSlice(st.highs)
-	dl := minSlice(st.lows)
+	// --- ВАЖНО ---
+	// Считаем Donchian high/low ТОЛЬКО по предыдущим N свечам,
+	// не включая текущую свечу.
+	prevHighs := st.highs
+	prevLows := st.lows
+
+	dh := maxSlice(prevHighs)
+	dl := minSlice(prevLows)
 	ema := st.ema.Value()
 
-	// фильтр тренда: торгуем только в сторону EMA
 	var side Side
 	var reason string
 
-	// пробой вверх: close выше канала и выше EMA
+	// Пробой вверх
 	if c.Close > dh && c.Close > ema {
 		side = SideBuy
-		reason = fmt.Sprintf("Donchian breakout UP: close=%.5f > dh=%.5f & ema=%.5f", c.Close, dh, ema)
+		reason = fmt.Sprintf("Donchian breakout UP: close=%.5f > dh=%.5f (ema=%.5f)", c.Close, dh, ema)
 	}
 
-	// пробой вниз: close ниже канала и ниже EMA
+	// Пробой вниз
 	if c.Close < dl && c.Close < ema {
 		side = SideSell
-		reason = fmt.Sprintf("Donchian breakout DOWN: close=%.5f < dl=%.5f & ema=%.5f", c.Close, dl, ema)
+		reason = fmt.Sprintf("Donchian breakout DOWN: close=%.5f < dl=%.5f (ema=%.5f)", c.Close, dl, ema)
+	}
+
+	// --- теперь обновляем окно ---
+	// сдвигаем буфер и добавляем текущую свечу
+	st.highs = append(st.highs[1:], c.High)
+	st.lows = append(st.lows[1:], c.Low)
+
+	// EMA может быть ещё не готов
+	if !st.ema.Ready() {
+		return Signal{Symbol: symbol, Side: SideNone}
 	}
 
 	if side == SideNone {

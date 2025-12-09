@@ -10,3 +10,5 @@
 /dataSources.xml
 /sqldialects.xml
 /vcs.xml
+/go.imports.xml
+/queries/Query.sql
