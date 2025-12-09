@@ -76,12 +76,7 @@ func (m *Manager) StopForUser(ctx context.Context, user *models.UserSettings) er
 func (m *Manager) StatusForUser(ctx context.Context, user *models.UserSettings) (string, error) {
 	// тут либо переиспользуешь существующий exchange.Client,
 	// либо создаёшь временный
-	mx := exchange.NewClient() // подставь свой конструктор
-	mx.SetCreds(
-		user.TradingSettings.OKXAPIKey,
-		user.TradingSettings.OKXAPISecret,
-		user.TradingSettings.OKXPassphrase,
-	)
+	mx := exchange.NewClient(user) // подставь свой конструктор
 
 	positions, err := mx.OpenPositions(ctx)
 	if err != nil {

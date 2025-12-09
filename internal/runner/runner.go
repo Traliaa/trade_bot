@@ -46,8 +46,6 @@ type Runner struct {
 }
 
 func New(user *models.UserSettings, n TelegramNotifier) *Runner {
-	mx := exchange.NewClient()
-	stg := strategy.NewEngine(&user.TradingSettings)
 
 	qsize := user.TradingSettings.ConfirmQueueMax
 	if qsize <= 0 {
@@ -56,9 +54,9 @@ func New(user *models.UserSettings, n TelegramNotifier) *Runner {
 
 	return &Runner{
 		cfg:         user,
-		mx:          mx,
+		mx:          exchange.NewClient(user),
 		n:           n,
-		stg:         stg,
+		stg:         strategy.NewEngine(&user.TradingSettings),
 		queue:       make(chan signalReq, qsize),
 		pending:     make(map[string]bool),
 		cooldownTil: make(map[string]time.Time),

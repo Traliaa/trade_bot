@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"trade_bot/internal/models"
 
 	"github.com/bytedance/sonic"
 	"github.com/gorilla/websocket"
@@ -31,19 +32,15 @@ type Client struct {
 	passph    string
 }
 
-func NewClient() *Client {
+func NewClient(cfg *models.UserSettings) *Client {
 	return &Client{
-		prices:   make(map[string]float64),
-		http:     &http.Client{Timeout: 10 * time.Second},
-		wsDialer: &websocket.Dialer{},
+		prices:    make(map[string]float64),
+		http:      &http.Client{Timeout: 10 * time.Second},
+		wsDialer:  &websocket.Dialer{},
+		apiKey:    cfg.TradingSettings.OKXAPIKey,
+		apiSecret: cfg.TradingSettings.OKXAPISecret,
+		passph:    cfg.TradingSettings.OKXPassphrase,
 	}
-}
-
-// SetCreds — сюда теперь кладём ключи OKX (пока с старыми env-именами MEXC_*)
-func (c *Client) SetCreds(key, secret, passphrase string) {
-	c.apiKey = key
-	c.apiSecret = secret
-	c.passph = passphrase
 }
 
 func (c *Client) SetPrice(symbol string, price float64) {
