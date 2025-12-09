@@ -33,7 +33,7 @@ type Runner struct {
 
 	cfg *models.UserSettings
 	mx  *exchange.Client
-	stg *strategy.Donchian
+	stg strategy.Engine
 	n   TelegramNotifier
 
 	queue       chan signalReq
@@ -45,25 +45,20 @@ type Runner struct {
 	healthMu sync.Mutex // lastTick
 }
 
-func New(cfg *models.UserSettings, n TelegramNotifier) *Runner {
+func New(user *models.UserSettings, n TelegramNotifier) *Runner {
 	mx := exchange.NewClient()
+	stg := strategy.NewEngine(&user.TradingSettings)
 
-	mx.SetCreds(cfg.TradingSettings.OKXAPIKey, cfg.TradingSettings.OKXAPISecret, cfg.TradingSettings.OKXPassphrase)
-	qsize := cfg.TradingSettings.ConfirmQueueMax
+	qsize := user.TradingSettings.ConfirmQueueMax
 	if qsize <= 0 {
 		qsize = 20
 	}
-	donCfg := strategy.DonchianConfig{
-		Period:    cfg.TradingSettings.DonchianPeriod,
-		TrendEma:  cfg.TradingSettings.TrendEmaPeriod,
-		MinWarmup: 0, // авто
-	}
-	stg := strategy.NewDonchian(donCfg)
+
 	return &Runner{
-		cfg:         cfg,
+		cfg:         user,
 		mx:          mx,
-		stg:         stg,
 		n:           n,
+		stg:         stg,
 		queue:       make(chan signalReq, qsize),
 		pending:     make(map[string]bool),
 		cooldownTil: make(map[string]time.Time),
@@ -103,18 +98,8 @@ func (r *Runner) watchSymbols(ctx context.Context, symbols []string) {
 		select {
 		case <-ctx.Done():
 			return
-		case tick, ok := <-stream:
-			if !ok {
-				return
-			}
-			log.Printf("[TICK] %s — %.4f", tick.InstID, tick.Close)
-			c := strategy.Candle{
-				Open:  tick.Open,
-				High:  tick.High,
-				Low:   tick.Low,
-				Close: tick.Close,
-			}
-			r.onCandle(ctx, tick.InstID, c)
+		case tick := <-stream:
+			go r.onCandle(ctx, tick)
 		}
 	}
 }
@@ -143,15 +128,16 @@ func (r *Runner) Stop() {
 //	}
 //}
 
-// onCandle вызывается на закрытии каждой свечи по символу.
-func (r *Runner) onCandle(ctx context.Context, symbol string, candle strategy.Candle) {
-	// 1. Обновляем время последней свечи по символу (для health-логов)
+func (r *Runner) onCandle(ctx context.Context, tick exchange.CandleTick) {
+	symbol := tick.InstID
 	now := time.Now()
+
+	// 1. health — время последнего тика по символу
 	r.healthMu.Lock()
 	r.lastTick[symbol] = now
 	r.healthMu.Unlock()
 
-	// 2. Лимит по открытым позициям на OKX
+	// 2. Лимит по открытым позициям
 	if r.cfg.TradingSettings.MaxOpenPositions > 0 {
 		if positions, err := r.mx.OpenPositions(ctx); err == nil &&
 			len(positions) >= r.cfg.TradingSettings.MaxOpenPositions {
@@ -159,19 +145,25 @@ func (r *Runner) onCandle(ctx context.Context, symbol string, candle strategy.Ca
 		}
 	}
 
-	log.Printf("[EVAL] %s candle-check close=%.6f", symbol, candle.Close)
+	log.Printf("[EVAL] %s candle-check close=%.6f", symbol, tick.Close)
 
-	// 3. Обновляем стратегию (Donchian) и получаем сигнал
-	sig := r.stg.OnCandle(symbol, candle)
+	// 3. Формируем Candle для стратегии
+	c := strategy.Candle{
+		Open:  tick.Open,
+		High:  tick.High,
+		Low:   tick.Low,
+		Close: tick.Close,
+	}
+
+	sig := r.stg.OnCandle(symbol, c)
 	if sig.Side == strategy.SideNone {
-		// сигнала нет — выходим
 		return
 	}
 
 	side := string(sig.Side)
 	price := sig.Price
 	if price <= 0 {
-		price = candle.Close
+		price = tick.Close
 	}
 
 	log.Printf("[STRAT] %s signal=%s @ %.6f | %s", symbol, side, price, sig.Reason)
@@ -184,7 +176,7 @@ func (r *Runner) onCandle(ctx context.Context, symbol string, candle strategy.Ca
 		return
 	}
 
-	// 5. Если уже висит неподтверждённый сигнал — не добавляем
+	// 5. Уже ждёт подтверждения — не дублируем
 	if r.pending[symbol] {
 		return
 	}
@@ -195,19 +187,17 @@ func (r *Runner) onCandle(ctx context.Context, symbol string, candle strategy.Ca
 		side:   side,
 	}
 
-	// 6. Пытаемся положить сигнал в очередь
+	// 6. Пихаем сигнал в очередь с учётом политики
 	select {
 	case r.queue <- req:
 		log.Printf("[SIGNAL] %s %s @ %.4f", symbol, side, price)
 		r.pending[symbol] = true
 
 	default:
-		// очередь забита — применяем политику
 		policy := r.cfg.TradingSettings.ConfirmQueuePolicy
 
 		switch policy {
 		case "drop_oldest":
-			// выкидываем самый старый и ещё раз пытаемся положить
 			select {
 			case <-r.queue:
 			default:
@@ -217,20 +207,16 @@ func (r *Runner) onCandle(ctx context.Context, symbol string, candle strategy.Ca
 				log.Printf("[SIGNAL] %s %s @ %.4f (after drop_oldest)", symbol, side, price)
 				r.pending[symbol] = true
 			default:
-				// всё равно не влез — молча дропаем
 			}
 
 		case "drop_same_symbol":
-			// просто игнорируем новый сигнал по этому символу
 			return
 
 		default:
-			// по умолчанию — ничего не делаем, сигнал дропается
 			return
 		}
 	}
 }
-
 func (r *Runner) setPending(symbol string, v bool) {
 	r.mu.Lock()
 	r.pending[symbol] = v

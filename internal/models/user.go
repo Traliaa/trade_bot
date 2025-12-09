@@ -51,6 +51,8 @@ type TradingSettings struct {
 	DonchianPeriod int `yaml:"donchain_period"`   // период канала, N свечей (обычно 20)
 	TrendEmaPeriod int `yaml:"trena_ema__period"` // EMA для фильтра тренда (обычно 50)
 
+	Strategy string `json:"strategy"` // "emarsi" или "donchian"
+
 }
 
 func NewTradingSettingsFromDefaults(userID int64, cfg *config.Config) *UserSettings {
@@ -79,6 +81,7 @@ func NewTradingSettingsFromDefaults(userID int64, cfg *config.Config) *UserSetti
 			TakeProfitRR:   cfg.DefaultTakeProfitRR,
 			DonchianPeriod: cfg.DefaultDonchianPeriod,
 			TrendEmaPeriod: cfg.DefaultTrendEmaPeriod,
+			Strategy:       cfg.DefaultStrategy,
 		},
 	}
 

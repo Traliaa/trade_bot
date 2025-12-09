@@ -6,28 +6,6 @@ import (
 	"sync"
 )
 
-// Side как у тебя в раннере: "BUY"/"SELL" или пустая строка.
-type Side string
-
-const (
-	SideNone Side = ""
-	SideBuy  Side = "BUY"
-	SideSell Side = "SELL"
-)
-
-// Candle — подгони под свой тип, если он уже есть.
-type Candle struct {
-	Open, High, Low, Close float64
-}
-
-// Signal — простой ответ стратегии.
-type Signal struct {
-	Symbol string
-	Side   Side // BUY / SELL / ""
-	Price  float64
-	Reason string
-}
-
 // DonchianConfig — параметры стратегии.
 type DonchianConfig struct {
 	Period    int // N свечей, например 20
@@ -116,26 +94,24 @@ func (s *Donchian) get(symbol string) *symbolState {
 }
 
 // OnCandle — вызываешь на закрытии каждой свечи.
-// Возвращает Signal с Side=BUY/SELL либо SideNone.
+// ВАЖНО: пробой считаем по предыдущим N свечам, потом только обновляем окно.
 func (s *Donchian) OnCandle(symbol string, c Candle) Signal {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	st := s.get(symbol)
 
-	// EMA обновляем по закрытию
+	// обновляем EMA тренда по закрытию
 	st.ema.Update(c.Close)
 
-	// Если ещё не набрали окно — просто копим и выходим
+	// если ещё не наполнили окно — просто копим и выходим
 	if len(st.highs) < s.cfg.Period {
 		st.highs = append(st.highs, c.High)
 		st.lows = append(st.lows, c.Low)
 		return Signal{Symbol: symbol, Side: SideNone}
 	}
 
-	// --- ВАЖНО ---
-	// Считаем Donchian high/low ТОЛЬКО по предыдущим N свечам,
-	// не включая текущую свечу.
+	// здесь в st.highs/st.lows лежат предыдущие N свечей (без текущей)
 	prevHighs := st.highs
 	prevLows := st.lows
 
@@ -146,27 +122,29 @@ func (s *Donchian) OnCandle(symbol string, c Candle) Signal {
 	var side Side
 	var reason string
 
-	// Пробой вверх
-	if c.Close > dh && c.Close > ema {
-		side = SideBuy
-		reason = fmt.Sprintf("Donchian breakout UP: close=%.5f > dh=%.5f (ema=%.5f)", c.Close, dh, ema)
-	}
-
-	// Пробой вниз
-	if c.Close < dl && c.Close < ema {
-		side = SideSell
-		reason = fmt.Sprintf("Donchian breakout DOWN: close=%.5f < dl=%.5f (ema=%.5f)", c.Close, dl, ema)
-	}
-
-	// --- теперь обновляем окно ---
-	// сдвигаем буфер и добавляем текущую свечу
-	st.highs = append(st.highs[1:], c.High)
-	st.lows = append(st.lows[1:], c.Low)
-
-	// EMA может быть ещё не готов
+	// фильтр прогрева EMA
 	if !st.ema.Ready() {
+		// но окно Дончиана уже обновим
+		st.highs = append(st.highs[1:], c.High)
+		st.lows = append(st.lows[1:], c.Low)
 		return Signal{Symbol: symbol, Side: SideNone}
 	}
+
+	// пробой вверх: close выше канала и выше EMA
+	if c.Close > dh && c.Close > ema {
+		side = SideBuy
+		reason = fmt.Sprintf("Donchian breakout UP: close=%.5f > dh=%.5f & ema=%.5f", c.Close, dh, ema)
+	}
+
+	// пробой вниз: close ниже канала и ниже EMA
+	if c.Close < dl && c.Close < ema {
+		side = SideSell
+		reason = fmt.Sprintf("Donchian breakout DOWN: close=%.5f < dl=%.5f & ema=%.5f", c.Close, dl, ema)
+	}
+
+	// теперь обновляем окно (сдвиг + текущая свеча)
+	st.highs = append(st.highs[1:], c.High)
+	st.lows = append(st.lows[1:], c.Low)
 
 	if side == SideNone {
 		return Signal{Symbol: symbol, Side: SideNone}
