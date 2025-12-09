@@ -3,10 +3,14 @@ package strategy
 import (
 	"fmt"
 	"sync"
+	"trade_bot/internal/models"
 )
 
 type EMARSI struct {
-	mu       sync.Mutex
+	mu sync.Mutex
+
+	cfg *models.TradingSettings
+
 	emaShort map[string]float64
 	emaLong  map[string]float64
 	rsi      map[string]*rsiState
@@ -22,13 +26,44 @@ type rsiState struct {
 	initialized bool
 }
 
-func NewEMARSI() *EMARSI {
+func NewEMARSI(cfg *models.TradingSettings) *EMARSI {
 	return &EMARSI{
+		cfg:      cfg,
 		emaShort: map[string]float64{},
 		emaLong:  map[string]float64{},
 		rsi:      map[string]*rsiState{},
 		samples:  map[string]int{},
 		lastSide: map[string]string{},
+	}
+}
+
+func (e *EMARSI) OnCandle(symbol string, c Candle) Signal {
+	// старая логика принимала только цену Close
+	side, ok := e.Update(
+		symbol,
+		c.Close,
+		e.cfg.EMAShort,
+		e.cfg.EMALong,
+		e.cfg.RSIPeriod,
+		e.cfg.RSIOverbought,
+		e.cfg.RSIOSold,
+	)
+	if !ok {
+		return Signal{Symbol: symbol, Side: SideNone}
+	}
+
+	var s Side
+	if side == "BUY" {
+		s = SideBuy
+	} else if side == "SELL" {
+		s = SideSell
+	}
+
+	return Signal{
+		Symbol: symbol,
+		Side:   s,
+		Price:  c.Close,
+		Reason: fmt.Sprintf("EMA/RSI signal %s @ %.5f", s, c.Close),
 	}
 }
 

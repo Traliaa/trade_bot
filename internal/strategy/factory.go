@@ -16,12 +16,6 @@ func NewEngine(ts *models.TradingSettings) Engine {
 	default:
 		// здесь ты адаптируешь свою существующую EMARSI под Engine:
 		// NewEMARSI должен возвращать тип, реализующий OnCandle/Dump.
-		return NewEMARSI(EMARSIConfig{
-			EMAShort:      ts.EMAShort,
-			EMALong:       ts.EMALong,
-			RSIPeriod:     ts.RSIPeriod,
-			RSIOverbought: ts.RSIOverbought,
-			RSIOSold:      ts.RSIOSold,
-		})
+		return NewEMARSI(ts)
 	}
 }
