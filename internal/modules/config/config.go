@@ -11,9 +11,13 @@ import (
 )
 
 const (
-	configFilePathENV = "CONFIG_FILE"
-	tokenTelegramENV  = "TELEGRAM_TOKEN"
-	databaseDSN       = "DATABASE_DSN"
+	configFilePathENV     = "CONFIG_FILE"
+	tokenTelegramENV      = "TELEGRAM_TOKEN"
+	databaseDSN           = "DATABASE_DSN"
+	OKXAPIKey             = "OKXAPI_KEY"
+	OKXAPISecret          = "OKXAPI_SECRET"
+	OKXPassphrase         = "OKXAPI_PASS"
+	ServiceTelegramChatID = "CHAT_ID"
 )
 
 // Config ...
@@ -27,6 +31,13 @@ type Config struct {
 		PublicPort int    `yaml:"public_port"`
 		AdminPort  int    `yaml:"admin_port"`
 	} `yaml:"service"`
+
+	// OKX
+	OKXAPIKey     string `yaml:"okx_api_key"`
+	OKXAPISecret  string `yaml:"okx_api_secret"`
+	OKXPassphrase string `yaml:"okx_passphrase"`
+
+	ServiceTelegramChatID int `yaml:"service_telegram_chat_id"`
 
 	// Дефолты риска
 	// Сколько от депозита мы готовы потерять по СТОПУ, а не по ликвидации
@@ -127,6 +138,20 @@ func NewConfig() (*Config, error) {
 	if dsn != "" {
 		config.DB = dsn
 	}
+	key := os.Getenv(OKXAPIKey)
+	if key != "" {
+		config.OKXAPIKey = key
+	}
+	secret := os.Getenv(OKXAPISecret)
+	if secret != "" {
+		config.OKXAPISecret = secret
+	}
+	passphrase := os.Getenv(OKXPassphrase)
+	if passphrase != "" {
+		config.OKXPassphrase = passphrase
+	}
+
+	config.ServiceTelegramChatID = intFromEnv(ServiceTelegramChatID, 0)
 
 	return &config, nil
 }

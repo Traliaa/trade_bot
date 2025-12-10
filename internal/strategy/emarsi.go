@@ -37,7 +37,7 @@ func NewEMARSI(cfg *models.TradingSettings) *EMARSI {
 	}
 }
 
-func (e *EMARSI) OnCandle(symbol string, c Candle) Signal {
+func (e *EMARSI) OnCandle(symbol string, c models.CandleTick) models.Signal {
 	// старая логика принимала только цену Close
 	side, ok := e.Update(
 		symbol,
@@ -49,17 +49,17 @@ func (e *EMARSI) OnCandle(symbol string, c Candle) Signal {
 		e.cfg.RSIOSold,
 	)
 	if !ok {
-		return Signal{Symbol: symbol, Side: SideNone}
+		return models.Signal{Symbol: symbol, Side: models.SideNone}
 	}
 
-	var s Side
+	var s models.Side
 	if side == "BUY" {
-		s = SideBuy
+		s = models.SideBuy
 	} else if side == "SELL" {
-		s = SideSell
+		s = models.SideSell
 	}
 
-	return Signal{
+	return models.Signal{
 		Symbol: symbol,
 		Side:   s,
 		Price:  c.Close,

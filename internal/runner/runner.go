@@ -2,15 +2,12 @@ package runner
 
 import (
 	"context"
-	"fmt"
-	"log"
-	"math"
-	"strings"
 	"sync"
 	"time"
 	"trade_bot/internal/models"
 
-	"trade_bot/internal/exchange"
+	okx_client "trade_bot/internal/modules/okx_client/service"
+	okx_websocket "trade_bot/internal/modules/okx_websocket/service"
 	"trade_bot/internal/strategy"
 
 	tgbot "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -31,12 +28,13 @@ type Runner struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
+	mkt *okx_websocket.Client
 	cfg *models.UserSettings
-	mx  *exchange.Client
+	mx  *okx_client.Client
 	stg strategy.Engine
 	n   TelegramNotifier
 
-	queue       chan signalReq
+	queue       chan models.Signal
 	pending     map[string]bool      // symbol -> awaiting decision
 	cooldownTil map[string]time.Time // symbol -> until
 	lastTick    map[string]time.Time // symbol -> last candle time
@@ -45,7 +43,7 @@ type Runner struct {
 	healthMu sync.Mutex // lastTick
 }
 
-func New(user *models.UserSettings, n TelegramNotifier) *Runner {
+func New(user *models.UserSettings, n TelegramNotifier, mkt *okx_websocket.Client) *Runner {
 
 	qsize := user.TradingSettings.ConfirmQueueMax
 	if qsize <= 0 {
@@ -54,53 +52,54 @@ func New(user *models.UserSettings, n TelegramNotifier) *Runner {
 
 	return &Runner{
 		cfg:         user,
-		mx:          exchange.NewClient(user),
+		mx:          okx_client.NewClient(user),
 		n:           n,
 		stg:         strategy.NewEngine(&user.TradingSettings),
-		queue:       make(chan signalReq, qsize),
+		queue:       make(chan models.Signal, qsize),
 		pending:     make(map[string]bool),
 		cooldownTil: make(map[string]time.Time),
 		lastTick:    make(map[string]time.Time),
+		mkt:         mkt,
 	}
 }
 
-func (r *Runner) Start(parent context.Context) {
-	r.ctx, r.cancel = context.WithCancel(parent)
-	// запуск воркера подтверждений
-	go r.confirmWorker(r.ctx)
-
-	raw := r.mx.TopVolatile(r.cfg.TradingSettings.WatchTopN)
-
-	watch := []string{}
-	for _, s := range raw {
-		if r.mx.HasCandles(s, r.cfg.TradingSettings.Timeframe) {
-			watch = append(watch, s)
-		} else {
-			log.Printf("[SKIP] %s — нет свечей %s у OKX", s, r.cfg.TradingSettings.Timeframe)
-		}
-	}
-	if len(watch) == 0 {
-		log.Println("[WATCHLIST] не удалось получить список самых волатильных инструментов")
-		return
-	}
-	log.Printf("[WATCHLIST] топ %d самых волатильных SWAP: %v", len(watch), watch)
-	r.n.SendF(r.ctx, r.cfg.UserID, "📈 Watchlist запущен: %d символов", len(watch))
-
-	r.watchSymbols(r.ctx, watch)
-}
-
-func (r *Runner) watchSymbols(ctx context.Context, symbols []string) {
-	log.Printf("[RUNNER] ▶️ Старт батч-отслеживания %d символов", len(symbols))
-	stream := r.mx.StreamCandlesBatch(ctx, symbols, r.cfg.TradingSettings.Timeframe)
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case tick := <-stream:
-			go r.onCandle(ctx, tick)
-		}
-	}
-}
+//func (r *Runner) Start(ctx context.Context) {
+//	// 1. Берём общий watchlist от стримера
+//	watch := r.mkt.Watchlist()
+//	if len(watch) == 0 {
+//		r.n.SendF(ctx, r.cfg.UserID, "⚠️ Watchlist пуст, сигналы недоступны")
+//		return
+//	}
+//
+//	r.n.SendF(ctx, r.cfg.UserID, "📈 Watchlist для этого бота: %d символов", len(watch))
+//
+//	// 2. На каждый символ подписываемся на общий поток свечей
+//	for _, sym := range watch {
+//		sym := sym
+//		ticks := r.mkt.Subscribe(sym)
+//
+//		go func() {
+//			defer r.mkt.Unsubscribe(sym, ticks)
+//
+//			for {
+//				select {
+//				case <-ctx.Done():
+//					return
+//				case tick, ok := <-ticks:
+//					if !ok {
+//						return
+//					}
+//					// tick.InstID, tick.Close, tick.High, tick.Low ...
+//					r.onCandle(ctx, tick)
+//				}
+//			}
+//		}()
+//	}
+//
+//	// плюс твой confirmWorker/healthLoop, как раньше
+//	go r.confirmWorker(ctx)
+//
+//}
 
 // Stop — мягко гасит раннер.
 func (r *Runner) Stop() {
@@ -126,215 +125,216 @@ func (r *Runner) Stop() {
 //	}
 //}
 
-func (r *Runner) onCandle(ctx context.Context, tick exchange.CandleTick) {
-	symbol := tick.InstID
-	now := time.Now()
+//func (r *Runner) onCandle(ctx context.Context, tick models.CandleTick) {
+//	symbol := tick.InstID
+//	now := time.Now()
+//
+//	r.healthMu.Lock()
+//	r.lastTick[symbol] = now
+//	r.healthMu.Unlock()
+//
+//	if r.cfg.TradingSettings.MaxOpenPositions > 0 {
+//		if positions, err := r.mx.OpenPositions(ctx); err == nil &&
+//			len(positions) >= r.cfg.TradingSettings.MaxOpenPositions {
+//			return
+//		}
+//	}
+//
+//	log.Printf("[EVAL] %s candle-check close=%.6f", symbol, tick.Close)
+//
+//	sig := r.stg.OnCandle(symbol, strategy.Candle{
+//		Open:  tick.Open,
+//		High:  tick.High,
+//		Low:   tick.Low,
+//		Close: tick.Close,
+//	})
+//	if sig.Side == strategy.SideNone {
+//		return
+//	}
+//
+//	side := string(sig.Side)
+//	price := sig.Price
+//	if price <= 0 {
+//		price = tick.Close
+//	}
+//
+//	log.Printf("[STRAT] %s signal=%s @ %.6f | %s", symbol, side, price, sig.Reason)
+//
+//	r.mu.Lock()
+//	defer r.mu.Unlock()
+//
+//	// 4. Кулдаун по символу
+//	if until, ok := r.cooldownTil[symbol]; ok && now.Before(until) {
+//		return
+//	}
+//
+//	// 5. Уже ждёт подтверждения — не дублируем
+//	if r.pending[symbol] {
+//		return
+//	}
+//
+//	req := signalReq{
+//		symbol: symbol,
+//		price:  price,
+//		side:   side,
+//	}
+//
+//	// 6. Пихаем сигнал в очередь с учётом политики
+//	select {
+//	case r.queue <- req:
+//		log.Printf("[SIGNAL] %s %s @ %.4f", symbol, side, price)
+//		r.pending[symbol] = true
+//
+//	default:
+//		policy := r.cfg.TradingSettings.ConfirmQueuePolicy
+//
+//		switch policy {
+//		case "drop_oldest":
+//			select {
+//			case <-r.queue:
+//			default:
+//			}
+//			select {
+//			case r.queue <- req:
+//				log.Printf("[SIGNAL] %s %s @ %.4f (after drop_oldest)", symbol, side, price)
+//				r.pending[symbol] = true
+//			default:
+//			}
+//
+//		case "drop_same_symbol":
+//			return
+//
+//		default:
+//			return
+//		}
+//	}
+//}
 
-	r.healthMu.Lock()
-	r.lastTick[symbol] = now
-	r.healthMu.Unlock()
-
-	if r.cfg.TradingSettings.MaxOpenPositions > 0 {
-		if positions, err := r.mx.OpenPositions(ctx); err == nil &&
-			len(positions) >= r.cfg.TradingSettings.MaxOpenPositions {
-			return
-		}
-	}
-
-	log.Printf("[EVAL] %s candle-check close=%.6f", symbol, tick.Close)
-
-	sig := r.stg.OnCandle(symbol, strategy.Candle{
-		Open:  tick.Open,
-		High:  tick.High,
-		Low:   tick.Low,
-		Close: tick.Close,
-	})
-	if sig.Side == strategy.SideNone {
-		return
-	}
-
-	side := string(sig.Side)
-	price := sig.Price
-	if price <= 0 {
-		price = tick.Close
-	}
-
-	log.Printf("[STRAT] %s signal=%s @ %.6f | %s", symbol, side, price, sig.Reason)
-
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
-	// 4. Кулдаун по символу
-	if until, ok := r.cooldownTil[symbol]; ok && now.Before(until) {
-		return
-	}
-
-	// 5. Уже ждёт подтверждения — не дублируем
-	if r.pending[symbol] {
-		return
-	}
-
-	req := signalReq{
-		symbol: symbol,
-		price:  price,
-		side:   side,
-	}
-
-	// 6. Пихаем сигнал в очередь с учётом политики
-	select {
-	case r.queue <- req:
-		log.Printf("[SIGNAL] %s %s @ %.4f", symbol, side, price)
-		r.pending[symbol] = true
-
-	default:
-		policy := r.cfg.TradingSettings.ConfirmQueuePolicy
-
-		switch policy {
-		case "drop_oldest":
-			select {
-			case <-r.queue:
-			default:
-			}
-			select {
-			case r.queue <- req:
-				log.Printf("[SIGNAL] %s %s @ %.4f (after drop_oldest)", symbol, side, price)
-				r.pending[symbol] = true
-			default:
-			}
-
-		case "drop_same_symbol":
-			return
-
-		default:
-			return
-		}
-	}
-}
-func (r *Runner) setPending(symbol string, v bool) {
-	r.mu.Lock()
-	r.pending[symbol] = v
-	r.mu.Unlock()
-}
-
-func (r *Runner) confirmWorker(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			return
-
-		case req := <-r.queue:
-			// 0. Лимит открытых позиций
-			if r.cfg.TradingSettings.MaxOpenPositions > 0 {
-				if positions, err := r.mx.OpenPositions(ctx); err == nil &&
-					len(positions) >= r.cfg.TradingSettings.MaxOpenPositions {
-					r.setPending(req.symbol, false)
-					r.n.SendF(ctx, r.cfg.UserID,
-						"⚠️ [%s] Лимит открытых позиций (%d) достигнут, сигнал пропущен",
-						req.symbol, r.cfg.TradingSettings.MaxOpenPositions,
-					)
-					continue
-				}
-			}
-
-			prompt := fmt.Sprintf(
-				"🔔 [%s] SIGNAL %s @ %.4f\nSL/TP будут выставлены после входа. Войти?",
-				req.symbol, req.side, req.price,
-			)
-
-			ok := true
-			if r.cfg.TradingSettings.ConfirmRequired {
-				ok = r.n.Confirm(ctx, r.cfg.UserID, prompt, r.cfg.TradingSettings.ConfirmTimeout)
-			}
-			if !ok {
-				r.mu.Lock()
-				r.cooldownTil[req.symbol] = time.Now().Add(r.cfg.TradingSettings.CooldownPerSymbol)
-				r.mu.Unlock()
-				r.setPending(req.symbol, false)
-				r.n.SendF(ctx, r.cfg.UserID, "⛔️ [%s] Вход отменён/таймаут", req.symbol)
-				continue
-			}
-
-			// 1. Считаем все параметры сделки (SL/TP/size и т.д.)
-			params, err := r.calcTradeParams(ctx, req.symbol, req.side, req.price)
-			if err != nil {
-				r.n.SendF(ctx, r.cfg.UserID,
-					"❗️ [%s] Ошибка расчёта параметров сделки: %v", req.symbol, err)
-				r.setPending(req.symbol, false)
-				continue
-			}
-			r.n.SendF(ctx, r.cfg.UserID,
-				"[%s] DEBUG entry=%.6f SL=%.6f TP=%.6f 1R=%.6f RR=%.2f risk=%.2f%% size=%.4f",
-				req.symbol,
-				params.Entry, params.SL, params.TP, params.RiskDist,
-				params.RR, params.RiskPct, params.Size,
-			)
-
-			// 2. Открываем рыночный ордер
-			openType := 1
-			var sideInt int
-			if strings.EqualFold(params.Direction, "BUY") {
-				sideInt = 1
-			} else {
-				sideInt = 3
-			}
-
-			orderID, err := r.mx.PlaceMarket(
-				ctx, req.symbol, params.Size, sideInt,
-				params.Leverage, openType,
-			)
-			if err != nil {
-				r.n.SendF(ctx, r.cfg.UserID,
-					"❗️ [%s] Ошибка открытия ордера: %v", req.symbol, err)
-				r.setPending(req.symbol, false)
-				continue
-			}
-
-			// 3. TP/SL
-			posSide := "long"
-			if strings.EqualFold(params.Direction, "SELL") {
-				posSide = "short"
-			}
-
-			r.n.SendF(ctx, r.cfg.UserID,
-				"[%s] DEBUG entry=%.6f SL=%.6f TP=%.6f 1R=%.6f RR=%.2f risk=%.2f%% size=%.4f",
-				req.symbol,
-				params.Entry, params.SL, params.TP, params.RiskDist,
-				params.RR, params.RiskPct, params.Size,
-			)
-			// BUY => posSide="long", side="sell" (закрытие позиции)
-			side := "sell"
-
-			// 1) Stop-loss
-			err = r.mx.PlaceSingleAlgo(ctx, req.symbol, posSide, side, params.Size, params.SL, false)
-			if err != nil {
-				r.n.SendF(ctx, r.cfg.UserID,
-					"⚠️ [%s] TP/SL не выставлены на OKX: %v", req.symbol, err)
-			}
-
-			// 2) Take-profit
-			err = r.mx.PlaceSingleAlgo(ctx, req.symbol, posSide, side, params.Size, params.TP, true)
-			if err != nil {
-				r.n.SendF(ctx, r.cfg.UserID,
-					"⚠️ [%s] TP/SL не выставлены на OKX: %v", req.symbol, err)
-
-			}
-			//if err := r.mx.PlaceTpsl(ctx, req.symbol, posSide, params.Size, params.SL, params.TP); err != nil {
-			//	r.n.SendF(ctx, r.cfg.UserID,
-			//		"⚠️ [%s] TP/SL не выставлены на OKX: %v", req.symbol, err)
-			//}
-
-			r.n.SendF(ctx,
-				r.cfg.UserID,
-				"✅ [%s] Вход подтверждён | OPEN %-4s @ %.4f | SL=%.4f TP=%.4f lev=%dx size=%.4f | %s (orderId=%s)",
-				req.symbol, params.Direction, params.Entry, params.SL, params.TP,
-				params.Leverage, params.Size,
-				r.stg.Dump(req.symbol), orderID,
-			)
-
-			r.setPending(req.symbol, false)
-		}
-	}
-}
+//func (r *Runner) setPending(symbol string, v bool) {
+//	r.mu.Lock()
+//	r.pending[symbol] = v
+//	r.mu.Unlock()
+//}
+//
+//func (r *Runner) confirmWorker(ctx context.Context) {
+//	for {
+//		select {
+//		case <-ctx.Done():
+//			return
+//
+//		case req := <-r.queue:
+//			// 0. Лимит открытых позиций
+//			if r.cfg.TradingSettings.MaxOpenPositions > 0 {
+//				if positions, err := r.mx.OpenPositions(ctx); err == nil &&
+//					len(positions) >= r.cfg.TradingSettings.MaxOpenPositions {
+//					r.setPending(req.symbol, false)
+//					r.n.SendF(ctx, r.cfg.UserID,
+//						"⚠️ [%s] Лимит открытых позиций (%d) достигнут, сигнал пропущен",
+//						req.symbol, r.cfg.TradingSettings.MaxOpenPositions,
+//					)
+//					continue
+//				}
+//			}
+//
+//			prompt := fmt.Sprintf(
+//				"🔔 [%s] SIGNAL %s @ %.4f\nSL/TP будут выставлены после входа. Войти?",
+//				req.symbol, req.side, req.price,
+//			)
+//
+//			ok := true
+//			if r.cfg.TradingSettings.ConfirmRequired {
+//				ok = r.n.Confirm(ctx, r.cfg.UserID, prompt, r.cfg.TradingSettings.ConfirmTimeout)
+//			}
+//			if !ok {
+//				r.mu.Lock()
+//				r.cooldownTil[req.symbol] = time.Now().Add(r.cfg.TradingSettings.CooldownPerSymbol)
+//				r.mu.Unlock()
+//				r.setPending(req.symbol, false)
+//				r.n.SendF(ctx, r.cfg.UserID, "⛔️ [%s] Вход отменён/таймаут", req.symbol)
+//				continue
+//			}
+//
+//			// 1. Считаем все параметры сделки (SL/TP/size и т.д.)
+//			params, err := r.calcTradeParams(ctx, req.symbol, req.side, req.price)
+//			if err != nil {
+//				r.n.SendF(ctx, r.cfg.UserID,
+//					"❗️ [%s] Ошибка расчёта параметров сделки: %v", req.symbol, err)
+//				r.setPending(req.symbol, false)
+//				continue
+//			}
+//			r.n.SendF(ctx, r.cfg.UserID,
+//				"[%s] DEBUG entry=%.6f SL=%.6f TP=%.6f 1R=%.6f RR=%.2f risk=%.2f%% size=%.4f",
+//				req.symbol,
+//				params.Entry, params.SL, params.TP, params.RiskDist,
+//				params.RR, params.RiskPct, params.Size,
+//			)
+//
+//			// 2. Открываем рыночный ордер
+//			openType := 1
+//			var sideInt int
+//			if strings.EqualFold(params.Direction, "BUY") {
+//				sideInt = 1
+//			} else {
+//				sideInt = 3
+//			}
+//
+//			orderID, err := r.mx.PlaceMarket(
+//				ctx, req.symbol, params.Size, sideInt,
+//				params.Leverage, openType,
+//			)
+//			if err != nil {
+//				r.n.SendF(ctx, r.cfg.UserID,
+//					"❗️ [%s] Ошибка открытия ордера: %v", req.symbol, err)
+//				r.setPending(req.symbol, false)
+//				continue
+//			}
+//
+//			// 3. TP/SL
+//			posSide := "long"
+//			if strings.EqualFold(params.Direction, "SELL") {
+//				posSide = "short"
+//			}
+//
+//			r.n.SendF(ctx, r.cfg.UserID,
+//				"[%s] DEBUG entry=%.6f SL=%.6f TP=%.6f 1R=%.6f RR=%.2f risk=%.2f%% size=%.4f",
+//				req.symbol,
+//				params.Entry, params.SL, params.TP, params.RiskDist,
+//				params.RR, params.RiskPct, params.Size,
+//			)
+//			// BUY => posSide="long", side="sell" (закрытие позиции)
+//			side := "sell"
+//
+//			// 1) Stop-loss
+//			err = r.mx.PlaceSingleAlgo(ctx, req.symbol, posSide, side, params.Size, params.SL, false)
+//			if err != nil {
+//				r.n.SendF(ctx, r.cfg.UserID,
+//					"⚠️ [%s] TP/SL не выставлены на OKX: %v", req.symbol, err)
+//			}
+//
+//			// 2) Take-profit
+//			err = r.mx.PlaceSingleAlgo(ctx, req.symbol, posSide, side, params.Size, params.TP, true)
+//			if err != nil {
+//				r.n.SendF(ctx, r.cfg.UserID,
+//					"⚠️ [%s] TP/SL не выставлены на OKX: %v", req.symbol, err)
+//
+//			}
+//			//if err := r.mx.PlaceTpsl(ctx, req.symbol, posSide, params.Size, params.SL, params.TP); err != nil {
+//			//	r.n.SendF(ctx, r.cfg.UserID,
+//			//		"⚠️ [%s] TP/SL не выставлены на OKX: %v", req.symbol, err)
+//			//}
+//
+//			r.n.SendF(ctx,
+//				r.cfg.UserID,
+//				"✅ [%s] Вход подтверждён | OPEN %-4s @ %.4f | SL=%.4f TP=%.4f lev=%dx size=%.4f | %s (orderId=%s)",
+//				req.symbol, params.Direction, params.Entry, params.SL, params.TP,
+//				params.Leverage, params.Size,
+//				r.stg.Dump(req.symbol), orderID,
+//			)
+//
+//			r.setPending(req.symbol, false)
+//		}
+//	}
+//}
 
 // TradeParams содержит все рассчитанные параметры сделки.
 type TradeParams struct {
@@ -348,157 +348,4 @@ type TradeParams struct {
 	RiskDist  float64
 	Leverage  int
 	Direction string // "BUY" или "SELL"
-}
-
-// calcTradeParams считает SL, TP, размер позиции и сопутствующие параметры
-// по текущим настройкам стратегии.
-func (r *Runner) calcTradeParams(
-	ctx context.Context,
-	symbol string,
-	side string,
-	entry float64,
-) (*TradeParams, error) {
-	side = strings.ToUpper(side)
-
-	// 1. Настройки риска
-	riskPct := r.cfg.TradingSettings.RiskPct / 100.0 // 3 => 0.03
-	if riskPct <= 0 {
-		return nil, fmt.Errorf("riskPct <= 0")
-	}
-	rr := r.cfg.TradingSettings.TakeProfitRR
-	if rr <= 0 {
-		rr = 3.0
-	}
-	lev := r.cfg.TradingSettings.Leverage
-
-	// 2. Забираем мету инструмента (включая tickSize)
-	price, stepSize, minSz, tickSize, maxMktSz, err := r.mx.GetInstrumentMeta(ctx, symbol)
-	if err != nil {
-		return nil, fmt.Errorf("GetInstrumentMeta: %w", err)
-	}
-	if entry <= 0 {
-		entry = price
-	}
-	if entry <= 0 {
-		return nil, fmt.Errorf("entry <= 0")
-	}
-
-	// 3. Считаем сырой SL
-	var sl float64
-	if side == "BUY" {
-		sl = entry * (1 - riskPct)
-	} else {
-		sl = entry * (1 + riskPct)
-	}
-
-	// 4. Округляем SL по tickSize
-	sl = roundToTick(sl, tickSize)
-
-	// 5. 1R и TP (1R считаем уже по округлённому SL)
-	riskDist := math.Abs(entry - sl)
-
-	var tp float64
-	if side == "BUY" {
-		tp = entry + rr*riskDist
-	} else {
-		tp = entry - rr*riskDist
-	}
-	// Округляем TP
-	tp = roundToTick(tp, tickSize)
-
-	// 6. Считаем размер позиции с учётом того SL, который реально уйдёт на биржу
-	size, err := r.calcSizeByRiskWithMeta(ctx, symbol, entry, sl, stepSize, minSz, tickSize, maxMktSz)
-	if err != nil {
-		return nil, fmt.Errorf("calcSizeByRisk: %w", err)
-	}
-	if size <= 0 {
-		return nil, fmt.Errorf("size <= 0")
-	}
-
-	params := &TradeParams{
-		Entry:     entry,
-		SL:        sl,
-		TP:        tp,
-		Size:      size,
-		TickSize:  tickSize,
-		RiskPct:   r.cfg.TradingSettings.RiskPct,
-		RR:        rr,
-		RiskDist:  riskDist,
-		Leverage:  lev,
-		Direction: side,
-	}
-	return params, nil
-}
-func roundToTick(px, tick float64) float64 {
-	if tick <= 0 {
-		return px
-	}
-	steps := math.Round(px/tick + 1e-9)
-	return steps * tick
-}
-func (r *Runner) calcSizeByRiskWithMeta(
-	ctx context.Context,
-	symbol string,
-	entryPrice float64,
-	slPrice float64,
-	stepSize float64,
-	minSz float64,
-	tickSize float64,
-	maxMktSz float64, // 👈 новый параметр
-) (float64, error) {
-
-	if entryPrice <= 0 || slPrice <= 0 {
-		return 0, fmt.Errorf("entry/sl <= 0")
-	}
-
-	stopDist := math.Abs(entryPrice - slPrice)
-	if stopDist <= 0 {
-		return 0, fmt.Errorf("нулевой стоп")
-	}
-	stopPct := stopDist / entryPrice
-
-	equity, err := r.mx.USDTBalance(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("get equity: %w", err)
-	}
-	if equity <= 0 {
-		return 0, fmt.Errorf("equity <= 0")
-	}
-
-	riskFraction := r.cfg.TradingSettings.RiskPct / 100.0
-	if riskFraction <= 0 {
-		return 0, fmt.Errorf("riskFraction <= 0")
-	}
-	riskUSDT := equity * riskFraction
-
-	positionValue := riskUSDT / stopPct
-
-	// 🔒 кап по PositionPct * equity * leverage
-	if pp := r.cfg.TradingSettings.PositionPct; pp > 0 {
-		maxFrac := pp / 100.0
-		maxByPositionPct := equity * maxFrac * float64(r.cfg.TradingSettings.Leverage)
-		if positionValue > maxByPositionPct {
-			positionValue = maxByPositionPct
-		}
-	}
-
-	rawSz := positionValue / entryPrice
-
-	// минимум
-	if rawSz < minSz {
-		rawSz = minSz
-	}
-
-	// 🔒 КАП ПО МАКСИМАЛЬНОМУ РАЗМЕРУ РЫНОЧНОГО ОРДЕРА ДЛЯ ЭТОГО ИНСТРУМЕНТА
-	if maxMktSz > 0 && rawSz > maxMktSz {
-		rawSz = maxMktSz
-	}
-
-	steps := math.Floor(rawSz/stepSize + 1e-9)
-	sz := steps * stepSize
-	if sz <= 0 {
-		return 0, fmt.Errorf("ноль после округления")
-	}
-
-	return sz, nil
 }

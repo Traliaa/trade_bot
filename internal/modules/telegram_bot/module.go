@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"context"
+	okx_websocket "trade_bot/internal/modules/okx_websocket/service"
 	"trade_bot/internal/modules/telegram_bot/service"
 	"trade_bot/internal/modules/telegram_bot/service/pg"
 	"trade_bot/internal/runner"
@@ -19,6 +20,9 @@ func Module() fx.Option {
 		// 2. Сервис Telegram как *service.Telegram
 		fx.Provide(
 			service.NewTelegram, // func(*config.Config, *pg.User, *runner.Manager) (*service.Telegram, error)
+			func(t *service.Telegram) okx_websocket.ServiceNotifier {
+				return t
+			},
 		),
 
 		// 3. Адаптер: *service.Telegram -> runner.TelegramNotifier

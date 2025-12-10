@@ -1,4 +1,4 @@
-package exchange
+package service
 
 import (
 	"context"
@@ -6,73 +6,13 @@ import (
 	"log"
 	"strconv"
 	"time"
+	"trade_bot/internal/models"
 )
-
-type CandleTick struct {
-	InstID string
-
-	Open  float64
-	High  float64
-	Low   float64
-	Close float64
-
-	Volume       float64   // объём в контрактах (row[5])
-	QuoteVolume  float64   // объём в quote (row[7]) — по желанию
-	Start        time.Time // время начала свечи (ts)
-	End          time.Time // время конца свечи (Start + duration)
-	TimeframeRaw string    // "1m", "5m" — на всякий случай
-}
-
-func timeframeToDuration(tf string) time.Duration {
-	switch tf {
-	case "1m":
-		return time.Minute
-	case "3m":
-		return 3 * time.Minute
-	case "5m":
-		return 5 * time.Minute
-	case "15m":
-		return 15 * time.Minute
-	case "30m":
-		return 30 * time.Minute
-	case "1H", "1h":
-		return time.Hour
-	case "4H", "4h":
-		return 4 * time.Hour
-	default:
-		return 0 // неизвестный — оставим End = Start
-	}
-}
-
-// StreamCandles — поток закрытых свечей OKX по таймфрейму ("1m","5m","15m").
-// legacy: обёртка над батч-версией для одного инструмента.
-func (c *Client) StreamCandles(ctx context.Context, instID, timeframe string) <-chan float64 {
-	out := make(chan float64)
-	go func() {
-		defer close(out)
-		ch := c.StreamCandlesBatch(ctx, []string{instID}, timeframe)
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case tick, ok := <-ch:
-				if !ok {
-					return
-				}
-				if tick.InstID != instID {
-					continue
-				}
-				out <- tick.Close
-			}
-		}
-	}()
-	return out
-}
 
 // StreamCandlesBatch — один WebSocket на таймфрейм с пачкой инструментов в args.
 // Возвращает поток CandleTick: instId + полная информация по закрытой свече.
-func (c *Client) StreamCandlesBatch(ctx context.Context, instIDs []string, timeframe string) <-chan CandleTick {
-	ch := make(chan CandleTick)
+func (c *Client) StreamCandlesBatch(ctx context.Context, instIDs []string, timeframe string) <-chan models.CandleTick {
+	ch := make(chan models.CandleTick)
 
 	go func() {
 		defer close(ch)
@@ -202,10 +142,7 @@ func (c *Client) StreamCandlesBatch(ctx context.Context, instIDs []string, timef
 						volQuote, _ = strconv.ParseFloat(row[7], 64)
 					}
 
-					// обновляем last price кэшем
-					c.SetPrice(frame.Arg.InstID, closep)
-
-					tick := CandleTick{
+					tick := models.CandleTick{
 						InstID:       frame.Arg.InstID,
 						Open:         open,
 						High:         high,

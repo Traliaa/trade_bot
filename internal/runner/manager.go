@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"strings"
 	"sync"
-	"trade_bot/internal/exchange"
 	"trade_bot/internal/models"
+	"trade_bot/internal/modules/okx_client/service"
+	okx_websocket "trade_bot/internal/modules/okx_websocket/service"
 )
 
 type SettingsStore interface {
@@ -18,42 +19,43 @@ type SettingsStore interface {
 type Manager struct {
 	mu      sync.Mutex
 	runners map[int64]*Runner
+	mkt     *okx_websocket.Client
 }
 
-func NewManager() *Manager {
+func NewManager(mkt *okx_websocket.Client) *Manager {
 	return &Manager{
-
+		mkt:     mkt,
 		runners: make(map[int64]*Runner),
 	}
 }
 
-// RunForUser стартует воркер для конкретного юзера (если ещё не запущен).
-func (m *Manager) RunForUser(ctx context.Context, user *models.UserSettings, t TelegramNotifier) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if _, running := m.runners[user.UserID]; running {
-		// уже запущен — можно вернуть nil или ошибку, как удобнее
-		return fmt.Errorf("runner already running for user %d", user.UserID)
-	}
-
-	// 4. Runner для юзера
-	r := New(user, t)
-	m.runners[user.UserID] = r
-
-	// 5. Запускаем в отдельной горутине
-	go func() {
-		// по-хорошему, сюда лучше передавать дочерний ctx с отменой
-		r.Start(ctx)
-
-		// когда Start закончится — выпилим раннер из мапы
-		m.mu.Lock()
-		delete(m.runners, user.UserID)
-		m.mu.Unlock()
-	}()
-
-	return nil
-}
+//// RunForUser стартует воркер для конкретного юзера (если ещё не запущен).
+//func (m *Manager) RunForUser(ctx context.Context, user *models.UserSettings, t TelegramNotifier) error {
+//	m.mu.Lock()
+//	defer m.mu.Unlock()
+//
+//	if _, running := m.runners[user.UserID]; running {
+//		// уже запущен — можно вернуть nil или ошибку, как удобнее
+//		return fmt.Errorf("runner already running for user %d", user.UserID)
+//	}
+//
+//	// 4. Runner для юзера
+//	r := New(user, t, m.mkt)
+//	m.runners[user.UserID] = r
+//
+//	// 5. Запускаем в отдельной горутине
+//	go func() {
+//		// по-хорошему, сюда лучше передавать дочерний ctx с отменой
+//		r.Start(ctx)
+//
+//		// когда Start закончится — выпилим раннер из мапы
+//		m.mu.Lock()
+//		delete(m.runners, user.UserID)
+//		m.mu.Unlock()
+//	}()
+//
+//	return nil
+//}
 
 // StopForUser останавливает воркер для конкретного юзера (если запущен).
 func (m *Manager) StopForUser(ctx context.Context, user *models.UserSettings) error {
@@ -76,7 +78,7 @@ func (m *Manager) StopForUser(ctx context.Context, user *models.UserSettings) er
 func (m *Manager) StatusForUser(ctx context.Context, user *models.UserSettings) (string, error) {
 	// тут либо переиспользуешь существующий exchange.Client,
 	// либо создаёшь временный
-	mx := exchange.NewClient(user) // подставь свой конструктор
+	mx := service.NewClient(user) // подставь свой конструктор
 
 	positions, err := mx.OpenPositions(ctx)
 	if err != nil {

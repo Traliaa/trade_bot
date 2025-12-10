@@ -6,9 +6,8 @@ import (
 
 func Module() fx.Option {
 	return fx.Module("runner",
-		// сам Manager
 		fx.Provide(
-			NewManager,
+			NewRouter, // *Router
 		),
 	)
 }

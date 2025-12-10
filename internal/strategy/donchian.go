@@ -5,6 +5,7 @@ import (
 	"log"
 	"math"
 	"sync"
+	"trade_bot/internal/models"
 )
 
 // DonchianConfig — параметры стратегии.
@@ -27,7 +28,7 @@ type symbolState struct {
 	lows  []float64
 	ema   emaState
 
-	lastSignal Side
+	lastSignal models.Side
 }
 
 type emaState struct {
@@ -96,7 +97,7 @@ func (s *Donchian) get(symbol string) *symbolState {
 
 // OnCandle — вызываешь на закрытии каждой свечи.
 // ВАЖНО: пробой считаем по предыдущим N свечам, потом только обновляем окно.
-func (s *Donchian) OnCandle(symbol string, c Candle) Signal {
+func (s *Donchian) OnCandle(symbol string, c models.CandleTick) models.Signal {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -113,7 +114,7 @@ func (s *Donchian) OnCandle(symbol string, c Candle) Signal {
 		log.Printf("[DON] %s warmup highs=%d/%d emaReady=%v close=%.6f",
 			symbol, len(st.highs), s.cfg.Period, st.ema.Ready(), c.Close)
 
-		return Signal{Symbol: symbol, Side: SideNone}
+		return models.Signal{Symbol: symbol, Side: models.SideNone}
 	}
 
 	prevHighs := st.highs
@@ -131,19 +132,19 @@ func (s *Donchian) OnCandle(symbol string, c Candle) Signal {
 	if !st.ema.Ready() {
 		st.highs = append(st.highs[1:], c.High)
 		st.lows = append(st.lows[1:], c.Low)
-		return Signal{Symbol: symbol, Side: SideNone}
+		return models.Signal{Symbol: symbol, Side: models.SideNone}
 	}
 
-	var side Side
+	var side models.Side
 	var reason string
 
 	if c.Close > dh && c.Close > ema {
-		side = SideBuy
+		side = models.SideBuy
 		reason = fmt.Sprintf("Donchian breakout UP: close=%.5f > dh=%.5f & ema=%.5f", c.Close, dh, ema)
 	}
 
 	if c.Close < dl && c.Close < ema {
-		side = SideSell
+		side = models.SideSell
 		reason = fmt.Sprintf("Donchian breakout DOWN: close=%.5f < dl=%.5f & ema=%.5f", c.Close, dl, ema)
 	}
 
@@ -151,15 +152,15 @@ func (s *Donchian) OnCandle(symbol string, c Candle) Signal {
 	st.highs = append(st.highs[1:], c.High)
 	st.lows = append(st.lows[1:], c.Low)
 
-	if side == SideNone {
-		return Signal{Symbol: symbol, Side: SideNone}
+	if side == models.SideNone {
+		return models.Signal{Symbol: symbol, Side: models.SideNone}
 	}
 
 	log.Printf("[DON] %s SIGNAL %s @ %.6f | %s", symbol, side, c.Close, reason)
 
 	st.lastSignal = side
 
-	return Signal{
+	return models.Signal{
 		Symbol: symbol,
 		Side:   side,
 		Price:  c.Close,

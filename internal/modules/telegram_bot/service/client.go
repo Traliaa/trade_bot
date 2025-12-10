@@ -25,10 +25,10 @@ type Telegram struct {
 	mu       sync.Mutex
 	pendings map[string]*pending
 	repo     *pg.User
-	manager  *runner.Manager
+	router   *runner.Router
 }
 
-func NewTelegram(cfg *config.Config, repo *pg.User, manager *runner.Manager) (*Telegram, error) {
+func NewTelegram(cfg *config.Config, repo *pg.User, router *runner.Router) (*Telegram, error) {
 	b, err := tgbot.NewBotAPI(cfg.Telegram.Token)
 	if err != nil {
 		return nil, err
@@ -39,8 +39,16 @@ func NewTelegram(cfg *config.Config, repo *pg.User, manager *runner.Manager) (*T
 		cfg:      cfg,
 		pendings: make(map[string]*pending),
 		repo:     repo,
-		manager:  manager,
+		router:   router,
 	}, nil
+}
+
+func (t *Telegram) SendService(ctx context.Context, format string, args ...any) {
+	if t.cfg.ServiceTelegramChatID == 0 {
+		return
+	}
+	text := fmt.Sprintf(format, args...)
+	_, _ = t.Send(ctx, int64(t.cfg.ServiceTelegramChatID), text)
 }
 
 func (t *Telegram) Send(ctx context.Context, chatID int64, msg string) (tgbot.Message, error) {

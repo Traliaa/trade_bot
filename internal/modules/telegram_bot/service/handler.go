@@ -102,12 +102,9 @@ func (t *Telegram) handleTextMessage(ctx context.Context, msg *tgbotapi.Message)
 	switch text {
 	case "▶️ Запустить бота":
 		go func() {
-			runCtx := context.Background()                                // можно сделать per-user контекст, если захочешь
-			if err := t.manager.RunForUser(runCtx, user, t); err != nil { // t реализует TelegramNotifier
-				log.Printf("RunForUser error: %v", err)
-				_, err = t.Send(runCtx, chatID, "❌ Не удалось запустить бота: "+err.Error())
-				return
-			}
+			runCtx := context.Background() // можно сделать per-user контекст, если захочешь
+			t.router.EnableUser(user, t)   // notifier = Telegram, exch = OKX client
+
 			_, err = t.Send(runCtx, chatID, "✅ Бот запущен для этого аккаунта.")
 		}()
 		return
@@ -115,11 +112,7 @@ func (t *Telegram) handleTextMessage(ctx context.Context, msg *tgbotapi.Message)
 	case "⏹ Остановить бота":
 		// Тут предполагаем, что у manager есть StopForUser.
 		// Если пока нет — можно оставить заглушку и сделать TODO.
-		if err := t.manager.StopForUser(ctx, user); err != nil {
-			log.Printf("StopForUser error: %v", err)
-			_, err = t.Send(ctx, chatID, "⚠️ Не удалось остановить бота: "+err.Error())
-			return
-		}
+		t.router.DisableUser(chatID)
 		_, err = t.Send(ctx, chatID, "🛑 Бот остановлен для этого аккаунта.")
 		return
 
@@ -497,14 +490,55 @@ func (t *Telegram) handleEmaRsiAdjust(
 // в service.Telegram
 
 func (t *Telegram) handleStatus(ctx context.Context, user *models.UserSettings) {
-	text, err := t.manager.StatusForUser(ctx, user)
+	positions, err := t.router.StatusForUser(ctx, user.UserID)
 	if err != nil {
 		log.Printf("StatusForUser error: %v", err)
 		_, _ = t.Send(ctx, user.UserID, "⚠️ Не удалось получить статус: "+err.Error())
 		return
 	}
 
-	msg := tgbotapi.NewMessage(user.UserID, text)
+	if len(positions) == 0 {
+
+		msg := tgbotapi.NewMessage(user.UserID, "📊 Открытых позиций нет.")
+		msg.ParseMode = "Markdown"
+		_, _ = t.SendMessage(ctx, msg)
+		return
+	}
+
+	var b strings.Builder
+	b.WriteString("*Открытые позиции:*\n\n")
+
+	var totalPnl float64
+
+	for _, p := range positions {
+		// подгони поля под свой тип PositionInfo
+		symbol := p.Symbol
+		side := strings.ToUpper(p.Side) // BUY/SELL или long/short
+		qty := p.Size                   // размер
+		entry := p.EntryPrice           // средняя цена входа
+		last := p.LastPrice             // последняя цена
+		upnl := p.UnrealizedPnl         // PnL в USDT
+		upnlPct := p.UnrealizedPnlPct   // PnL в %
+
+		totalPnl += upnl
+
+		fmt.Fprintf(&b,
+			"[%s] %s\n"+
+				"  Размер: `%.4f`\n"+
+				"  Вход:   `%.4f`\n"+
+				"  Сейчас: `%.4f`\n"+
+				"  PnL:    `%.2f USDT (%.2f%%)`\n\n",
+			symbol, side,
+			qty,
+			entry,
+			last,
+			upnl, upnlPct,
+		)
+	}
+
+	fmt.Fprintf(&b, "*Суммарный PnL:* `%.2f USDT`\n", totalPnl)
+
+	msg := tgbotapi.NewMessage(user.UserID, b.String())
 	msg.ParseMode = "Markdown"
 	_, _ = t.SendMessage(ctx, msg)
 }

@@ -1,5 +1,7 @@
 package models
 
+import "time"
+
 type Instrument struct {
 	InstID   string `json:"instId"`
 	TickSz   string `json:"tickSz"`
@@ -14,4 +16,19 @@ type Instrument struct {
 
 func NewInstrument(Instrument) {
 
+}
+
+type CandleTick struct {
+	InstID string
+
+	Open  float64
+	High  float64
+	Low   float64
+	Close float64
+
+	Volume       float64   // объём в контрактах (row[5])
+	QuoteVolume  float64   // объём в quote (row[7]) — по желанию
+	Start        time.Time // время начала свечи (ts)
+	End          time.Time // время конца свечи (Start + duration)
+	TimeframeRaw string    // "1m", "5m" — на всякий случай
 }

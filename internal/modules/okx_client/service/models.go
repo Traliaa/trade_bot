@@ -1,4 +1,4 @@
-package exchange
+package service
 
 type OpenPositionsResponse struct {
 	Code string `json:"code"`
@@ -77,4 +77,15 @@ type OpenPositionsResponse struct {
 		VegaPA                 string `json:"vegaPA"`
 	} `json:"data"`
 	Msg string `json:"msg"`
+}
+
+type Instrument struct {
+	InstID   string `json:"instId"`
+	TickSz   string `json:"tickSz"`
+	LotSz    string `json:"lotSz"`
+	MinSz    string `json:"minSz"`
+	CtVal    string `json:"ctVal"`
+	CtMult   string `json:"ctMult"`
+	State    string `json:"state"`
+	MaxMktSz string `json:"maxMktSz"`
 }
