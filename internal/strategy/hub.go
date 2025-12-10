@@ -19,10 +19,9 @@ type Hub struct {
 	out chan<- models.Signal
 }
 
-func NewHub(out chan<- models.Signal) *Hub {
+func NewHub(out chan models.Signal) *Hub {
 	return &Hub{
-		//emarsi: NewEMARSI(), // адаптируешь под OnCandle
-		donchian: NewDonchian(DonchianConfig{ // пример
+		donchian: NewDonchian(DonchianConfig{
 			Period:   20,
 			TrendEma: 50,
 		}),

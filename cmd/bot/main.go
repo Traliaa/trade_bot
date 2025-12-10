@@ -6,6 +6,7 @@ import (
 	"trade_bot/internal/modules/config"
 	"trade_bot/internal/modules/okx_websocket"
 	"trade_bot/internal/modules/postgres"
+	"trade_bot/internal/strategy"
 
 	telegram "trade_bot/internal/modules/telegram_bot"
 
@@ -23,8 +24,8 @@ func main() {
 		),
 		config.Module(),
 		postgres.Module(),
-		//okx_client.Module(),
 		okx_websocket.Module(),
+		strategy.Module(),
 		runner.Module(),
 		telegram.Module(),
 	)

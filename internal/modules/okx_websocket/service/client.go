@@ -54,69 +54,76 @@ type OutTick struct {
 
 // Start собирает топ-волатильные и стримит по нескольким таймфреймам.
 func (c *Client) Start(ctx context.Context, out chan<- OutTick) {
-	// 1. общий watchlist
-	raw := c.TopVolatile(c.cfg.DefaultWatchTopN)
-
-	watch := make([]string, 0, len(raw))
-	for _, inst := range raw {
-		if c.HasCandles(inst, "5m") { // проверка на один ТФ достаточно
-			watch = append(watch, inst)
-		}
+	if c.n != nil {
+		c.n.SendService(ctx, "🚀 OKX WebSocket streamer started (5m/10m/15m)")
 	}
-	if len(watch) == 0 {
-		log.Println("[MARKET] watchlist пуст")
-		c.n.SendService(ctx, "❌ MARKET: watchlist пуст, свечи не запущены")
+
+	// 1. Берём топ N самых волатильных
+	syms := c.TopVolatile(c.cfg.DefaultWatchTopN)
+	if len(syms) == 0 {
+		log.Println("[MARKET] пустой список волатильных инструментов")
 		return
 	}
 
-	c.n.SendService(ctx, "🟢 MARKET: старт %d символов (5/10/15m)", len(watch))
-
-	timeframes := []string{"5m", "10m", "15m"}
+	timeframes := []string{"1m", "5m", "15m"}
 
 	for _, tf := range timeframes {
 		tf := tf
-		go c.runOneTF(ctx, tf, watch, out)
+		go c.runTimeframe(ctx, tf, syms, out)
 	}
 }
+func (c *Client) runTimeframe(
+	ctx context.Context,
+	timeframe string,
+	syms []string,
+	out chan<- OutTick,
+) {
+	if c.n != nil {
+		c.n.SendService(ctx, "[MARKET] ▶️ WS connect %s %d symbols", timeframe, len(syms))
+	}
 
-func (c *Client) runOneTF(ctx context.Context, tf string, watch []string, out chan<- OutTick) {
+	ticks := c.StreamCandlesBatch(ctx, syms, timeframe)
+
 	for {
 		select {
 		case <-ctx.Done():
-			c.n.SendService(ctx, "🔴 MARKET[%s]: остановлен", tf)
+			if c.n != nil {
+				c.n.SendService(ctx, "[MARKET] ⏹ stop %s", timeframe)
+			}
 			return
-		default:
-		}
 
-		log.Printf("[MARKET] ▶️ WS connect %s %d symbols", tf, len(watch))
-		ch := c.StreamCandlesBatch(ctx, watch, tf)
+		case tick, ok := <-ticks:
+			if !ok {
+				if c.n != nil {
+					c.n.SendService(ctx, "[MARKET] ❌ stream closed %s", timeframe)
+				}
+				return
+			}
 
-		for {
+			// debug-лог по каждому тику
+			log.Printf("[WS-TICK] %s %s close=%.6f", tick.InstID, timeframe, tick.Close)
+
+			// прокидываем дальше
+			candle := models.CandleTick{
+				Open:   tick.Open,
+				High:   tick.High,
+				Low:    tick.Low,
+				Close:  tick.Close,
+				Volume: tick.Volume,
+				Start:  tick.Start,
+				End:    tick.End,
+			}
+
 			select {
+			case out <- OutTick{
+				InstID:    tick.InstID,
+				Timeframe: timeframe,
+				Candle:    candle,
+			}:
+				// ok
 			case <-ctx.Done():
 				return
-			case tick, ok := <-ch:
-				if !ok {
-					log.Printf("[MARKET] [%s] WS закрыт, переподключаемся", tf)
-					time.Sleep(time.Second)
-					goto reconnect
-				}
-				out <- OutTick{
-					InstID:    tick.InstID,
-					Timeframe: tf,
-					Candle: models.CandleTick{
-						Open:   tick.Open,
-						High:   tick.High,
-						Low:    tick.Low,
-						Close:  tick.Close,
-						Volume: tick.Volume,
-					},
-				}
 			}
 		}
-
-	reconnect:
-		c.n.SendService(ctx, "⚠️ MARKET[%s]: reconnect…", tf)
-		time.Sleep(time.Second)
 	}
 }

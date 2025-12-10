@@ -8,6 +8,7 @@ import (
 	"trade_bot/internal/modules/config"
 	"trade_bot/internal/modules/telegram_bot/service/pg"
 	"trade_bot/internal/runner"
+	"trade_bot/pkg/logger"
 
 	tgbot "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -48,7 +49,10 @@ func (t *Telegram) SendService(ctx context.Context, format string, args ...any) 
 		return
 	}
 	text := fmt.Sprintf(format, args...)
-	_, _ = t.Send(ctx, int64(t.cfg.ServiceTelegramChatID), text)
+	_, err := t.Send(ctx, int64(t.cfg.ServiceTelegramChatID), text)
+	if err != nil {
+		logger.Error(err.Error())
+	}
 }
 
 func (t *Telegram) Send(ctx context.Context, chatID int64, msg string) (tgbot.Message, error) {
@@ -61,6 +65,10 @@ func (t *Telegram) SendF(ctx context.Context, chatID int64, format string, args 
 
 func (t *Telegram) SendMessage(_ context.Context, message tgbot.MessageConfig) (tgbot.Message, error) {
 	return t.bot.Send(message)
+}
+
+func (t *Telegram) SendMessageToChannel(_ context.Context, username string, text string) (tgbot.Message, error) {
+	return t.bot.Send(tgbot.NewMessageToChannel(username, text))
 }
 
 func (t *Telegram) editReplyMarkupRemove(chatID int64, msgID int) error {
