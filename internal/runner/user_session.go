@@ -146,14 +146,14 @@ func (s *userSession) openPositionWithTpSl(
 	)
 
 	// 1) Stop-loss
-	err = s.okx.PlaceSingleAlgo(ctx, sig.Symbol, posSide, posSide, params.Size, params.SL, false)
+	err = s.okx.PlaceSingleAlgo(ctx, sig.Symbol, posSide, params.Size, params.SL, false)
 	if err != nil {
 		s.notifier.SendF(ctx, s.userID,
 			"⚠️ [%s] TP/SL не выставлены на OKX: %v", sig.Symbol, err)
 	}
 
 	// 2) Take-profit
-	err = s.okx.PlaceSingleAlgo(ctx, sig.Symbol, posSide, posSide, params.Size, params.TP, true)
+	err = s.okx.PlaceSingleAlgo(ctx, sig.Symbol, posSide, params.Size, params.TP, true)
 	if err != nil {
 		s.notifier.SendF(ctx, s.userID,
 			"⚠️ [%s] TP/SL не выставлены на OKX: %v", sig.Symbol, err)

@@ -64,8 +64,9 @@ func (c *Client) Start(ctx context.Context, out chan<- OutTick) {
 		log.Println("[MARKET] пустой список волатильных инструментов")
 		return
 	}
+	//timeframes := []string{"1m", "5m", "15m"}
 
-	timeframes := []string{"1m", "5m", "15m"}
+	timeframes := []string{"5m", "15m"}
 
 	for _, tf := range timeframes {
 		tf := tf

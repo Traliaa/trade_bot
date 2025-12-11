@@ -481,11 +481,21 @@ func (c *Client) PlaceSingleAlgo(
 	ctx context.Context,
 	instId string,
 	posSide string,
-	side string,
 	size float64,
 	triggerPx float64,
 	isTP bool,
 ) error {
+
+	// 1. Определяем сторону закрывающего ордера
+	side := "sell" // по умолчанию считаем, что лонг, закрываем sell
+	switch strings.ToLower(posSide) {
+	case "long":
+		side = "sell"
+	case "short":
+		side = "buy"
+	default:
+		return fmt.Errorf("unsupported posSide=%q", posSide)
+	}
 	body := map[string]string{
 		"instId":  instId,
 		"tdMode":  "cross",
