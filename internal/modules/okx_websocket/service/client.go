@@ -66,7 +66,7 @@ func (c *Client) Start(ctx context.Context, out chan<- OutTick) {
 	}
 	//timeframes := []string{"1m", "5m", "15m"}
 
-	timeframes := []string{"5m", "15m"}
+	timeframes := []string{"15m"}
 
 	for _, tf := range timeframes {
 		tf := tf
