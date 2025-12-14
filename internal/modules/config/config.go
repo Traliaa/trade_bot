@@ -104,7 +104,7 @@ func NewConfig() (*Config, error) {
 		DefaultTrendEmaPeriod: 50,
 		DefaultStrategy:       "donchian",
 
-		DefaultWatchTopN:   intFromEnv("DEFAULT_WATCHLIST_TOP_N", 100),
+		DefaultWatchTopN:   intFromEnv("DEFAULT_WATCHLIST_TOP_N", 50),
 		ConfirmQueueMax:    intFromEnv("CONFIRM_QUEUE_MAX", 20),
 		ConfirmQueuePolicy: getenvDefault("CONFIRM_QUEUE_POLICY", "drop_same_symbol"),
 
@@ -120,7 +120,7 @@ func NewConfig() (*Config, error) {
 		DefaultMaxOpenPositions: intFromEnv("MAX_OPEN_POSITIONS", 10),
 
 		DefaultConfirmRequired:   boolFromEnv("CONFIRM_REQUIRED", true),
-		DefaultCooldownPerSymbol: durationFromEnv("COOLDOWN_PER_SYMBOL", "60s"),
+		DefaultCooldownPerSymbol: durationFromEnv("COOLDOWN_PER_SYMBOL", "1h"),
 		DefaultConfirmTimeout:    durationFromEnv("CONFIRM_TIMEOUT", "30s"),
 		DefaultAutoOnTimeout:     getenvDefault("AUTO_ON_TIMEOUT", "off"),
 	}
