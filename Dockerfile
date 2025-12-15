@@ -34,5 +34,5 @@ EXPOSE 3000
 # При запуске контейнера:
 # 1. прогоняем миграции
 # 2. стартуем бота
-ENTRYPOINT sh -c "goose -dir ./migrations postgres \"$DATABASE_DSN\" up
+ENTRYPOINT sh -c "goose -dir ./migrations postgres \"$DATABASE_DSN\" up &&./bot"
 #&& river migrate-up --database-url \"$DATABASE_DSN\" &&./bot"
