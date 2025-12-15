@@ -13,11 +13,11 @@ import (
 )
 
 type Config struct {
-	Addr string // например ":8080"
+	Addr string // например ":3000"
 }
 
 func NewConfig() Config {
-	return Config{Addr: ":8080"}
+	return Config{Addr: ":3000"}
 }
 
 func NewMux(state *service.State) *http.ServeMux {
