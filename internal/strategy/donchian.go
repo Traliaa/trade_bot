@@ -2,6 +2,7 @@ package strategy
 
 import (
 	"fmt"
+	"log"
 	"math"
 	"sync"
 	"trade_bot/internal/models"
@@ -77,7 +78,7 @@ func NewDonchian(cfg DonchianConfig) *Donchian {
 		cfg.MinWarmup = int(math.Max(float64(cfg.Period), float64(cfg.TrendEma)))
 	}
 	if cfg.MinChannelPct <= 0 {
-		cfg.MinChannelPct = 0.007 // 0.7% по умолчанию
+		cfg.MinChannelPct = 0.003 // 0.7% по умолчанию
 	}
 	return &Donchian{
 		cfg:   cfg,
@@ -106,93 +107,72 @@ func (s *Donchian) OnCandle(symbol string, c models.CandleTick) models.Signal {
 
 	st := s.get(symbol)
 
-	// 1) обновляем EMA тренда по close
+	// 0) prevClose нужен для "prev inside"
+	prevClose := st.lastClose
+	st.lastClose = c.Close
+
+	// EMA по текущему close (можно так)
 	st.ema.Update(c.Close)
 
-	// 2) добавляем high/low
-	st.highs = append(st.highs, c.High)
-	st.lows = append(st.lows, c.Low)
-	if len(st.highs) > s.cfg.Period {
-		st.highs = st.highs[1:]
-		st.lows = st.lows[1:]
-	}
-
-	if len(st.highs) < s.cfg.Period || !st.ema.Ready() {
-		st.lastClose = c.Close
+	// 1) Если данных меньше Period — просто накапливаем и выходим
+	if len(st.highs) < s.cfg.Period {
+		st.highs = append(st.highs, c.High)
+		st.lows = append(st.lows, c.Low)
 		return models.Signal{Symbol: symbol, Side: models.SideNone}
 	}
 
+	// 2) ВАЖНО: считаем канал по ПРЕДЫДУЩИМ свечам (st.highs/st.lows),
+	// ДО того как добавили текущую свечу
 	dh := maxSlice(st.highs)
 	dl := minSlice(st.lows)
 	ema := st.ema.Value()
 
-	// --- 3) фильтр по высоте канала
-	channelHeight := dh - dl
-	if channelHeight <= 0 {
-		st.lastClose = c.Close
-		return models.Signal{Symbol: symbol, Side: models.SideNone}
-	}
-	channelPct := channelHeight / c.Close
-	if channelPct < s.cfg.MinChannelPct {
-		// канал узкий, шум — не торгуем
-		st.lastClose = c.Close
+	// 3) Фильтр warmup для prevClose
+	if prevClose == 0 || !st.ema.Ready() {
+		// теперь обновляем буфер и уходим
+		st.highs = append(st.highs[1:], c.High)
+		st.lows = append(st.lows[1:], c.Low)
 		return models.Signal{Symbol: symbol, Side: models.SideNone}
 	}
 
-	// --- 4) EMA-тренд
-	// (очень простой фильтр: EMA сейчас выше/ниже цены, можно усложнить,
-	// если будешь хранить прошлое значение EMA)
-	var trendUp, trendDown bool
-	if ema > (dl+dh)/2 {
-		trendUp = true
-	}
-	if ema < (dl+dh)/2 {
-		trendDown = true
+	// 4) (если ты добавил MinChannelPct) — проверь, не задушил ли ты всё
+	channelPct := (dh - dl) / c.Close
+	if s.cfg.MinChannelPct > 0 && channelPct < s.cfg.MinChannelPct {
+		st.highs = append(st.highs[1:], c.High)
+		st.lows = append(st.lows[1:], c.Low)
+		return models.Signal{Symbol: symbol, Side: models.SideNone}
 	}
 
-	// --- 5) паттерн "предыдущая внутри, текущая снаружи"
-	prevClose := st.lastClose
-	st.lastClose = c.Close // обновляем на будущее
-
-	// предыдущая была внутри канала?
+	// 5) "prev inside" / "now outside"
 	prevInside := prevClose >= dl && prevClose <= dh
-	// текущая закрылась выше/ниже канала?
 	nowAbove := c.Close > dh
 	nowBelow := c.Close < dl
 
 	var side models.Side
 	var reason string
 
-	// Лонг: предыдущая внутри, сейчас пробили вверх, тренд вверх
-	if prevInside && nowAbove && trendUp {
+	if prevInside && nowAbove && c.Close > ema {
 		side = models.SideBuy
-		reason = fmt.Sprintf(
-			"Donchian breakout UP: prevIn[%.5f] dh=%.5f dl=%.5f close=%.5f ema=%.5f ch=%.4f%%",
-			prevClose, dh, dl, c.Close, ema, channelPct*100,
-		)
+		reason = fmt.Sprintf("Donchian UP prevInside close=%.6f > dh=%.6f ema=%.6f", c.Close, dh, ema)
+	}
+	if prevInside && nowBelow && c.Close < ema {
+		side = models.SideSell
+		reason = fmt.Sprintf("Donchian DOWN prevInside close=%.6f < dl=%.6f ema=%.6f", c.Close, dl, ema)
 	}
 
-	// Шорт: предыдущая внутри, сейчас пробили вниз, тренд вниз
-	if prevInside && nowBelow && trendDown {
-		side = models.SideSell
-		reason = fmt.Sprintf(
-			"Donchian breakout DOWN: prevIn[%.5f] dh=%.5f dl=%.5f close=%.5f ema=%.5f ch=%.4f%%",
-			prevClose, dh, dl, c.Close, ema, channelPct*100,
-		)
-	}
+	// 6) Сдвигаем окно (добавляем текущую свечу)
+	st.highs = append(st.highs[1:], c.High)
+	st.lows = append(st.lows[1:], c.Low)
 
 	if side == models.SideNone {
+		log.Printf("[DON-DBG] %s close=%.6f dh=%.6f dl=%.6f prev=%.6f prevInside=%v nowAbove=%v nowBelow=%v emaReady=%v chPct=%.4f",
+			symbol, c.Close, dh, dl, prevClose, prevInside, nowAbove, nowBelow, st.ema.Ready(), channelPct*100)
+
 		return models.Signal{Symbol: symbol, Side: models.SideNone}
 	}
-
 	st.lastSignal = side
-
-	return models.Signal{
-		Symbol: symbol,
-		Side:   side,
-		Price:  c.Close,
-		Reason: reason,
-	}
+	log.Printf("[DON-SIG] %s %s %s", symbol, side, reason)
+	return models.Signal{Symbol: symbol, Side: side, Price: c.Close, Reason: reason}
 }
 
 // Dump — чтобы в логах показывать состояние (как ты делал с EMARSI).
