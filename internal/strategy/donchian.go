@@ -68,18 +68,10 @@ func (e *emaState) Ready() bool {
 func (e *emaState) Value() float64 { return e.value }
 
 func NewDonchian(cfg DonchianConfig) *Donchian {
-	if cfg.Period <= 0 {
-		cfg.Period = 20
-	}
-	if cfg.TrendEma <= 0 {
-		cfg.TrendEma = 50
-	}
-	if cfg.MinWarmup <= 0 {
-		cfg.MinWarmup = int(math.Max(float64(cfg.Period), float64(cfg.TrendEma)))
-	}
-	if cfg.MinChannelPct <= 0 {
-		cfg.MinChannelPct = 0.003 // 0.7% по умолчанию
-	}
+	cfg.Period = 20
+	cfg.TrendEma = 50
+	cfg.MinWarmup = int(math.Max(float64(cfg.Period), float64(cfg.TrendEma)))
+	cfg.MinChannelPct = 0.003
 	return &Donchian{
 		cfg:   cfg,
 		state: make(map[string]*symbolState),
