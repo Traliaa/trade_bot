@@ -5,10 +5,9 @@ import (
 	"sync"
 	"time"
 	"trade_bot/internal/models"
-
 	okx_client "trade_bot/internal/modules/okx_client/service"
 	okx_websocket "trade_bot/internal/modules/okx_websocket/service"
-	"trade_bot/internal/strategy"
+	service2 "trade_bot/internal/modules/strategy/service"
 
 	tgbot "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -31,7 +30,7 @@ type Runner struct {
 	mkt *okx_websocket.Client
 	cfg *models.UserSettings
 	mx  *okx_client.Client
-	stg strategy.Engine
+	stg service2.Engine
 	n   TelegramNotifier
 
 	queue       chan models.Signal
@@ -51,10 +50,10 @@ func New(user *models.UserSettings, n TelegramNotifier, mkt *okx_websocket.Clien
 	}
 
 	return &Runner{
-		cfg:         user,
-		mx:          okx_client.NewClient(user),
-		n:           n,
-		stg:         strategy.NewEngine(&user.TradingSettings),
+		cfg: user,
+		mx:  okx_client.NewClient(user),
+		n:   n,
+		//stg:         service2.NewEngine(),
 		queue:       make(chan models.Signal, qsize),
 		pending:     make(map[string]bool),
 		cooldownTil: make(map[string]time.Time),

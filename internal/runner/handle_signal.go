@@ -14,7 +14,7 @@ func (r *Runner) HandleSignal(ctx context.Context, sig models.Signal) {
 	//  - PlaceMarket + PlaceTpsl
 	// всё то, что уже написано в confirmWorker, только инициатор – не свои свечи, а sig
 	r.queue <- models.Signal{
-		Symbol: sig.Symbol,
+		InstID: sig.InstID,
 		Price:  sig.Price,
 		Side:   sig.Side,
 		Reason: sig.Reason,

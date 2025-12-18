@@ -12,20 +12,17 @@ import (
 // StreamCandlesBatch — один WebSocket на таймфрейм с пачкой инструментов в args.
 // Возвращает поток CandleTick: instId + полная информация по закрытой свече.
 func (c *Client) StreamCandlesBatch(ctx context.Context, instIDs []string, timeframe string) <-chan models.CandleTick {
-	ch := make(chan models.CandleTick)
-
+	out := make(chan models.CandleTick, 1024) // буфер помогает не стопорить WS
 	go func() {
-		defer close(ch)
-
+		defer close(out)
 		if len(instIDs) == 0 {
 			return
 		}
 
-		channel := "candle" + timeframe // "1m" -> "candle1m"
+		channel := "candle" + timeframe
 		url := "wss://ws.okx.com:8443/ws/v5/business"
 		tfDur := timeframeToDuration(timeframe)
 
-		// подготавливаем args сразу пачкой
 		args := make([]map[string]string, 0, len(instIDs))
 		for _, id := range instIDs {
 			args = append(args, map[string]string{
@@ -35,6 +32,12 @@ func (c *Client) StreamCandlesBatch(ctx context.Context, instIDs []string, timef
 		}
 
 		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
 			log.Printf("[WS] batch connect %s %d symbols", channel, len(instIDs))
 			conn, _, err := c.wsDialer.Dial(url, nil)
 			if err != nil {
@@ -43,135 +46,142 @@ func (c *Client) StreamCandlesBatch(ctx context.Context, instIDs []string, timef
 				continue
 			}
 
-			sub := map[string]any{
-				"op":   "subscribe",
-				"args": args,
-			}
+			// per-connection cancel
+			connCtx, cancel := context.WithCancel(ctx)
+
+			// подписка
+			sub := map[string]any{"op": "subscribe", "args": args}
 			if err := conn.WriteJSON(sub); err != nil {
-				log.Printf("[WS] batch subscribe error %s: %v", channel, err)
+				cancel()
 				_ = conn.Close()
+				time.Sleep(time.Second)
 				continue
 			}
 
-			// keepalive ping каждые 20s — иначе OKX рвёт соединение с 4004
-			stopPing := make(chan struct{})
+			// ping loop (останавливается cancel())
+			pingDone := make(chan struct{})
 			go func() {
-				defer close(stopPing)
+				defer close(pingDone)
 				t := time.NewTicker(20 * time.Second)
 				defer t.Stop()
 				for {
 					select {
-					case <-ctx.Done():
-						return
-					case <-stopPing:
+					case <-connCtx.Done():
 						return
 					case <-t.C:
+						// OKX нормально принимает {"op":"ping"}
 						_ = conn.WriteJSON(map[string]string{"op": "ping"})
 					}
 				}
 			}()
 
-			// основной read-loop
-			for {
-				_, msg, err := conn.ReadMessage()
-				if err != nil {
-					log.Printf("[WS] batch read error %s: %v", channel, err)
-					_ = conn.Close()
-					break
-				}
-
-				var frame struct {
-					Arg struct {
-						Channel string `json:"channel"`
-						InstID  string `json:"instId"`
-					} `json:"arg"`
-					Data [][]string `json:"data"`
-				}
-				if err := json.Unmarshal(msg, &frame); err != nil {
-					continue
-				}
-				if frame.Arg.Channel != channel || len(frame.Data) == 0 {
-					continue
-				}
-
-				// у OKX может приходить несколько свечей в одном кадре — пройдёмся по всем
-				for _, row := range frame.Data {
-					// ожидаемый формат data:
-					// [ts, o, h, l, c, vol, volCcy, volCcyQuote, confirm]
-					if len(row) < 5 {
-						continue
-					}
-
-					// confirm всегда в последнем элементе, не хардкодим индекс 8
-					if row[len(row)-1] != "1" {
-						continue // ждём закрытую свечу
-					}
-
-					// 0: ts (ms)
-					tsMs, err := strconv.ParseInt(row[0], 10, 64)
+			// read loop
+			readErr := func() error {
+				for {
+					_, msg, err := conn.ReadMessage()
 					if err != nil {
+						return err
+					}
+
+					// 1) попробуем распознать event/op (необязательно, но полезно)
+					var meta struct {
+						Event string `json:"event"`
+						Op    string `json:"op"`
+						Msg   string `json:"msg"`
+						Code  string `json:"code"`
+					}
+					_ = json.Unmarshal(msg, &meta)
+					if meta.Event == "error" {
+						log.Printf("[WS] %s event=error code=%s msg=%s", channel, meta.Code, meta.Msg)
 						continue
 					}
-					start := time.UnixMilli(tsMs)
-					end := start
-					if tfDur > 0 {
-						end = start.Add(tfDur)
-					}
-
-					// 1..4: OHLC
-					open, err1 := strconv.ParseFloat(row[1], 64)
-					high, err2 := strconv.ParseFloat(row[2], 64)
-					low, err3 := strconv.ParseFloat(row[3], 64)
-					closep, err4 := strconv.ParseFloat(row[4], 64)
-					if err1 != nil || err2 != nil || err3 != nil || err4 != nil {
-						continue
-					}
-					if closep <= 0 {
+					if meta.Op == "pong" || meta.Event == "subscribe" {
 						continue
 					}
 
-					// 5: объём в контрактах
-					var vol float64
-					if len(row) >= 6 {
-						vol, _ = strconv.ParseFloat(row[5], 64)
+					// 2) основной парс свечей
+					var frame struct {
+						Arg struct {
+							Channel string `json:"channel"`
+							InstID  string `json:"instId"`
+						} `json:"arg"`
+						Data [][]string `json:"data"`
+					}
+					if err := json.Unmarshal(msg, &frame); err != nil {
+						continue
+					}
+					if frame.Arg.Channel != channel || len(frame.Data) == 0 {
+						continue
 					}
 
-					// 7: объём в quote (если есть)
-					var volQuote float64
-					if len(row) >= 8 {
-						volQuote, _ = strconv.ParseFloat(row[7], 64)
-					}
+					for _, row := range frame.Data {
+						if len(row) < 6 {
+							continue
+						}
+						// confirm = последний элемент
+						if row[len(row)-1] != "1" {
+							continue
+						}
 
-					tick := models.CandleTick{
-						InstID:       frame.Arg.InstID,
-						Open:         open,
-						High:         high,
-						Low:          low,
-						Close:        closep,
-						Volume:       vol,
-						QuoteVolume:  volQuote,
-						Start:        start,
-						End:          end,
-						TimeframeRaw: timeframe,
-					}
+						tsMs, err := strconv.ParseInt(row[0], 10, 64)
+						if err != nil {
+							continue
+						}
+						start := time.UnixMilli(tsMs)
+						end := start
+						if tfDur > 0 {
+							end = start.Add(tfDur)
+						}
 
-					select {
-					case ch <- tick:
-					case <-ctx.Done():
-						_ = conn.Close()
-						return
+						open, e1 := strconv.ParseFloat(row[1], 64)
+						high, e2 := strconv.ParseFloat(row[2], 64)
+						low, e3 := strconv.ParseFloat(row[3], 64)
+						closep, e4 := strconv.ParseFloat(row[4], 64)
+						if e1 != nil || e2 != nil || e3 != nil || e4 != nil || closep <= 0 {
+							continue
+						}
+
+						vol, _ := strconv.ParseFloat(row[5], 64)
+
+						var volQuote float64
+						if len(row) >= 8 {
+							volQuote, _ = strconv.ParseFloat(row[7], 64)
+						}
+
+						tick := models.CandleTick{
+							InstID:       frame.Arg.InstID,
+							Open:         open,
+							High:         high,
+							Low:          low,
+							Close:        closep,
+							Volume:       vol,
+							QuoteVolume:  volQuote,
+							Start:        start,
+							End:          end,
+							TimeframeRaw: timeframe,
+						}
+
+						select {
+						case out <- tick:
+						case <-connCtx.Done():
+							return nil
+						}
 					}
 				}
-			}
+			}()
 
-			select {
-			case <-ctx.Done():
-				return
-			default:
+			// закрываем conn, останавливаем ping
+			cancel()
+			_ = conn.Close()
+			<-pingDone
+
+			if readErr != nil && ctx.Err() == nil {
+				log.Printf("[WS] batch read error %s: %v", channel, readErr)
 				time.Sleep(time.Second)
+				continue
 			}
+			return
 		}
 	}()
-
-	return ch
+	return out
 }

@@ -1,0 +1,150 @@
+package service
+
+import (
+	"context"
+	"sync"
+	"time"
+	"trade_bot/internal/modules/config"
+
+	"trade_bot/internal/models"
+	okxws "trade_bot/internal/modules/okx_websocket/service"
+)
+
+type ServiceNotifier interface {
+	SendService(ctx context.Context, format string, args ...any)
+}
+
+type Hub struct {
+	cfg config.V2Config
+	n   ServiceNotifier
+	out chan<- models.Signal
+
+	engine Engine
+
+	mu            sync.Mutex
+	readyCnt      int
+	ready         map[string]bool
+	warmupDone    bool
+	warmupMsgSent bool
+	lastProgress  time.Time
+	startedAt     time.Time
+}
+
+func NewHub(cfg *config.Config, n ServiceNotifier, out chan<- models.Signal, engine Engine) *Hub {
+	return &Hub{
+		cfg:       cfg.V2Config,
+		n:         n,
+		out:       out,
+		engine:    engine,
+		ready:     make(map[string]bool),
+		startedAt: time.Now(),
+	}
+}
+
+func (h *Hub) OnTick(ctx context.Context, t okxws.OutTick) {
+	// приводим WS tick к models.CandleTick
+	ct := models.CandleTick{
+		InstID:       t.InstID,
+		Open:         t.Candle.Open,
+		High:         t.Candle.High,
+		Low:          t.Candle.Low,
+		Close:        t.Candle.Close,
+		Volume:       t.Candle.Volume,
+		QuoteVolume:  t.Candle.QuoteVolume,
+		Start:        t.Candle.Start,
+		End:          t.Candle.End,
+		TimeframeRaw: t.Timeframe,
+	}
+
+	sig, ok, becameReady := h.engine.OnCandle(ct)
+
+	// прогресс прогрева
+	if becameReady {
+		h.onBecameReady(ctx, ct.InstID)
+	} else {
+		h.maybeWarmupProgress(ctx)
+	}
+
+	// блокируем сигналы пока прогрев не окончен
+	if !ok || !h.isWarmupDone() {
+		return
+	}
+
+	// отдаём сигнал наружу (лучше не блокировать Hub)
+	select {
+	case h.out <- sig:
+	default:
+		if h.n != nil {
+			h.n.SendService(ctx, "⚠️ signal channel full, drop %s %s @ %.6f (%s)",
+				sig.InstID, sig.Side, sig.Price, sig.TF)
+		}
+	}
+}
+
+func (h *Hub) onBecameReady(ctx context.Context, sym string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if h.ready[sym] {
+		return
+	}
+	h.ready[sym] = true
+	h.readyCnt++
+
+	exp := h.cfg.ExpectedSymbols
+	if exp <= 0 {
+		exp = 100
+	}
+
+	// старт (один раз)
+	if !h.warmupMsgSent {
+		h.warmupMsgSent = true
+		h.lastProgress = time.Now()
+		if h.n != nil {
+			h.n.SendService(ctx,
+				"🔥 Warmup started | engine=%s | LTF=%s HTF=%s | ожидаем=%d",
+				h.engine.Name(), h.cfg.LTF, h.cfg.HTF, exp,
+			)
+		}
+		return
+	}
+
+	// done
+	if !h.warmupDone && h.readyCnt >= exp {
+		h.warmupDone = true
+		if h.n != nil {
+			h.n.SendService(ctx,
+				"✅ Warmup finished: %d/%d ready. Теперь ждём сигналы.",
+				h.readyCnt, exp,
+			)
+		}
+	}
+}
+
+func (h *Hub) maybeWarmupProgress(ctx context.Context) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	if !h.warmupMsgSent || h.warmupDone || h.n == nil {
+		return
+	}
+	if h.cfg.ProgressEvery <= 0 {
+		return
+	}
+	if time.Since(h.lastProgress) < h.cfg.ProgressEvery {
+		return
+	}
+
+	exp := h.cfg.ExpectedSymbols
+	if exp <= 0 {
+		exp = 100
+	}
+	h.n.SendService(ctx, "⏳ Warmup progress: %d/%d ready", h.readyCnt, exp)
+	h.lastProgress = time.Now()
+}
+
+func (h *Hub) isWarmupDone() bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.warmupDone
+}

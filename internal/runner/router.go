@@ -96,7 +96,7 @@ func (r *Router) OnSignal(ctx context.Context, sig models.Signal) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	k := key(sig.Timeframe, sig.Strategy)
+	k := key(sig.TF, sig.Strategy)
 	sessions := r.index[k]
 	if len(sessions) == 0 {
 		return

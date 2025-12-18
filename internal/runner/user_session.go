@@ -27,25 +27,25 @@ func (s *userSession) confirmWorker(ctx context.Context) {
 	for sig := range s.queue {
 		// 0. кулдаун и pending по символу
 		s.mu.Lock()
-		if until, ok := s.cooldownTil[sig.Symbol]; ok && time.Now().Before(until) {
+		if until, ok := s.cooldownTil[sig.InstID]; ok && time.Now().Before(until) {
 			s.mu.Unlock()
 			continue
 		}
-		if s.pending[sig.Symbol] {
+		if s.pending[sig.InstID] {
 			s.mu.Unlock()
 			continue
 		}
-		s.pending[sig.Symbol] = true
+		s.pending[sig.InstID] = true
 		s.mu.Unlock()
 
 		// 1. лимит по открытым позициям
 		if s.settings.TradingSettings.MaxOpenPositions > 0 {
 			if positions, err := s.okx.OpenPositions(ctx); err == nil &&
 				len(positions) >= s.settings.TradingSettings.MaxOpenPositions {
-				s.setPending(sig.Symbol, false)
+				s.setPending(sig.InstID, false)
 				s.notifier.SendF(ctx, s.userID,
 					"⚠️ [%s] Лимит открытых позиций (%d) достигнут, сигнал пропущен",
-					sig.Symbol, s.settings.TradingSettings.MaxOpenPositions,
+					sig.InstID, s.settings.TradingSettings.MaxOpenPositions,
 				)
 				continue
 			}
@@ -54,7 +54,7 @@ func (s *userSession) confirmWorker(ctx context.Context) {
 		// 2. Confirm (если включен)
 		prompt := fmt.Sprintf(
 			"🔔 [%s] %s %s @ %.4f\n%s\nSL/TP будут выставлены после входа. Войти?",
-			sig.Symbol, sig.Strategy, sig.Side, sig.Price, sig.Reason,
+			sig.InstID, sig.Strategy, sig.Side, sig.Price, sig.Reason,
 		)
 
 		ok := true
@@ -63,31 +63,31 @@ func (s *userSession) confirmWorker(ctx context.Context) {
 		}
 		if !ok {
 			s.mu.Lock()
-			s.cooldownTil[sig.Symbol] = time.Now().Add(s.settings.TradingSettings.CooldownPerSymbol)
+			s.cooldownTil[sig.InstID] = time.Now().Add(s.settings.TradingSettings.CooldownPerSymbol)
 			s.mu.Unlock()
-			s.setPending(sig.Symbol, false)
-			s.notifier.SendF(ctx, s.userID, "⛔️ [%s] Вход отменён/таймаут", sig.Symbol)
+			s.setPending(sig.InstID, false)
+			s.notifier.SendF(ctx, s.userID, "⛔️ [%s] Вход отменён/таймаут", sig.InstID)
 			continue
 		}
 
 		// 3. Расчёт параметров сделки (твоя calcTradeParams, только на s.exch/s.settings)
-		params, err := s.calcTradeParams(ctx, sig.Symbol, string(sig.Side), sig.Price)
+		params, err := s.calcTradeParams(ctx, sig.InstID, string(sig.Side), sig.Price)
 		if err != nil {
 			s.notifier.SendF(ctx, s.userID,
-				"❗️ [%s] Ошибка расчёта параметров сделки: %v", sig.Symbol, err)
-			s.setPending(sig.Symbol, false)
+				"❗️ [%s] Ошибка расчёта параметров сделки: %v", sig.InstID, err)
+			s.setPending(sig.InstID, false)
 			continue
 		}
 
 		// 4. PlaceMarket + PlaceTpsl через s.exch
 		if err := s.openPositionWithTpSl(ctx, sig, params); err != nil {
 			s.notifier.SendF(ctx, s.userID,
-				"❗️ [%s] Ошибка открытия ордера: %v", sig.Symbol, err)
-			s.setPending(sig.Symbol, false)
+				"❗️ [%s] Ошибка открытия ордера: %v", sig.InstID, err)
+			s.setPending(sig.InstID, false)
 			continue
 		}
 
-		s.setPending(sig.Symbol, false)
+		s.setPending(sig.InstID, false)
 	}
 }
 
@@ -120,7 +120,7 @@ func (s *userSession) openPositionWithTpSl(
 	// 2. Открываем рыночный ордер
 	orderID, err := s.okx.PlaceMarket(
 		ctx,
-		sig.Symbol,
+		sig.InstID,
 		params.Size,
 		sideInt,
 		params.Leverage,
@@ -139,24 +139,24 @@ func (s *userSession) openPositionWithTpSl(
 	// debug для себя
 	s.notifier.SendF(ctx, s.userID,
 		"[%s] DEBUG entry=%.6f SL=%.6f TP=%.6f 1R=%.6f RR=%.2f risk=%.2f%% size=%.4f (%s)",
-		sig.Symbol,
+		sig.InstID,
 		params.Entry, params.SL, params.TP, params.RiskDist,
 		params.RR, params.RiskPct, params.Size,
 		sig.Reason,
 	)
 
 	// 1) Stop-loss
-	err = s.okx.PlaceSingleAlgo(ctx, sig.Symbol, posSide, params.Size, params.SL, false)
+	err = s.okx.PlaceSingleAlgo(ctx, sig.InstID, posSide, params.Size, params.SL, false)
 	if err != nil {
 		s.notifier.SendF(ctx, s.userID,
-			"⚠️ [%s] TP/SL не выставлены на OKX: %v", sig.Symbol, err)
+			"⚠️ [%s] TP/SL не выставлены на OKX: %v", sig.InstID, err)
 	}
 
 	// 2) Take-profit
-	err = s.okx.PlaceSingleAlgo(ctx, sig.Symbol, posSide, params.Size, params.TP, true)
+	err = s.okx.PlaceSingleAlgo(ctx, sig.InstID, posSide, params.Size, params.TP, true)
 	if err != nil {
 		s.notifier.SendF(ctx, s.userID,
-			"⚠️ [%s] TP/SL не выставлены на OKX: %v", sig.Symbol, err)
+			"⚠️ [%s] TP/SL не выставлены на OKX: %v", sig.InstID, err)
 
 	}
 
@@ -164,7 +164,7 @@ func (s *userSession) openPositionWithTpSl(
 	s.notifier.SendF(ctx,
 		s.userID,
 		"✅ [%s] Вход подтверждён | OPEN %-4s @ %.4f | SL=%.4f TP=%.4f lev=%dx size=%.4f | strategy=%s (orderId=%s)",
-		sig.Symbol,
+		sig.InstID,
 		params.Direction,
 		params.Entry,
 		params.SL,

@@ -78,6 +78,29 @@ type Config struct {
 	DefaultDonchianPeriod int // период канала, N свечей (обычно 20)
 	DefaultTrendEmaPeriod int // EMA для фильтра тренда (обычно 50)
 	DefaultStrategy       string
+	V2Config              V2Config
+}
+
+type V2Config struct {
+	LTF string // "15m"
+	HTF string // "1h"
+
+	// HTF trend filter
+	HTFEmaFast int // например 50
+	HTFEmaSlow int // например 200
+
+	// LTF channel breakout
+	DonchianPeriod int     // например 20
+	MinChannelPct  float64 // например 0.008 (0.8%)
+	MinBodyPct     float64 // например 0.003 (0.3%)
+
+	// Warmup
+	MinWarmupLTF int // по умолчанию = DonchianPeriod
+	MinWarmupHTF int // по умолчанию = HTFEmaSlow
+
+	// ✅ для Hub прогрева
+	ExpectedSymbols int           // сколько символов ждём "готовых" (обычно topN)
+	ProgressEvery   time.Duration // как часто слать прогресс (например 2*time.Minute)
 }
 
 func NewConfig() (*Config, error) {
@@ -104,7 +127,7 @@ func NewConfig() (*Config, error) {
 		DefaultTrendEmaPeriod: 50,
 		DefaultStrategy:       "donchian",
 
-		DefaultWatchTopN:   intFromEnv("DEFAULT_WATCHLIST_TOP_N", 50),
+		DefaultWatchTopN:   intFromEnv("DEFAULT_WATCHLIST_TOP_N", 100),
 		ConfirmQueueMax:    intFromEnv("CONFIRM_QUEUE_MAX", 20),
 		ConfirmQueuePolicy: getenvDefault("CONFIRM_QUEUE_POLICY", "drop_same_symbol"),
 
@@ -153,6 +176,41 @@ func NewConfig() (*Config, error) {
 
 	config.ServiceTelegramChatID = intFromEnv(ServiceTelegramChatID, 0)
 
+	if config.V2Config.LTF == "" {
+		config.V2Config.LTF = "15m"
+	}
+	if config.V2Config.HTF == "" {
+		config.V2Config.HTF = "1h"
+	}
+
+	if config.V2Config.DonchianPeriod <= 0 {
+		config.V2Config.DonchianPeriod = 20
+	}
+	if config.V2Config.MinChannelPct <= 0 {
+		config.V2Config.MinChannelPct = 0.008 // 0.8% канал
+	}
+	if config.V2Config.MinBodyPct <= 0 {
+		config.V2Config.MinBodyPct = 0.003 // 0.3% тело
+	}
+	if config.V2Config.HTFEmaFast <= 0 {
+		config.V2Config.HTFEmaFast = 50
+	}
+	if config.V2Config.HTFEmaSlow <= 0 {
+		config.V2Config.HTFEmaSlow = 200
+	}
+	if config.V2Config.MinWarmupLTF <= 0 {
+		config.V2Config.MinWarmupLTF = config.V2Config.DonchianPeriod
+	}
+	if config.V2Config.MinWarmupHTF <= 0 {
+		config.V2Config.MinWarmupHTF = config.V2Config.HTFEmaSlow
+	}
+
+	if config.V2Config.ExpectedSymbols <= 0 {
+		config.V2Config.ExpectedSymbols = 100
+	}
+	if config.V2Config.ProgressEvery <= 0 {
+		config.V2Config.ProgressEvery = 2 * time.Minute
+	}
 	return &config, nil
 }
 

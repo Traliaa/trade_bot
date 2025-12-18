@@ -1,4 +1,4 @@
-package strategy
+package service
 
 import (
 	"fmt"
@@ -49,7 +49,7 @@ func (e *EMARSI) OnCandle(symbol string, c models.CandleTick) models.Signal {
 		e.cfg.RSIOSold,
 	)
 	if !ok {
-		return models.Signal{Symbol: symbol, Side: models.SideNone}
+		return models.Signal{InstID: symbol, Side: models.SideNone}
 	}
 
 	var s models.Side
@@ -60,7 +60,7 @@ func (e *EMARSI) OnCandle(symbol string, c models.CandleTick) models.Signal {
 	}
 
 	return models.Signal{
-		Symbol: symbol,
+		InstID: symbol,
 		Side:   s,
 		Price:  c.Close,
 		Reason: fmt.Sprintf("EMA/RSI signal %s @ %.5f", s, c.Close),
