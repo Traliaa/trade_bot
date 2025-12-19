@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"time"
 	"trade_bot/internal/models"
+
+	"github.com/gorilla/websocket"
 )
 
 // StreamCandlesBatch — один WebSocket на таймфрейм с пачкой инструментов в args.
@@ -70,7 +72,7 @@ func (c *Client) StreamCandlesBatch(ctx context.Context, instIDs []string, timef
 						return
 					case <-t.C:
 						// OKX нормально принимает {"op":"ping"}
-						_ = conn.WriteJSON(map[string]string{"op": "ping"})
+						_ = conn.WriteMessage(websocket.TextMessage, []byte("ping"))
 					}
 				}
 			}()

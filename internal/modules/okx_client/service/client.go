@@ -91,7 +91,7 @@ func (c *Client) StreamPrices(ctx context.Context, instID string) <-chan float64
 					case <-ctx.Done():
 						return
 					case <-t.C:
-						_ = conn.WriteJSON(map[string]string{"op": "ping"})
+						_ = conn.WriteMessage(websocket.TextMessage, []byte("ping"))
 					}
 				}
 			}()
