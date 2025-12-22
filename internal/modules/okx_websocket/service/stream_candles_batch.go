@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"math/rand"
 	"strconv"
 	"time"
 	"trade_bot/internal/models"
@@ -123,6 +124,9 @@ func (c *Client) StreamCandlesBatch(ctx context.Context, instIDs []string, timef
 						// confirm = последний элемент
 						if row[len(row)-1] != "1" {
 							continue
+						}
+						if rand.Intn(2000) == 0 {
+							log.Printf("[WS] %s %s confirm=1 ts=%s close=%s", frame.Arg.InstID, timeframe, row[0], row[4])
 						}
 
 						tsMs, err := strconv.ParseInt(row[0], 10, 64)

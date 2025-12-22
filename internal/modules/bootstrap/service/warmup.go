@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log"
 	"sync"
 	"trade_bot/internal/models"
 	"trade_bot/internal/modules/config"
@@ -43,7 +44,7 @@ func (w *Warmuper) Warmup(ctx context.Context, symbols []string) error {
 	w.n.SendService(ctx, fmt.Sprintf("🔥 REST warmup start: symbols=%d LTF=%s(%d) HTF=%s(%d)",
 		len(symbols), w.cfg.LTF, ltfNeed, w.cfg.HTF, htfNeed,
 	))
-
+	var cnt int64
 	var wg sync.WaitGroup
 	var firstErr error
 	var mu sync.Mutex
@@ -67,6 +68,11 @@ func (w *Warmuper) Warmup(ctx context.Context, symbols []string) error {
 				return
 			}
 			for _, c := range htf {
+				cnt++
+				if cnt%5000 == 0 {
+					log.Printf("[HUB] got ticks=%d last=%s tf=%s close=%.6f",
+						cnt, c.InstID, c.TimeframeRaw, c.Close)
+				}
 				w.hub.OnTick(ctx, okxws.OutTick{
 					InstID:    sym,
 					Timeframe: w.cfg.HTF,
@@ -85,6 +91,11 @@ func (w *Warmuper) Warmup(ctx context.Context, symbols []string) error {
 				return
 			}
 			for _, c := range ltf {
+				cnt++
+				if cnt%5000 == 0 {
+					log.Printf("[HUB] got ticks=%d last=%s tf=%s close=%.6f",
+						cnt, c.InstID, c.TimeframeRaw, c.Close)
+				}
 				w.hub.OnTick(ctx, okxws.OutTick{
 					InstID:    sym,
 					Timeframe: w.cfg.LTF,

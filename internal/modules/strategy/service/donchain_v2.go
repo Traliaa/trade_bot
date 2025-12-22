@@ -3,6 +3,7 @@ package service
 import (
 	"fmt"
 	"math"
+	"strings"
 	"sync"
 	"time"
 	"trade_bot/internal/modules/config"
@@ -115,76 +116,91 @@ func (e *DonchianV2HTF) OnCandle(t models.CandleTick) (models.Signal, bool, bool
 
 	// ---------------- LTF: Donchian breakout ----------------
 	case normTF(e.cfg.LTF):
-		// обновляем буфер
+		// 0) если буфер уже прогрет — считаем канал ДО добавления текущей свечи
+		var (
+			dh, dl  float64
+			haveCh  bool
+			chPct   float64
+			bodyPct float64
+		)
+
+		if len(st.highs) >= e.cfg.DonchianPeriod {
+			dh = maxSlice(st.highs)
+			dl = minSlice(st.lows)
+			if dh > 0 && dl > 0 && dh > dl {
+				haveCh = true
+			}
+		}
+
+		// 1) инкремент прогрева LTF (по закрытым свечам)
+		st.wLTF++
+		if st.wLTF >= e.cfg.MinWarmupLTF && len(st.highs) >= e.cfg.DonchianPeriod && st.readyLTF == false {
+			st.readyLTF = true
+			becameReady = true
+		}
+
+		// 2) пробуем сформировать сигнал (только если уже готовы HTF+LTF и канал есть)
+		if haveCh && st.readyLTF && st.readyHTF && st.trend != TrendNone {
+			// ширина канала лучше считать от середины/цены, но оставим close
+			if t.Close > 0 {
+				chPct = (dh - dl) / t.Close
+			}
+			if chPct >= e.cfg.MinChannelPct {
+				bodyPct = math.Abs(t.Close-t.Open) / t.Close
+				if bodyPct >= e.cfg.MinBodyPct {
+
+					var side models.Side
+					if st.trend == TrendUp && t.Close > dh {
+						side = models.SideBuy
+					}
+					if st.trend == TrendDown && t.Close < dl {
+						side = models.SideSell
+					}
+
+					if side != "" {
+						// антиспам: одна и та же LTF свеча -> 1 сигнал
+						if t.End.IsZero() || !st.lastSignalEnd.Equal(t.End) {
+							st.lastSignalEnd = t.End
+
+							sig := models.Signal{
+								InstID:   t.InstID,
+								TF:       normTF(e.cfg.LTF),
+								Side:     side,
+								Price:    t.Close,
+								Strategy: "donchian_v2_htf",
+								Reason: fmt.Sprintf(
+									"trend=%v Don[%d] chPct=%.4f bodyPct=%.4f dh=%.6f dl=%.6f emaF=%d emaS=%d",
+									st.trend, e.cfg.DonchianPeriod, chPct, bodyPct, dh, dl, e.cfg.HTFEmaFast, e.cfg.HTFEmaSlow,
+								),
+								CreatedAt: time.Now(),
+							}
+
+							// 3) теперь добавляем текущую свечу в буфер и выходим с сигналом
+							st.highs = append(st.highs, t.High)
+							st.lows = append(st.lows, t.Low)
+							if len(st.highs) > e.cfg.DonchianPeriod {
+								st.highs = st.highs[1:]
+								st.lows = st.lows[1:]
+							}
+
+							fmt.Printf("[SIG] %s %s close=%.6f dh=%.6f dl=%.6f trend=%v\n",
+								t.InstID, side, t.Close, dh, dl, st.trend)
+							return sig, true, becameReady
+						}
+					}
+				}
+			}
+		}
+
+		// 4) если сигнала нет — просто обновляем буфер текущей свечой
 		st.highs = append(st.highs, t.High)
 		st.lows = append(st.lows, t.Low)
 		if len(st.highs) > e.cfg.DonchianPeriod {
 			st.highs = st.highs[1:]
 			st.lows = st.lows[1:]
 		}
-		st.wLTF++
 
-		if st.wLTF >= e.cfg.MinWarmupLTF && len(st.highs) >= e.cfg.DonchianPeriod {
-			if !st.readyLTF {
-				st.readyLTF = true
-				becameReady = true
-			}
-		}
-
-		// пока не готовы обе части — не сигналим
-		if !st.readyLTF || !st.readyHTF || st.trend == TrendNone {
-			return models.Signal{}, false, becameReady
-		}
-
-		dh := maxSlice(st.highs)
-		dl := minSlice(st.lows)
-		if dh <= 0 || dl <= 0 || dh <= dl {
-			return models.Signal{}, false, becameReady
-		}
-
-		// ширина канала (в процентах от цены)
-		chPct := (dh - dl) / t.Close
-		if chPct < e.cfg.MinChannelPct {
-			return models.Signal{}, false, becameReady
-		}
-
-		// импульс тела свечи
-		bodyPct := math.Abs(t.Close-t.Open) / t.Close
-		if bodyPct < e.cfg.MinBodyPct {
-			return models.Signal{}, false, becameReady
-		}
-
-		// breakout + совпадение с HTF трендом
-		var side models.Side
-		if st.trend == TrendUp && t.Close > dh {
-			side = models.SideBuy
-		}
-		if st.trend == TrendDown && t.Close < dl {
-			side = models.SideSell
-		}
-		if side == "" {
-			return models.Signal{}, false, becameReady
-		}
-
-		// антиспам: одна свеча — один сигнал максимум
-		if !t.End.IsZero() && st.lastSignalEnd.Equal(t.End) {
-			return models.Signal{}, false, becameReady
-		}
-		st.lastSignalEnd = t.End
-
-		sig := models.Signal{
-			InstID:   t.InstID,
-			TF:       normTF(e.cfg.LTF),
-			Side:     side,
-			Price:    t.Close,
-			Strategy: "donchian_v2_htf",
-			Reason: fmt.Sprintf(
-				"trend=%v Don[%d] chPct=%.4f bodyPct=%.4f dh=%.6f dl=%.6f emaF=%d emaS=%d",
-				st.trend, e.cfg.DonchianPeriod, chPct, bodyPct, dh, dl, e.cfg.HTFEmaFast, e.cfg.HTFEmaSlow,
-			),
-			CreatedAt: time.Now(),
-		}
-		return sig, true, becameReady
+		return models.Signal{}, false, becameReady
 
 	default:
 		return models.Signal{}, false, false
@@ -202,17 +218,19 @@ func (e *DonchianV2HTF) IsReady(symbol string) bool {
 }
 
 func normTF(raw string) string {
-	switch raw {
-	case "60m", "60M", "1H", "1h":
+	s := strings.TrimSpace(strings.ToLower(raw))
+	s = strings.TrimPrefix(s, "candle")
+	switch s {
+	case "60m", "1h":
 		return "1h"
-	case "15m", "15M":
+	case "15m":
 		return "15m"
-	case "5m", "5M":
+	case "5m":
 		return "5m"
-	case "10m", "10M":
+	case "10m":
 		return "10m"
 	default:
-		return raw
+		return s
 	}
 }
 
@@ -235,4 +253,14 @@ func (e *DonchianV2HTF) Dump(symbol string) string {
 		st.wLTF, e.cfg.MinWarmupLTF, st.readyLTF, dh, dl,
 		st.wHTF, st.emaFast.Value(), st.emaSlow.Value(), st.trend, st.readyHTF,
 	)
+}
+func (t Trend) String() string {
+	switch t {
+	case TrendUp:
+		return "up"
+	case TrendDown:
+		return "down"
+	default:
+		return "none"
+	}
 }
