@@ -96,6 +96,9 @@ func (r *Router) OnSignal(ctx context.Context, sig models.Signal) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
+	fmt.Printf("[SIG ROUTER] %s %s",
+		sig.TF, sig.Strategy)
+
 	k := key(sig.TF, sig.Strategy)
 	sessions := r.index[k]
 	if len(sessions) == 0 {

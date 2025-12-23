@@ -15,18 +15,20 @@ func Module() fx.Option {
 		fx.Invoke(func(
 			lc fx.Lifecycle,
 			r *Router,
-			sigs chan models.Signal,
-			ctx context.Context,
+			sigs chan models.Signal, // ⬅️ read-only
 		) {
 			lc.Append(fx.Hook{
-				OnStart: func(_ context.Context) error {
+				OnStart: func(startCtx context.Context) error {
 					go func() {
 						for {
 							select {
-							case <-ctx.Done():
+							case <-startCtx.Done():
 								return
-							case sig := <-sigs:
-								r.OnSignal(ctx, sig)
+							case sig, ok := <-sigs:
+								if !ok {
+									return
+								}
+								r.OnSignal(startCtx, sig)
 							}
 						}
 					}()
