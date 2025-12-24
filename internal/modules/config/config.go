@@ -101,6 +101,8 @@ type V2Config struct {
 	// ✅ для Hub прогрева
 	ExpectedSymbols int           // сколько символов ждём "готовых" (обычно topN)
 	ProgressEvery   time.Duration // как часто слать прогресс (например 2*time.Minute)
+
+	BreakoutPct float64 // 👈 НОВОЕ: 0.002 = 0.2%
 }
 
 func NewConfig() (*Config, error) {
@@ -122,12 +124,12 @@ func NewConfig() (*Config, error) {
 	config := Config{
 		DefaultRiskPct:        1.0,
 		DefaultStopPct:        0.5,
-		DefaultTakeProfitRR:   3.0,
+		DefaultTakeProfitRR:   2.0,
 		DefaultDonchianPeriod: 20,
 		DefaultTrendEmaPeriod: 50,
 		DefaultStrategy:       "donchian",
 
-		DefaultWatchTopN:   intFromEnv("DEFAULT_WATCHLIST_TOP_N", 100),
+		DefaultWatchTopN:   intFromEnv("DEFAULT_WATCHLIST_TOP_N", 50),
 		ConfirmQueueMax:    intFromEnv("CONFIRM_QUEUE_MAX", 20),
 		ConfirmQueuePolicy: getenvDefault("CONFIRM_QUEUE_POLICY", "drop_same_symbol"),
 
@@ -143,7 +145,7 @@ func NewConfig() (*Config, error) {
 		DefaultMaxOpenPositions: intFromEnv("MAX_OPEN_POSITIONS", 10),
 
 		DefaultConfirmRequired:   boolFromEnv("CONFIRM_REQUIRED", true),
-		DefaultCooldownPerSymbol: durationFromEnv("COOLDOWN_PER_SYMBOL", "1h"),
+		DefaultCooldownPerSymbol: durationFromEnv("COOLDOWN_PER_SYMBOL", "6h"),
 		DefaultConfirmTimeout:    durationFromEnv("CONFIRM_TIMEOUT", "30s"),
 		DefaultAutoOnTimeout:     getenvDefault("AUTO_ON_TIMEOUT", "off"),
 	}
@@ -187,7 +189,7 @@ func NewConfig() (*Config, error) {
 		config.V2Config.DonchianPeriod = 20
 	}
 	if config.V2Config.MinChannelPct <= 0 {
-		config.V2Config.MinChannelPct = 0.008 // 0.8% канал
+		config.V2Config.MinChannelPct = 0.012 // 0.8% канал
 	}
 	if config.V2Config.MinBodyPct <= 0 {
 		config.V2Config.MinBodyPct = 0.003 // 0.3% тело
@@ -199,10 +201,10 @@ func NewConfig() (*Config, error) {
 		config.V2Config.HTFEmaSlow = 200
 	}
 	if config.V2Config.MinWarmupLTF <= 0 {
-		config.V2Config.MinWarmupLTF = config.V2Config.DonchianPeriod
+		config.V2Config.MinWarmupLTF = 20
 	}
 	if config.V2Config.MinWarmupHTF <= 0 {
-		config.V2Config.MinWarmupHTF = config.V2Config.HTFEmaSlow
+		config.V2Config.MinWarmupHTF = 200
 	}
 
 	if config.V2Config.ExpectedSymbols <= 0 {
@@ -210,6 +212,9 @@ func NewConfig() (*Config, error) {
 	}
 	if config.V2Config.ProgressEvery <= 0 {
 		config.V2Config.ProgressEvery = 2 * time.Minute
+	}
+	if config.V2Config.BreakoutPct <= 0 {
+		config.V2Config.BreakoutPct = 0.002 // 0.2% буфер пробоя
 	}
 	return &config, nil
 }
