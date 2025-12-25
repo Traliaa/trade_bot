@@ -99,8 +99,7 @@ type V2Config struct {
 	MinWarmupHTF int // по умолчанию = HTFEmaSlow
 
 	// ✅ для Hub прогрева
-	ExpectedSymbols int           // сколько символов ждём "готовых" (обычно topN)
-	ProgressEvery   time.Duration // как часто слать прогресс (например 2*time.Minute)
+	ProgressEvery time.Duration // как часто слать прогресс (например 2*time.Minute)
 
 	BreakoutPct float64 // 👈 НОВОЕ: 0.002 = 0.2%
 }
@@ -129,7 +128,7 @@ func NewConfig() (*Config, error) {
 		DefaultTrendEmaPeriod: 50,
 		DefaultStrategy:       "donchian",
 
-		DefaultWatchTopN:   intFromEnv("DEFAULT_WATCHLIST_TOP_N", 50),
+		DefaultWatchTopN:   intFromEnv("DEFAULT_WATCHLIST_TOP_N", 100),
 		ConfirmQueueMax:    intFromEnv("CONFIRM_QUEUE_MAX", 20),
 		ConfirmQueuePolicy: getenvDefault("CONFIRM_QUEUE_POLICY", "drop_same_symbol"),
 
@@ -207,9 +206,6 @@ func NewConfig() (*Config, error) {
 		config.V2Config.MinWarmupHTF = 200
 	}
 
-	if config.V2Config.ExpectedSymbols <= 0 {
-		config.V2Config.ExpectedSymbols = 100
-	}
 	if config.V2Config.ProgressEvery <= 0 {
 		config.V2Config.ProgressEvery = 2 * time.Minute
 	}

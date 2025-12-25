@@ -15,7 +15,7 @@ type ServiceNotifier interface {
 }
 
 type Hub struct {
-	cfg config.V2Config
+	cfg *config.Config
 	n   ServiceNotifier
 	out chan<- models.Signal
 
@@ -32,7 +32,7 @@ type Hub struct {
 
 func NewHub(cfg *config.Config, n ServiceNotifier, out chan<- models.Signal, engine Engine) *Hub {
 	return &Hub{
-		cfg:       cfg.V2Config,
+		cfg:       cfg,
 		n:         n,
 		out:       out,
 		engine:    engine,
@@ -91,11 +91,6 @@ func (h *Hub) onBecameReady(ctx context.Context, sym string) {
 	h.ready[sym] = true
 	h.readyCnt++
 
-	exp := h.cfg.ExpectedSymbols
-	if exp <= 0 {
-		exp = 100
-	}
-
 	// старт (один раз)
 	if !h.warmupMsgSent {
 		h.warmupMsgSent = true
@@ -103,19 +98,19 @@ func (h *Hub) onBecameReady(ctx context.Context, sym string) {
 		if h.n != nil {
 			h.n.SendService(ctx,
 				"🔥 Warmup started | engine=%s | LTF=%s HTF=%s | ожидаем=%d",
-				h.engine.Name(), h.cfg.LTF, h.cfg.HTF, exp,
+				h.engine.Name(), h.cfg.V2Config.LTF, h.cfg.V2Config.HTF, h.cfg.DefaultWatchTopN,
 			)
 		}
 		return
 	}
 
 	// done
-	if !h.warmupDone && h.readyCnt >= exp {
+	if !h.warmupDone && h.readyCnt >= h.cfg.DefaultWatchTopN {
 		h.warmupDone = true
 		if h.n != nil {
 			h.n.SendService(ctx,
 				"✅ Warmup finished: %d/%d ready. Теперь ждём сигналы.",
-				h.readyCnt, exp,
+				h.readyCnt, h.cfg.DefaultWatchTopN,
 			)
 		}
 	}
@@ -128,18 +123,14 @@ func (h *Hub) maybeWarmupProgress(ctx context.Context) {
 	if !h.warmupMsgSent || h.warmupDone || h.n == nil {
 		return
 	}
-	if h.cfg.ProgressEvery <= 0 {
+	if h.cfg.V2Config.ProgressEvery <= 0 {
 		return
 	}
-	if time.Since(h.lastProgress) < h.cfg.ProgressEvery {
+	if time.Since(h.lastProgress) < h.cfg.V2Config.ProgressEvery {
 		return
 	}
 
-	exp := h.cfg.ExpectedSymbols
-	if exp <= 0 {
-		exp = 100
-	}
-	h.n.SendService(ctx, "⏳ Warmup progress: %d/%d ready", h.readyCnt, exp)
+	h.n.SendService(ctx, "⏳ Warmup progress: %d/%d ready", h.readyCnt, h.cfg.DefaultWatchTopN)
 	h.lastProgress = time.Now()
 }
 
