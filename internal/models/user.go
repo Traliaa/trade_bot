@@ -52,7 +52,7 @@ type TradingSettings struct {
 	TrendEmaPeriod int `yaml:"trena_ema__period"` // EMA для фильтра тренда (обычно 50)
 
 	Strategy StrategyType `json:"strategy"` // "emarsi" или "donchian"
-
+	StopPct  float64      `yaml:"stop_pct"`
 }
 
 func NewTradingSettingsFromDefaults(userID int64, cfg *config.Config) *UserSettings {
@@ -82,6 +82,7 @@ func NewTradingSettingsFromDefaults(userID int64, cfg *config.Config) *UserSetti
 			DonchianPeriod: cfg.DefaultDonchianPeriod,
 			TrendEmaPeriod: cfg.DefaultTrendEmaPeriod,
 			Strategy:       StrategyType(cfg.DefaultStrategy),
+			StopPct:        cfg.StopPct,
 		},
 	}
 

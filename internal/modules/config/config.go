@@ -79,6 +79,7 @@ type Config struct {
 	DefaultTrendEmaPeriod int // EMA для фильтра тренда (обычно 50)
 	DefaultStrategy       string
 	V2Config              V2Config
+	StopPct               float64
 }
 
 type V2Config struct {
@@ -127,6 +128,7 @@ func NewConfig() (*Config, error) {
 		DefaultDonchianPeriod: 20,
 		DefaultTrendEmaPeriod: 50,
 		DefaultStrategy:       "donchian",
+		StopPct:               3.0,
 
 		DefaultWatchTopN:   intFromEnv("DEFAULT_WATCHLIST_TOP_N", 100),
 		ConfirmQueueMax:    intFromEnv("CONFIRM_QUEUE_MAX", 20),
