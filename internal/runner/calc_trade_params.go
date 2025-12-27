@@ -20,21 +20,25 @@ func (s *userSession) calcTradeParams(
 		return nil, fmt.Errorf("unknown side %q", side)
 	}
 
-	// RiskPct — только ДЕНЕЖНЫЙ риск (для сайзинга)
+	// денежный риск
 	riskPct := s.settings.TradingSettings.RiskPct / 100.0
 	if riskPct <= 0 {
 		return nil, fmt.Errorf("riskPct <= 0")
 	}
 
-	// StopPct — дистанция стопа (по цене)
+	// стоп-дистанция
 	stopPct := s.settings.TradingSettings.StopPct / 100.0
 	if stopPct <= 0 {
 		return nil, fmt.Errorf("stopPct <= 0 (set TradingSettings.StopPct)")
 	}
+	// адекватный safety-guard, чтобы случайно не поставить 10% стоп
+	if stopPct > 0.20 {
+		return nil, fmt.Errorf("stopPct too big: %.4f", stopPct)
+	}
 
 	rr := s.settings.TradingSettings.TakeProfitRR
 	if rr <= 0 {
-		rr = 2.0 // для 15m обычно лучше 1.5–2.5, чем 3
+		rr = 2.0
 	}
 
 	lev := s.settings.TradingSettings.Leverage
@@ -42,18 +46,19 @@ func (s *userSession) calcTradeParams(
 		lev = 1
 	}
 
-	lastPx, lotSz, minSz, tickSz, ctVal, err := s.okx.GetInstrumentMeta(ctx, symbol)
+	instrument, err := s.okx.GetInstrumentMeta(ctx, symbol)
 	if err != nil {
 		return nil, fmt.Errorf("GetInstrumentMeta: %w", err)
 	}
+
 	if entry <= 0 {
-		entry = lastPx
+		entry = instrument.LastPx
 	}
 	if entry <= 0 {
 		return nil, fmt.Errorf("entry <= 0")
 	}
 
-	// 1) Считаем сырой SL от StopPct, а не RiskPct
+	// 1) сырой SL от StopPct
 	var slRaw float64
 	if side == "BUY" {
 		slRaw = entry * (1 - stopPct)
@@ -61,21 +66,22 @@ func (s *userSession) calcTradeParams(
 		slRaw = entry * (1 + stopPct)
 	}
 
-	// 2) Округляем SL "в безопасную сторону"
+	// 2) округляем SL "в безопасную сторону"
+	// BUY: SL ниже -> roundDown
+	// SELL: SL выше -> roundUp
 	var sl float64
 	if side == "BUY" {
-		sl = roundDownToTick(slRaw, tickSz)
+		sl = roundDownToTick(slRaw, instrument.TickSz)
 	} else {
-		sl = roundUpToTick(slRaw, tickSz)
+		sl = roundUpToTick(slRaw, instrument.TickSz)
 	}
 
-	// 3) Реальная дистанция риска после округления
 	riskDist := math.Abs(entry - sl)
 	if riskDist <= 0 {
 		return nil, fmt.Errorf("riskDist <= 0 after rounding")
 	}
 
-	// 4) TP от 1R
+	// 3) TP от 1R
 	var tpRaw float64
 	if side == "BUY" {
 		tpRaw = entry + rr*riskDist
@@ -83,24 +89,21 @@ func (s *userSession) calcTradeParams(
 		tpRaw = entry - rr*riskDist
 	}
 
-	// 5) Округляем TP "в безопасную сторону"
+	// BUY: TP выше -> roundUp
+	// SELL: TP ниже -> roundDown
 	var tp float64
 	if side == "BUY" {
-		tp = roundUpToTick(tpRaw, tickSz)
+		tp = roundUpToTick(tpRaw, instrument.TickSz)
 	} else {
-		tp = roundDownToTick(tpRaw, tickSz)
+		tp = roundDownToTick(tpRaw, instrument.TickSz)
 	}
 
-	// 6) Сайзинг по ДЕНЕЖНОМУ риску RiskPct (как у тебя уже сделано)
+	// 4) сайзинг по ДЕНЕЖНОМУ риску RiskPct
 	size, err := s.calcSizeByRiskWithMeta(
 		ctx,
-		symbol,
+		instrument,
 		entry,
 		sl,
-		lotSz,
-		minSz,
-		tickSz,
-		ctVal,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("calcSizeByRisk: %w", err)
@@ -109,7 +112,7 @@ func (s *userSession) calcTradeParams(
 		return nil, fmt.Errorf("size <= 0")
 	}
 
-	// (опционально) полезный sanity в логи:
+	// полезный sanity для логов:
 	// stopDistPct := riskDist / entry
 	// estROEStop := stopDistPct * float64(lev) * 100.0
 
@@ -118,10 +121,10 @@ func (s *userSession) calcTradeParams(
 		SL:        sl,
 		TP:        tp,
 		Size:      size,
-		TickSize:  tickSz,
+		TickSize:  instrument.TickSz,
 		RiskPct:   s.settings.TradingSettings.RiskPct, // денежный риск
 		RR:        rr,
-		RiskDist:  riskDist, // фактический риск-ход по цене
+		RiskDist:  riskDist,
 		Leverage:  lev,
 		Direction: side,
 	}, nil
@@ -131,12 +134,14 @@ func roundDownToTick(px, tick float64) float64 {
 	if tick <= 0 {
 		return px
 	}
-	return math.Floor(px/tick+1e-12) * tick
+	steps := math.Floor(px/tick + 1e-12)
+	return steps * tick
 }
 
 func roundUpToTick(px, tick float64) float64 {
 	if tick <= 0 {
 		return px
 	}
-	return math.Ceil(px/tick-1e-12) * tick
+	steps := math.Ceil(px/tick - 1e-12)
+	return steps * tick
 }

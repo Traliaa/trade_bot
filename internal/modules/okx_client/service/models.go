@@ -88,4 +88,9 @@ type Instrument struct {
 	CtMult   string `json:"ctMult"`
 	State    string `json:"state"`
 	MaxMktSz string `json:"maxMktSz"`
+
+	// ВАЖНО для корректной математики:
+	CtType    string `json:"ctType"`    // "linear" / "inverse" (у OKX)
+	SettleCcy string `json:"settleCcy"` // "USDT" или монета (BTC/ETH/...)
+	CtValCcy  string `json:"ctValCcy"`  // "USDT"/"USD"/...
 }

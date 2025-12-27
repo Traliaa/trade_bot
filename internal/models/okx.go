@@ -2,16 +2,26 @@ package models
 
 import "time"
 
+type ContractKind int
+
+const (
+	ContractUnknown ContractKind = iota
+	ContractLinearUSDT
+	ContractInverseCoin
+)
+
 type Instrument struct {
-	InstID   string `json:"instId"`
-	TickSz   string `json:"tickSz"`
-	LotSz    string `json:"lotSz"`
-	MinSz    string `json:"minSz"`
-	CtVal    string `json:"ctVal"`
-	CtMult   string `json:"ctMult"`
-	State    string `json:"state"`
-	MaxMktSz string `json:"maxMktSz"` // макс. размер для маркет-ордера
-	MaxLmtSz string `json:"maxLmtSz"` // макс. размер для лимитки (на всякий)
+	InstID    string
+	Kind      ContractKind
+	SettleCcy string
+	CtValCcy  string
+
+	LastPx   float64
+	LotSz    float64
+	MinSz    float64
+	TickSz   float64
+	CtVal    float64 // effective (ctVal * ctMult)
+	MaxMktSz float64 // optional, 0 если неизвестно
 }
 
 func NewInstrument(Instrument) {
