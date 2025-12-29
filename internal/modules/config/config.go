@@ -83,26 +83,24 @@ type Config struct {
 }
 
 type V2Config struct {
-	LTF string // "15m"
-	HTF string // "1h"
+	LTF string `yaml:"LTF"`
+	HTF string `yaml:"HTF"`
 
-	// HTF trend filter
-	HTFEmaFast int // например 50
-	HTFEmaSlow int // например 200
+	DonchianPeriod int     `yaml:"DonchianPeriod"`
+	MinChannelPct  float64 `yaml:"MinChannelPct"`
+	MinBodyPct     float64 `yaml:"MinBodyPct"`
 
-	// LTF channel breakout
-	DonchianPeriod int     // например 20
-	MinChannelPct  float64 // например 0.008 (0.8%)
-	MinBodyPct     float64 // например 0.003 (0.3%)
+	// NEW: насколько далеко закрыться ЗА границей дончиана
+	BreakoutPct float64 `yaml:"BreakoutPct"`
 
-	// Warmup
-	MinWarmupLTF int // по умолчанию = DonchianPeriod
-	MinWarmupHTF int // по умолчанию = HTFEmaSlow
+	HTFEmaFast int `yaml:"HTFEmaFast"`
+	HTFEmaSlow int `yaml:"HTFEmaSlow"`
 
-	// ✅ для Hub прогрева
-	ProgressEvery time.Duration // как часто слать прогресс (например 2*time.Minute)
+	MinWarmupLTF int `yaml:"MinWarmupLTF"`
+	MinWarmupHTF int `yaml:"MinWarmupHTF"`
 
-	BreakoutPct float64 // 👈 НОВОЕ: 0.002 = 0.2%
+	ExpectedSymbols int           `yaml:"ExpectedSymbols"`
+	ProgressEvery   time.Duration `yaml:"ProgressEvery"`
 }
 
 func NewConfig() (*Config, error) {
@@ -211,8 +209,10 @@ func NewConfig() (*Config, error) {
 	if config.V2Config.ProgressEvery <= 0 {
 		config.V2Config.ProgressEvery = 2 * time.Minute
 	}
+
 	if config.V2Config.BreakoutPct <= 0 {
-		config.V2Config.BreakoutPct = 0.002 // 0.2% буфер пробоя
+		// для 15m на альтах адекватный старт 0.2%–0.3%
+		config.V2Config.BreakoutPct = 0.002 // 0.20%
 	}
 	return &config, nil
 }

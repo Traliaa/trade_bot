@@ -71,6 +71,12 @@ func (e *DonchianV2HTF) get(sym string) *v2State {
 //
 //	sig, ok=true  -> есть сигнал
 //	becameReady=true -> по этому символу стратегия впервые "прогрелась" (LTF/HTF)
+//
+// OnCandle принимает закрытые свечи разных ТФ (LTF/HTF) и решает, есть ли сигнал.
+// returns:
+//
+//	sig, ok=true  -> есть сигнал
+//	becameReady=true -> по этому символу стратегия впервые "прогрелась" (LTF/HTF)
 func (e *DonchianV2HTF) OnCandle(t models.CandleTick) (models.Signal, bool, bool) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -134,78 +140,81 @@ func (e *DonchianV2HTF) OnCandle(t models.CandleTick) (models.Signal, bool, bool
 
 		// 1) инкремент прогрева LTF (по закрытым свечам)
 		st.wLTF++
-		if st.wLTF >= e.cfg.MinWarmupLTF && len(st.highs) >= e.cfg.DonchianPeriod && st.readyLTF == false {
+		if st.wLTF >= e.cfg.MinWarmupLTF && len(st.highs) >= e.cfg.DonchianPeriod && !st.readyLTF {
 			st.readyLTF = true
 			becameReady = true
 		}
 
 		// 2) пробуем сформировать сигнал (только если уже готовы HTF+LTF и канал есть)
 		if haveCh && st.readyLTF && st.readyHTF && st.trend != TrendNone {
-			// ширина канала лучше считать от середины/цены, но оставим close
-			if t.Close > 0 {
-				chPct = (dh - dl) / t.Close
-			}
+			// ширина канала
+			chPct = (dh - dl) / t.Close
 			if chPct >= e.cfg.MinChannelPct {
+
+				// тело свечи
 				bodyPct = math.Abs(t.Close-t.Open) / t.Close
 				if bodyPct >= e.cfg.MinBodyPct {
 
-					// breakout buffer (антишум)
+					// breakout threshold (например 0.002 = 0.2%)
 					bo := e.cfg.BreakoutPct
-					if bo < 0 {
-						bo = 0
+					if bo <= 0 {
+						bo = 0.002 // safe default
 					}
 
-					// верх/низ с буфером
-					upLevel := dh * (1 + bo)
-					dnLevel := dl * (1 - bo)
+					// ------------- NEW: пробой телом + реальный breakout pct -------------
+					upBoPct := (t.Close - dh) / dh // насколько Close выше dh
+					dnBoPct := (dl - t.Close) / dl // насколько Close ниже dl
 
-					// breakout + совпадение с HTF трендом
+					brokeUpByBody := t.Open <= dh && t.Close > dh
+					brokeDnByBody := t.Open >= dl && t.Close < dl
+
 					var side models.Side
-					if st.trend == TrendUp && t.Close > upLevel {
+					switch {
+					case st.trend == TrendUp && brokeUpByBody && upBoPct >= bo:
 						side = models.SideBuy
-					}
-					if st.trend == TrendDown && t.Close < dnLevel {
+					case st.trend == TrendDown && brokeDnByBody && dnBoPct >= bo:
 						side = models.SideSell
-					}
-					if side == "" {
-						return models.Signal{}, false, becameReady
+					default:
+						// сигнала нет — пойдём обновим буфер ниже
+						goto UPDATE_BUFFER
 					}
 
 					// антиспам: одна и та же LTF свеча -> 1 сигнал
-					if t.End.IsZero() || !st.lastSignalEnd.Equal(t.End) {
-						st.lastSignalEnd = t.End
+					if !t.End.IsZero() && st.lastSignalEnd.Equal(t.End) {
+						goto UPDATE_BUFFER
+					}
+					st.lastSignalEnd = t.End
 
-						sig := models.Signal{
-							InstID:   t.InstID,
-							TF:       normTF(e.cfg.LTF),
-							Side:     side,
-							Price:    t.Close,
-							Strategy: "donchian_v2_htf",
-							Reason: fmt.Sprintf(
-								"trend=%v Don[%d] chPct=%.4f bodyPct=%.4f dh=%.6f dl=%.6f bo=%.4f up=%.6f dn=%.6f",
-								st.trend, e.cfg.DonchianPeriod, chPct, bodyPct, dh, dl,
-								bo, upLevel, dnLevel,
-							),
-							CreatedAt: time.Now(),
-						}
-
-						// 3) теперь добавляем текущую свечу в буфер и выходим с сигналом
-						st.highs = append(st.highs, t.High)
-						st.lows = append(st.lows, t.Low)
-						if len(st.highs) > e.cfg.DonchianPeriod {
-							st.highs = st.highs[1:]
-							st.lows = st.lows[1:]
-						}
-
-						fmt.Printf("[SIG] %s %s close=%.6f dh=%.6f dl=%.6f trend=%v\n",
-							t.InstID, side, t.Close, dh, dl, st.trend)
-						return sig, true, becameReady
+					sig := models.Signal{
+						InstID:   t.InstID,
+						TF:       normTF(e.cfg.LTF),
+						Side:     side,
+						Price:    t.Close,
+						Strategy: "donchian_v2_htf",
+						Reason: fmt.Sprintf(
+							"trend=%v Don[%d] chPct=%.4f bodyPct=%.4f bo=%.4f upBo=%.4f dnBo=%.4f dh=%.6f dl=%.6f",
+							st.trend, e.cfg.DonchianPeriod, chPct, bodyPct, bo, upBoPct, dnBoPct, dh, dl,
+						),
+						CreatedAt: time.Now(),
 					}
 
+					// 3) теперь добавляем текущую свечу в буфер и выходим с сигналом
+					st.highs = append(st.highs, t.High)
+					st.lows = append(st.lows, t.Low)
+					if len(st.highs) > e.cfg.DonchianPeriod {
+						st.highs = st.highs[1:]
+						st.lows = st.lows[1:]
+					}
+
+					fmt.Printf("[SIG] %s %s close=%.6f dh=%.6f dl=%.6f trend=%v upBo=%.4f dnBo=%.4f\n",
+						t.InstID, side, t.Close, dh, dl, st.trend, upBoPct, dnBoPct)
+
+					return sig, true, becameReady
 				}
 			}
 		}
 
+	UPDATE_BUFFER:
 		// 4) если сигнала нет — просто обновляем буфер текущей свечой
 		st.highs = append(st.highs, t.High)
 		st.lows = append(st.lows, t.Low)
