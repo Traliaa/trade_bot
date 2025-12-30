@@ -191,7 +191,7 @@ func NewConfig() (*Config, error) {
 		config.V2Config.MinChannelPct = 0.012 // 0.8% канал
 	}
 	if config.V2Config.MinBodyPct <= 0 {
-		config.V2Config.MinBodyPct = 0.003 // 0.3% тело
+		config.V2Config.MinBodyPct = 0.004 // 0.3% тело
 	}
 	if config.V2Config.HTFEmaFast <= 0 {
 		config.V2Config.HTFEmaFast = 50
@@ -212,7 +212,7 @@ func NewConfig() (*Config, error) {
 
 	if config.V2Config.BreakoutPct <= 0 {
 		// для 15m на альтах адекватный старт 0.2%–0.3%
-		config.V2Config.BreakoutPct = 0.002 // 0.20%
+		config.V2Config.BreakoutPct = 0.0025 // 0.20%
 	}
 	return &config, nil
 }

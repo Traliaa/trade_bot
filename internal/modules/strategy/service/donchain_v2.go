@@ -157,16 +157,32 @@ func (e *DonchianV2HTF) OnCandle(t models.CandleTick) (models.Signal, bool, bool
 
 					// breakout threshold (например 0.002 = 0.2%)
 					bo := e.cfg.BreakoutPct
-					if bo <= 0 {
+					if bo < 0 {
+						bo = 0
+					}
+					if bo == 0 {
 						bo = 0.002 // safe default
 					}
 
-					// ------------- NEW: пробой телом + реальный breakout pct -------------
-					upBoPct := (t.Close - dh) / dh // насколько Close выше dh
-					dnBoPct := (dl - t.Close) / dl // насколько Close ниже dl
+					// насколько Close выше/ниже границ
+					upBoPct := (t.Close - dh) / dh // >0 когда close > dh
+					dnBoPct := (dl - t.Close) / dl // >0 когда close < dl
 
 					brokeUpByBody := t.Open <= dh && t.Close > dh
 					brokeDnByBody := t.Open >= dl && t.Close < dl
+
+					// NEW: close near edge filter (отсекает кучу фейков)
+					rng := t.High - t.Low
+					if rng <= 0 {
+						goto UPDATE_BUFFER
+					}
+					closePos := (t.Close - t.Low) / rng // 0..1
+					if st.trend == TrendUp && closePos < 0.80 {
+						goto UPDATE_BUFFER
+					}
+					if st.trend == TrendDown && closePos > 0.20 {
+						goto UPDATE_BUFFER
+					}
 
 					var side models.Side
 					switch {
@@ -175,14 +191,9 @@ func (e *DonchianV2HTF) OnCandle(t models.CandleTick) (models.Signal, bool, bool
 					case st.trend == TrendDown && brokeDnByBody && dnBoPct >= bo:
 						side = models.SideSell
 					default:
-						// сигнала нет — пойдём обновим буфер ниже
 						goto UPDATE_BUFFER
 					}
 
-					// антиспам: одна и та же LTF свеча -> 1 сигнал
-					if !t.End.IsZero() && st.lastSignalEnd.Equal(t.End) {
-						goto UPDATE_BUFFER
-					}
 					st.lastSignalEnd = t.End
 
 					sig := models.Signal{
