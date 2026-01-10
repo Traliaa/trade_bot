@@ -14,6 +14,8 @@ import (
 
 // CandleRow: OKX data row: [ts, o, h, l, c, vol, volCcy, volCcyQuote, confirm]
 func (c *Client) GetCandles(ctx context.Context, instID, bar string, limit int) ([]models.CandleTick, error) {
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
 	if limit <= 0 {
 		limit = 100
 	}

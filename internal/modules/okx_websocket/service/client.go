@@ -64,12 +64,9 @@ func (c *Client) Start(ctx context.Context, out chan<- OutTick) {
 		log.Println("[MARKET] пустой список волатильных инструментов")
 		return
 	}
-	//timeframes := []string{"1m", "5m", "15m"}
-
-	timeframes := []string{"15m"}
+	timeframes := []string{"1m", "5m", "15m"}
 
 	for _, tf := range timeframes {
-		tf := tf
 		go c.runTimeframe(ctx, tf, syms, out)
 	}
 }
@@ -100,9 +97,6 @@ func (c *Client) runTimeframe(
 				}
 				return
 			}
-
-			// debug-лог по каждому тику
-			log.Printf("[WS-TICK] %s %s close=%.6f", tick.InstID, timeframe, tick.Close)
 
 			// прокидываем дальше
 			candle := models.CandleTick{

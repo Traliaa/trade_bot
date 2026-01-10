@@ -29,34 +29,6 @@ func NewManager(mkt *okx_websocket.Client) *Manager {
 	}
 }
 
-//// RunForUser стартует воркер для конкретного юзера (если ещё не запущен).
-//func (m *Manager) RunForUser(ctx context.Context, user *models.UserSettings, t TelegramNotifier) error {
-//	m.mu.Lock()
-//	defer m.mu.Unlock()
-//
-//	if _, running := m.runners[user.UserID]; running {
-//		// уже запущен — можно вернуть nil или ошибку, как удобнее
-//		return fmt.Errorf("runner already running for user %d", user.UserID)
-//	}
-//
-//	// 4. Runner для юзера
-//	r := New(user, t, m.mkt)
-//	m.runners[user.UserID] = r
-//
-//	// 5. Запускаем в отдельной горутине
-//	go func() {
-//		// по-хорошему, сюда лучше передавать дочерний ctx с отменой
-//		r.Start(ctx)
-//
-//		// когда Start закончится — выпилим раннер из мапы
-//		m.mu.Lock()
-//		delete(m.runners, user.UserID)
-//		m.mu.Unlock()
-//	}()
-//
-//	return nil
-//}
-
 // StopForUser останавливает воркер для конкретного юзера (если запущен).
 func (m *Manager) StopForUser(ctx context.Context, user *models.UserSettings) error {
 	m.mu.Lock()

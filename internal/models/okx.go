@@ -42,3 +42,17 @@ type CandleTick struct {
 	End          time.Time // время конца свечи (Start + duration)
 	TimeframeRaw string    // "1m", "5m" — на всякий случай
 }
+
+// TradeParams содержит все рассчитанные параметры сделки.
+type TradeParams struct {
+	Entry     float64
+	SL        float64
+	TP        float64
+	Size      float64
+	TickSize  float64
+	RiskPct   float64
+	RR        float64
+	RiskDist  float64
+	Leverage  int
+	Direction string // "BUY" или "SELL"
+}

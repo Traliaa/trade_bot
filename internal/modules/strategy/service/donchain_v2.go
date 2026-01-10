@@ -3,9 +3,9 @@ package service
 import (
 	"fmt"
 	"math"
-	"strings"
 	"sync"
 	"time"
+	"trade_bot/internal/helper"
 	"trade_bot/internal/modules/config"
 
 	"trade_bot/internal/models"
@@ -81,7 +81,7 @@ func (e *DonchianV2HTF) OnCandle(t models.CandleTick) (models.Signal, bool, bool
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	tf := normTF(t.TimeframeRaw)
+	tf := helper.NormTF(t.TimeframeRaw)
 	st := e.get(t.InstID)
 
 	becameReady := false
@@ -94,7 +94,7 @@ func (e *DonchianV2HTF) OnCandle(t models.CandleTick) (models.Signal, bool, bool
 	switch tf {
 
 	// ---------------- HTF: тренд ----------------
-	case normTF(e.cfg.HTF):
+	case helper.NormTF(e.cfg.HTF):
 		st.emaFast.Update(t.Close)
 		st.emaSlow.Update(t.Close)
 		st.wHTF++
@@ -121,7 +121,7 @@ func (e *DonchianV2HTF) OnCandle(t models.CandleTick) (models.Signal, bool, bool
 		return models.Signal{}, false, becameReady
 
 	// ---------------- LTF: Donchian breakout ----------------
-	case normTF(e.cfg.LTF):
+	case helper.NormTF(e.cfg.LTF):
 		// 0) если буфер уже прогрет — считаем канал ДО добавления текущей свечи
 		var (
 			dh, dl  float64
@@ -198,7 +198,7 @@ func (e *DonchianV2HTF) OnCandle(t models.CandleTick) (models.Signal, bool, bool
 
 					sig := models.Signal{
 						InstID:   t.InstID,
-						TF:       normTF(e.cfg.LTF),
+						TF:       helper.NormTF(e.cfg.LTF),
 						Side:     side,
 						Price:    t.Close,
 						Strategy: "donchian_v2_htf",
@@ -249,23 +249,6 @@ func (e *DonchianV2HTF) IsReady(symbol string) bool {
 		return false
 	}
 	return st.readyLTF && st.readyHTF && st.trend != TrendNone
-}
-
-func normTF(raw string) string {
-	s := strings.TrimSpace(strings.ToLower(raw))
-	s = strings.TrimPrefix(s, "candle")
-	switch s {
-	case "60m", "1h":
-		return "1h"
-	case "15m":
-		return "15m"
-	case "5m":
-		return "5m"
-	case "10m":
-		return "10m"
-	default:
-		return s
-	}
 }
 
 func (e *DonchianV2HTF) Name() string { return "donchian_v2_htf1h" }

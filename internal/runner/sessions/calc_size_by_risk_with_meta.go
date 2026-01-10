@@ -1,4 +1,4 @@
-package runner
+package sessions
 
 import (
 	"context"
@@ -19,7 +19,7 @@ import (
 //
 //	PnL(USDT) ≈ (entry - stop) * ctVal * sz
 //	margin    ≈ entry * ctVal * sz / leverage
-func (s *userSession) calcSizeByRiskWithMeta(
+func (s *UserSession) calcSizeByRiskWithMeta(
 	ctx context.Context,
 	meta models.Instrument,
 	entryPrice float64,
@@ -30,7 +30,7 @@ func (s *userSession) calcSizeByRiskWithMeta(
 		return 0, fmt.Errorf("entry/sl <= 0")
 	}
 
-	equity, err := s.okx.USDTBalance(ctx)
+	equity, err := s.Okx.USDTBalance(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("get equity: %w", err)
 	}
@@ -38,14 +38,14 @@ func (s *userSession) calcSizeByRiskWithMeta(
 		return 0, fmt.Errorf("equity <= 0")
 	}
 
-	riskFraction := s.settings.TradingSettings.RiskPct / 100.0
+	riskFraction := s.Settings.TradingSettings.RiskPct / 100.0
 	if riskFraction <= 0 {
 		return 0, fmt.Errorf("riskFraction <= 0")
 	}
 	riskUSDT := equity * riskFraction
 
 	// leverage cap
-	lev := float64(s.settings.TradingSettings.Leverage)
+	lev := float64(s.Settings.TradingSettings.Leverage)
 	if lev <= 0 {
 		lev = 1
 	}
@@ -74,7 +74,7 @@ func (s *userSession) calcSizeByRiskWithMeta(
 			return 0, fmt.Errorf("zero inverse dist")
 		}
 
-		settlePxUSDT, err := s.okx.SettleCcyToUSDT(ctx, meta.SettleCcy)
+		settlePxUSDT, err := s.Okx.SettleCcyToUSDT(ctx, meta.SettleCcy)
 		if err != nil {
 			return 0, fmt.Errorf("settle px: %w", err)
 		}

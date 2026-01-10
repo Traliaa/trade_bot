@@ -2,8 +2,10 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
+	"trade_bot/internal/helper"
 	"trade_bot/internal/modules/config"
 
 	"trade_bot/internal/models"
@@ -15,9 +17,10 @@ type ServiceNotifier interface {
 }
 
 type Hub struct {
-	cfg *config.Config
-	n   ServiceNotifier
-	out chan<- models.Signal
+	cfg       *config.Config
+	n         ServiceNotifier
+	out       chan<- models.Signal
+	candleOut chan<- models.CandleTick
 
 	engine Engine
 
@@ -63,6 +66,15 @@ func (h *Hub) OnTick(ctx context.Context, t okxws.OutTick) {
 		h.onBecameReady(ctx, ct.InstID)
 	} else {
 		h.maybeWarmupProgress(ctx)
+	}
+
+	if helper.NormTF(ct.TimeframeRaw) == "1m" {
+		select {
+		case h.candleOut <- ct:
+			fmt.Printf("[CANDLE OUT] %s 1m close=%.6f end=%s\n", ct.InstID, ct.Close, ct.End.Format(time.RFC3339))
+
+		default:
+		}
 	}
 
 	// блокируем сигналы пока прогрев не окончен

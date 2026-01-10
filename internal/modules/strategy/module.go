@@ -16,11 +16,17 @@ func newSignalsChan() chan models.Signal {
 }
 func asSendOnlySignals(ch chan models.Signal) chan<- models.Signal { return ch }
 
+func newSignalsStopChan() chan models.CandleTick {
+	return make(chan models.CandleTick, 100000)
+}
+func asSendOnlyStopSignals(ch chan models.CandleTick) chan<- models.CandleTick { return ch }
 func Module() fx.Option {
 	return fx.Module("strategy",
 		fx.Provide(
 			newSignalsChan,    // chan models.Signal
 			asSendOnlySignals, // chan<- models.Signal
+			newSignalsStopChan,
+			asSendOnlyStopSignals,
 			service.NewEngine, // service.Engine
 			service.NewHub,    // *service.Hub (получит V2Config, Notifier, chan<-Signal, Engine)
 		),

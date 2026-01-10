@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"fmt"
-	"log"
 	"sync"
 	"trade_bot/internal/models"
 	"trade_bot/internal/modules/config"
@@ -69,10 +68,6 @@ func (w *Warmuper) Warmup(ctx context.Context, symbols []string) error {
 			}
 			for _, c := range htf {
 				cnt++
-				if cnt%5000 == 0 {
-					log.Printf("[HUB] got ticks=%d last=%s tf=%s close=%.6f",
-						cnt, c.InstID, c.TimeframeRaw, c.Close)
-				}
 				w.hub.OnTick(ctx, okxws.OutTick{
 					InstID:    sym,
 					Timeframe: w.cfg.HTF,
@@ -92,10 +87,6 @@ func (w *Warmuper) Warmup(ctx context.Context, symbols []string) error {
 			}
 			for _, c := range ltf {
 				cnt++
-				if cnt%5000 == 0 {
-					log.Printf("[HUB] got ticks=%d last=%s tf=%s close=%.6f",
-						cnt, c.InstID, c.TimeframeRaw, c.Close)
-				}
 				w.hub.OnTick(ctx, okxws.OutTick{
 					InstID:    sym,
 					Timeframe: w.cfg.LTF,
