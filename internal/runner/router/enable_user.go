@@ -11,7 +11,13 @@ import (
 )
 
 func (r *Router) EnableUser(user *models.UserSettings, n TelegramNotifier) {
-	// 1) быстро проверяем/создаём sess под локом
+	if user == nil {
+		// обязательно лог/нотификация, чтобы видно было почему не включили
+		if n != nil {
+			//n.SendService(context.Background(), "⚠️ EnableUser called with nil user settings")
+		}
+		return
+	}
 	r.mu.Lock()
 	if _, ok := r.users[user.UserID]; ok {
 		r.mu.Unlock()
@@ -35,6 +41,8 @@ func (r *Router) EnableUser(user *models.UserSettings, n TelegramNotifier) {
 
 		Ctx:    ctx,
 		Cancel: cancel,
+
+		LastMsgAt: make(map[string]time.Time),
 	}
 
 	r.users[user.UserID] = sess

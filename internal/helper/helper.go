@@ -3,6 +3,7 @@ package helper
 import (
 	"math"
 	"strings"
+	"time"
 	"trade_bot/internal/models"
 )
 
@@ -24,6 +25,13 @@ func NormTF(raw string) string {
 }
 
 func TrailKey(instId, posSide string) string { return instId + ":" + posSide }
+
+func TrailSlot15m(t time.Time) time.Time {
+	// слот по Unix: каждые 900 секунд
+	sec := t.Unix()
+	sec -= sec % 900
+	return time.Unix(sec, 0).In(t.Location())
+}
 
 func RoundDownToTick(px, tick float64) float64 {
 	if tick <= 0 {

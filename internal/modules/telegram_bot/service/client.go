@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 	"trade_bot/internal/modules/config"
-	"trade_bot/internal/modules/telegram_bot/service/pg"
+	"trade_bot/internal/modules/telegram_bot/service/file"
 	"trade_bot/internal/runner/router"
 	"trade_bot/pkg/logger"
 
@@ -25,11 +25,11 @@ type Telegram struct {
 	cfg      *config.Config
 	mu       sync.Mutex
 	pendings map[string]*pending
-	repo     *pg.User
+	repo     *file.User
 	router   *router.Router
 }
 
-func NewTelegram(cfg *config.Config, repo *pg.User, router *router.Router) (*Telegram, error) {
+func NewTelegram(cfg *config.Config, repo *file.User, router *router.Router) (*Telegram, error) {
 	b, err := tgbot.NewBotAPI(cfg.Telegram.Token)
 	if err != nil {
 		return nil, err

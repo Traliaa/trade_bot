@@ -23,10 +23,12 @@ func (s *UserSession) ConfirmWorker(ctx context.Context) {
 			if s.Settings.TradingSettings.MaxOpenPositions > 0 {
 				if positions, err := s.Okx.OpenPositions(ctx); err == nil &&
 					len(positions) >= s.Settings.TradingSettings.MaxOpenPositions {
-					s.Notifier.SendF(ctx, s.UserID,
-						"⚠️ [%s] Лимит открытых позиций (%d) достигнут, сигнал пропущен",
-						sig.InstID, s.Settings.TradingSettings.MaxOpenPositions,
-					)
+					if s.canSend("limit_open_positions", 30*time.Minute) {
+						s.Notifier.SendF(ctx, s.UserID,
+							"⚠️ [%s] Лимит открытых позиций (%d) достигнут, сигнал пропущен",
+							sig.InstID, s.Settings.TradingSettings.MaxOpenPositions,
+						)
+					}
 					return
 				}
 			}
@@ -86,6 +88,7 @@ func (s *UserSession) ConfirmWorker(ctx context.Context) {
 				AlgoID:   res.SLAlgoID, // ✅ SL algoId
 				Size:     params.Size,
 				MFE:      res.Entry,
+				OpenedAt: time.Now(),
 			}
 			s.PosMu.Unlock()
 		}()

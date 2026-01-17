@@ -45,8 +45,11 @@ type PositionTrailState struct {
 	MovedToBE    bool
 	LockedProfit bool
 
+	OpenedAt time.Time // ✅ когда открыли позицию (для тайм-стопа)
+
 	LastTrailEnd time.Time
 	LastTrailAt  time.Time
+	TookPartial  bool
 }
 
 func (st *PositionTrailState) UpdateMFE(high, low float64) {
@@ -56,7 +59,6 @@ func (st *PositionTrailState) UpdateMFE(high, low float64) {
 		}
 		return
 	}
-
 	// short
 	if st.MFE == 0 || low < st.MFE {
 		st.MFE = low

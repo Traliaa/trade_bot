@@ -120,9 +120,9 @@ func NewConfig() (*Config, error) {
 
 	decoder := yaml.NewDecoder(file)
 	config := Config{
-		DefaultRiskPct:        1.0,
-		DefaultStopPct:        0.5,
-		DefaultTakeProfitRR:   2.0,
+		DefaultRiskPct:        0.5,
+		DefaultStopPct:        1.2,
+		DefaultTakeProfitRR:   1.2,
 		DefaultDonchianPeriod: 20,
 		DefaultTrendEmaPeriod: 50,
 		DefaultStrategy:       "donchian",
@@ -140,8 +140,8 @@ func NewConfig() (*Config, error) {
 		DefaultRSIOSold:      floatFromEnv("RSI_OVERSOLD", 30),
 
 		DefaultPositionPct:      floatFromEnv("POSITION_PCT", 1.0),
-		DefaultLeverage:         intFromEnv("LEVERAGE", 20),
-		DefaultMaxOpenPositions: intFromEnv("MAX_OPEN_POSITIONS", 10),
+		DefaultLeverage:         intFromEnv("LEVERAGE", 15),
+		DefaultMaxOpenPositions: intFromEnv("MAX_OPEN_POSITIONS", 6),
 
 		DefaultConfirmRequired:   boolFromEnv("CONFIRM_REQUIRED", true),
 		DefaultCooldownPerSymbol: durationFromEnv("COOLDOWN_PER_SYMBOL", "6h"),

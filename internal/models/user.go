@@ -53,6 +53,23 @@ type TradingSettings struct {
 
 	Strategy StrategyType `json:"strategy"` // "emarsi" или "donchian"
 	StopPct  float64      `yaml:"stop_pct"`
+
+	// --- трейлинг / фиксация ---
+	TrailEnabled bool
+
+	BETriggerR float64 // 0.6
+	BEOffsetR  float64 // 0.0
+
+	LockTriggerR float64 // 0.9
+	LockOffsetR  float64 // 0.3
+
+	TimeStopBars    int     // 12 (15m свечей)
+	TimeStopMinMFER float64 // 0.3
+
+	// --- 🔥 ЧАСТИЧНАЯ ФИКСАЦИЯ ---
+	PartialEnabled   bool    // true
+	PartialTriggerR  float64 // 0.9
+	PartialCloseFrac float64 // 0.5 (50%)
 }
 
 func NewTradingSettingsFromDefaults(userID int64, cfg *config.Config) *UserSettings {
@@ -83,6 +100,18 @@ func NewTradingSettingsFromDefaults(userID int64, cfg *config.Config) *UserSetti
 			TrendEmaPeriod: cfg.DefaultTrendEmaPeriod,
 			Strategy:       StrategyType(cfg.DefaultStrategy),
 			StopPct:        cfg.StopPct,
+			TrailEnabled:   true,
+			BETriggerR:     0.6,
+			BEOffsetR:      0,
+			LockTriggerR:   0.9,
+			LockOffsetR:    0.3,
+
+			TimeStopBars:    12,
+			TimeStopMinMFER: 0.3,
+
+			PartialEnabled:   true,
+			PartialTriggerR:  0.9,
+			PartialCloseFrac: 0.5,
 		},
 	}
 

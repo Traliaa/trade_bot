@@ -47,6 +47,9 @@ type UserSession struct {
 	Queue       chan models.Signal
 	Pending     map[string]bool
 	CooldownTil map[string]time.Time
+
+	msgMu     sync.Mutex
+	LastMsgAt map[string]time.Time // key -> time
 }
 
 // openPositionWithTpSl открывает рыночный ордер и пытается поставить TP/SL.
@@ -149,4 +152,16 @@ func improvesEnough(oldSL, newSL float64, posSide string, min float64) bool {
 		return newSL-oldSL >= min
 	}
 	return oldSL-newSL >= min
+}
+
+func (s *UserSession) canSend(key string, every time.Duration) bool {
+	s.msgMu.Lock()
+	defer s.msgMu.Unlock()
+
+	now := time.Now()
+	if t, ok := s.LastMsgAt[key]; ok && now.Sub(t) < every {
+		return false
+	}
+	s.LastMsgAt[key] = now
+	return true
 }
