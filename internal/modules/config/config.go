@@ -132,7 +132,7 @@ func NewConfig() (*Config, error) {
 		ConfirmQueueMax:    intFromEnv("CONFIRM_QUEUE_MAX", 20),
 		ConfirmQueuePolicy: getenvDefault("CONFIRM_QUEUE_POLICY", "drop_same_symbol"),
 
-		DefaultTimeframe:     getenvDefault("TIMEFRAME", "1m"),
+		DefaultTimeframe:     getenvDefault("TIMEFRAME", "15m"),
 		DefaultEMAShort:      intFromEnv("EMA_SHORT", 9),
 		DefaultEMALong:       intFromEnv("EMA_LONG", 21),
 		DefaultRSIPeriod:     intFromEnv("RSI_PERIOD", 14),
