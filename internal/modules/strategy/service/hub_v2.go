@@ -110,7 +110,7 @@ func (h *Hub) onBecameReady(ctx context.Context, sym string) {
 		if h.n != nil {
 			h.n.SendService(ctx,
 				"🔥 Warmup started | engine=%s | LTF=%s HTF=%s | ожидаем=%d",
-				h.engine.Name(), h.cfg.V2Config.LTF, h.cfg.V2Config.HTF, h.cfg.DefaultWatchTopN,
+				h.engine.Name(), h.cfg.LTF, h.cfg.HTF, h.cfg.DefaultWatchTopN,
 			)
 		}
 		return
@@ -135,10 +135,10 @@ func (h *Hub) maybeWarmupProgress(ctx context.Context) {
 	if !h.warmupMsgSent || h.warmupDone || h.n == nil {
 		return
 	}
-	if h.cfg.V2Config.ProgressEvery <= 0 {
+	if h.cfg.ProgressEvery <= 0 {
 		return
 	}
-	if time.Since(h.lastProgress) < h.cfg.V2Config.ProgressEvery {
+	if time.Since(h.lastProgress) < h.cfg.ProgressEvery {
 		return
 	}
 

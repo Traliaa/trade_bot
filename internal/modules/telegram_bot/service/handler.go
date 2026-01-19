@@ -193,6 +193,9 @@ func (t *Telegram) handleSettingsMenu(ctx context.Context, chatID int64) {
 
 	kb := tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🧾 Конфиг", "show_config"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
 			tgbotapi.NewInlineKeyboardButtonData("⏱ Таймфрейм", "set_timeframe"),
 			tgbotapi.NewInlineKeyboardButtonData("📉 Риск", "set_risk"),
 		),
@@ -246,6 +249,17 @@ func (t *Telegram) handleCallback(ctx context.Context, chatID int64, cb *tgbotap
 	case "toggle_confirm":
 		t.handleToggleConfirm(ctx, chatID, cb.Message)
 		return
+	case "show_config":
+		user, err := t.getUser(ctx, chatID)
+		if err != nil {
+			_, _ = t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
+			return
+		}
+		txt := formatFullConfig(user)
+		out := tgbotapi.NewMessage(chatID, txt)
+		out.ParseMode = "Markdown"
+		_, _ = t.SendMessage(ctx, out)
+		return
 	}
 	// 2) EMA/RSI редактирование
 	if strings.HasPrefix(data, "ema_rsi:") {
@@ -255,6 +269,10 @@ func (t *Telegram) handleCallback(ctx context.Context, chatID int64, cb *tgbotap
 	// 2) Подтверждения входа/пропуска: CONF::token / REJ::token
 	if strings.Contains(data, "::") {
 		t.handleConfirmCallback(chatID, data)
+		return
+	}
+	if strings.HasPrefix(data, "tf_") {
+		t.handleTimeframePick(ctx, chatID, cb.Message, data)
 		return
 	}
 }
@@ -571,4 +589,134 @@ func (t *Telegram) handleToggleConfirm(ctx context.Context, chatID int64, msg *t
 	//if _, err := t.bot.Send(edit); err != nil {
 	//	log.Printf("handleToggleConfirm edit error: %v", err)
 	//}
+}
+func maskSecret(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "—"
+	}
+	if len(s) <= 8 {
+		return "****"
+	}
+	return s[:4] + "****" + s[len(s)-4:]
+}
+func formatFullConfig(user *models.UserSettings) string {
+	ts := user.TradingSettings
+
+	// Важно: OKX секреты маскируем
+	okxKey := maskSecret(ts.OKXAPIKey)
+	okxSecret := maskSecret(ts.OKXAPISecret)
+	okxPass := maskSecret(ts.OKXPassphrase)
+
+	confirm := "выкл"
+	if ts.ConfirmRequired {
+		confirm = "вкл"
+	}
+
+	// Если у тебя стратегия DonchianV2HTF — полезно выводить конкретные параметры
+	// (названия полей подгони под свои реальные названия в TradingSettings)
+	var b strings.Builder
+	fmt.Fprintf(&b,
+		"*⚙️ Текущий конфиг*\n\n"+
+			"*Общее*\n"+
+			"Стратегия: `%s`\n"+
+			"LTF: `%s`\n"+
+			"HTF: `%s`\n"+
+			"Подтверждение: *%s* (timeout=%s)\n"+
+			"Cooldown: `%s`\n"+
+			"Макс. позиций: `%d`\n\n",
+		ts.Strategy,
+		ts.Timeframe, // если это LTF
+		ts.HTF,       // добавь поле или замени на константу "1h"
+		confirm,
+		ts.ConfirmTimeout,
+		ts.CooldownPerSymbol,
+		ts.MaxOpenPositions,
+	)
+
+	fmt.Fprintf(&b,
+		"*Риск-менеджмент*\n"+
+			"RiskPct (денежный риск): `%.2f%%`\n"+
+			"StopPct (дистанция SL): `%.2f%%`\n"+
+			"RR: `%.2f`\n"+
+			"Leverage: `x%d`\n\n",
+		ts.RiskPct,
+		ts.StopPct,
+		ts.TakeProfitRR,
+		ts.Leverage,
+	)
+
+	// Donchian V2 параметры
+	fmt.Fprintf(&b,
+		"*Donchian V2 HTF*\n"+
+			"DonchianPeriod: `%d`\n"+
+			"BreakoutPct: `%.4f` (%.2f%%)\n"+
+			"MinChannelPct: `%.4f` (%.2f%%)\n"+
+			"MinBodyPct: `%.4f` (%.2f%%)\n\n",
+		ts.DonchianPeriod,
+		ts.BreakoutPct, ts.BreakoutPct*100,
+		ts.MinChannelPct, ts.MinChannelPct*100,
+		ts.MinBodyPct, ts.MinBodyPct*100,
+	)
+
+	// EMA/Trend фильтр HTF (если у тебя это часть DonchianV2HTF)
+	fmt.Fprintf(&b,
+		"*HTF Trend (EMA)*\n"+
+			"EMA fast: `%d`\n"+
+			"EMA slow: `%d`\n\n",
+		ts.HTFEmaFast,
+		ts.HTFEmaSlow,
+	)
+
+	// OKX / Telegram
+	fmt.Fprintf(&b,
+		"*Интеграции*\n"+
+			"OKX key: `%s`\n"+
+			"OKX secret: `%s`\n"+
+			"OKX pass: `%s`\n",
+		okxKey, okxSecret, okxPass,
+	)
+
+	return b.String()
+}
+func (t *Telegram) handleTimeframePick(
+	ctx context.Context,
+	chatID int64,
+	msg *tgbotapi.Message,
+	data string,
+) {
+	user, err := t.getUser(ctx, chatID)
+	if err != nil {
+		_, _ = t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
+		return
+	}
+
+	var tf string
+	switch data {
+	case "tf_1m":
+		tf = "1m"
+	case "tf_5m":
+		tf = "5m"
+	case "tf_15m":
+		tf = "15m"
+	default:
+		return
+	}
+
+	user.TradingSettings.Timeframe = tf
+
+	if err := t.repo.Update(ctx, user); err != nil {
+		_, _ = t.Send(ctx, chatID, "⚠️ Не удалось сохранить таймфрейм: "+err.Error())
+		return
+	}
+
+	// Удобно: обновим меню настроек (перерисуем)
+	if msg != nil {
+		edit := tgbotapi.NewEditMessageText(chatID, msg.MessageID, "✅ Таймфрейм сохранён: `"+tf+"`")
+		edit.ParseMode = "Markdown"
+		_, _ = t.bot.Send(edit)
+	}
+
+	// И покажем меню снова
+	t.handleSettingsMenu(ctx, chatID)
 }

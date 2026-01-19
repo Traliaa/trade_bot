@@ -78,11 +78,8 @@ type Config struct {
 	DefaultDonchianPeriod int // период канала, N свечей (обычно 20)
 	DefaultTrendEmaPeriod int // EMA для фильтра тренда (обычно 50)
 	DefaultStrategy       string
-	V2Config              V2Config
 	StopPct               float64
-}
 
-type V2Config struct {
 	LTF string `yaml:"LTF"`
 	HTF string `yaml:"HTF"`
 
@@ -177,42 +174,42 @@ func NewConfig() (*Config, error) {
 
 	config.ServiceTelegramChatID = intFromEnv(ServiceTelegramChatID, 0)
 
-	if config.V2Config.LTF == "" {
-		config.V2Config.LTF = "15m"
+	if config.LTF == "" {
+		config.LTF = "15m"
 	}
-	if config.V2Config.HTF == "" {
-		config.V2Config.HTF = "1h"
-	}
-
-	if config.V2Config.DonchianPeriod <= 0 {
-		config.V2Config.DonchianPeriod = 20
-	}
-	if config.V2Config.MinChannelPct <= 0 {
-		config.V2Config.MinChannelPct = 0.012 // 0.8% канал
-	}
-	if config.V2Config.MinBodyPct <= 0 {
-		config.V2Config.MinBodyPct = 0.004 // 0.3% тело
-	}
-	if config.V2Config.HTFEmaFast <= 0 {
-		config.V2Config.HTFEmaFast = 50
-	}
-	if config.V2Config.HTFEmaSlow <= 0 {
-		config.V2Config.HTFEmaSlow = 200
-	}
-	if config.V2Config.MinWarmupLTF <= 0 {
-		config.V2Config.MinWarmupLTF = 20
-	}
-	if config.V2Config.MinWarmupHTF <= 0 {
-		config.V2Config.MinWarmupHTF = 200
+	if config.HTF == "" {
+		config.HTF = "1h"
 	}
 
-	if config.V2Config.ProgressEvery <= 0 {
-		config.V2Config.ProgressEvery = 2 * time.Minute
+	if config.DonchianPeriod <= 0 {
+		config.DonchianPeriod = 20
+	}
+	if config.MinChannelPct <= 0 {
+		config.MinChannelPct = 0.012 // 0.8% канал
+	}
+	if config.MinBodyPct <= 0 {
+		config.MinBodyPct = 0.004 // 0.3% тело
+	}
+	if config.HTFEmaFast <= 0 {
+		config.HTFEmaFast = 50
+	}
+	if config.HTFEmaSlow <= 0 {
+		config.HTFEmaSlow = 200
+	}
+	if config.MinWarmupLTF <= 0 {
+		config.MinWarmupLTF = 20
+	}
+	if config.MinWarmupHTF <= 0 {
+		config.MinWarmupHTF = 200
 	}
 
-	if config.V2Config.BreakoutPct <= 0 {
+	if config.ProgressEvery <= 0 {
+		config.ProgressEvery = 2 * time.Minute
+	}
+
+	if config.BreakoutPct <= 0 {
 		// для 15m на альтах адекватный старт 0.2%–0.3%
-		config.V2Config.BreakoutPct = 0.0025 // 0.20%
+		config.BreakoutPct = 0.0025 // 0.20%
 	}
 	return &config, nil
 }

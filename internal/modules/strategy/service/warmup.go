@@ -14,7 +14,7 @@ type Warmuper struct {
 	hub *Hub
 	n   ServiceNotifier
 
-	cfg config.V2Config
+	cfg config.Config
 
 	// ограничитель параллелизма, чтобы не словить rate limit
 	sem chan struct{}
@@ -25,7 +25,7 @@ func NewWarmuper(mx *okxws.Client, hub *Hub, n ServiceNotifier, cfg config.Confi
 		mx:  mx,
 		hub: hub,
 		n:   n,
-		cfg: cfg.V2Config,
+		cfg: cfg,
 		sem: make(chan struct{}, 8), // 8 параллельных символов
 	}
 }

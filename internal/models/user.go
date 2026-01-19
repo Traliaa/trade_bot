@@ -70,10 +70,28 @@ type TradingSettings struct {
 	PartialEnabled   bool    // true
 	PartialTriggerR  float64 // 0.9
 	PartialCloseFrac float64 // 0.5 (50%)
+
+	LTF string `yaml:"LTF"`
+	HTF string `yaml:"HTF"`
+
+	MinChannelPct float64 `yaml:"MinChannelPct"`
+	MinBodyPct    float64 `yaml:"MinBodyPct"`
+
+	// NEW: насколько далеко закрыться ЗА границей дончиана
+	BreakoutPct float64 `yaml:"BreakoutPct"`
+
+	HTFEmaFast int `yaml:"HTFEmaFast"`
+	HTFEmaSlow int `yaml:"HTFEmaSlow"`
+
+	MinWarmupLTF int `yaml:"MinWarmupLTF"`
+	MinWarmupHTF int `yaml:"MinWarmupHTF"`
+
+	ExpectedSymbols int           `yaml:"ExpectedSymbols"`
+	ProgressEvery   time.Duration `yaml:"ProgressEvery"`
 }
 
 func NewTradingSettingsFromDefaults(userID int64, cfg *config.Config) *UserSettings {
-	return &UserSettings{
+	config := &UserSettings{
 		UserID: userID,
 		TradingSettings: TradingSettings{
 
@@ -94,7 +112,6 @@ func NewTradingSettingsFromDefaults(userID int64, cfg *config.Config) *UserSetti
 			AutoOnTimeout:     cfg.DefaultAutoOnTimeout,
 			WatchTopN:         cfg.DefaultWatchTopN,
 
-			RiskPct:        cfg.DefaultRiskPct,
 			TakeProfitRR:   cfg.DefaultTakeProfitRR,
 			DonchianPeriod: cfg.DefaultDonchianPeriod,
 			TrendEmaPeriod: cfg.DefaultTrendEmaPeriod,
@@ -114,5 +131,44 @@ func NewTradingSettingsFromDefaults(userID int64, cfg *config.Config) *UserSetti
 			PartialCloseFrac: 0.5,
 		},
 	}
+
+	if config.TradingSettings.LTF == "" {
+		config.TradingSettings.LTF = "15m"
+	}
+	if config.TradingSettings.HTF == "" {
+		config.TradingSettings.HTF = "1h"
+	}
+
+	if config.TradingSettings.DonchianPeriod <= 0 {
+		config.TradingSettings.DonchianPeriod = 20
+	}
+	if config.TradingSettings.MinChannelPct <= 0 {
+		config.TradingSettings.MinChannelPct = 0.012 // 0.8% канал
+	}
+	if config.TradingSettings.MinBodyPct <= 0 {
+		config.TradingSettings.MinBodyPct = 0.004 // 0.3% тело
+	}
+	if config.TradingSettings.HTFEmaFast <= 0 {
+		config.TradingSettings.HTFEmaFast = 50
+	}
+	if config.TradingSettings.HTFEmaSlow <= 0 {
+		config.TradingSettings.HTFEmaSlow = 200
+	}
+	if config.TradingSettings.MinWarmupLTF <= 0 {
+		config.TradingSettings.MinWarmupLTF = 20
+	}
+	if config.TradingSettings.MinWarmupHTF <= 0 {
+		config.TradingSettings.MinWarmupHTF = 200
+	}
+
+	if config.TradingSettings.ProgressEvery <= 0 {
+		config.TradingSettings.ProgressEvery = 2 * time.Minute
+	}
+
+	if config.TradingSettings.BreakoutPct <= 0 {
+		// для 15m на альтах адекватный старт 0.2%–0.3%
+		config.TradingSettings.BreakoutPct = 0.0025 // 0.20%
+	}
+	return config
 
 }

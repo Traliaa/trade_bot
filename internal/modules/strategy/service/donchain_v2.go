@@ -20,7 +20,7 @@ const (
 )
 
 type DonchianV2HTF struct {
-	cfg config.V2Config
+	cfg *config.Config
 	mu  sync.Mutex
 	st  map[string]*v2State
 }
@@ -46,7 +46,7 @@ type v2State struct {
 func NewDonchianV2HTF(cfg *config.Config) *DonchianV2HTF {
 
 	return &DonchianV2HTF{
-		cfg: cfg.V2Config,
+		cfg: cfg,
 		st:  make(map[string]*v2State),
 	}
 }
