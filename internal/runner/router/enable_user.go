@@ -47,7 +47,7 @@ func (r *Router) EnableUser(user *models.UserSettings, n TelegramNotifier) {
 
 	r.users[user.UserID] = sess
 
-	k := helper.Key(user.TradingSettings.Timeframe, user.TradingSettings.Strategy)
+	k := helper.Key("15m", user.TradingSettings.Strategy)
 	r.index[k] = append(r.index[k], sess)
 
 	r.mu.Unlock()
