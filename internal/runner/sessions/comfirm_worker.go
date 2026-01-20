@@ -8,7 +8,10 @@ import (
 )
 
 func (s *UserSession) ConfirmWorker(ctx context.Context) {
+
 	for sig := range s.Queue {
+		fmt.Printf("[CONF WORKER] user=%d got sig %s %s tf=%s\n", s.UserID, sig.InstID, sig.Side, sig.TF)
+
 		// 0) кулдаун и pending по символу
 		if s.isCooldown(sig.InstID) || s.isPending(sig.InstID) {
 			continue

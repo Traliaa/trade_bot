@@ -39,6 +39,7 @@ func NewRouter() *Router {
 }
 
 func (r *Router) OnSignal(ctx context.Context, sig models.Signal) {
+
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
