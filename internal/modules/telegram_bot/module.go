@@ -4,7 +4,7 @@ import (
 	"context"
 	okx_websocket "trade_bot/internal/modules/okx_websocket/service"
 	strategy "trade_bot/internal/modules/strategy/service"
-	"trade_bot/internal/modules/telegram_bot/service/file"
+	"trade_bot/internal/modules/telegram_bot/service/pg"
 
 	"trade_bot/internal/modules/telegram_bot/service"
 	"trade_bot/internal/runner"
@@ -16,7 +16,7 @@ func Module() fx.Option {
 	return fx.Module("telegram",
 		// 1. Репозиторий юзеров
 		fx.Provide(
-			file.NewUser, // func(...) *pg.User
+			pg.NewUser, // func(...) *pg.User
 		),
 
 		// 2. Сервис Telegram как *service.Telegram
