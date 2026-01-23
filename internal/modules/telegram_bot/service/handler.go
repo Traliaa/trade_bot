@@ -2,548 +2,525 @@ package service
 
 import (
 	"context"
-	"fmt"
-	"log"
-
+	"strconv"
 	"strings"
+	"time"
 	"trade_bot/internal/models"
-	"trade_bot/pkg/logger"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
-func (t *Telegram) handleUpdate(ctx context.Context, update tgbotapi.Update) {
-	// 1) Обычные сообщения
-	if msg := update.Message; msg != nil {
-		chatID := msg.Chat.ID
-
-		// Команды /start, /positions и т.п.
-		if msg.IsCommand() {
-			switch msg.Command() {
-			case "start":
-				if err := t.handleStart(ctx, chatID); err != nil {
-					logger.Error("handleStart error: %v", err)
-				}
-			case "positions":
-				go t.handlePositions(ctx) // если нужно, можешь прокинуть chatID
-			default:
-				// /help, /status и т.п. — по желанию
-			}
-			return
-		}
-
-		// Обычный текст (кнопки клавиатуры, OKX ключи и т.д.)
-		t.handleTextMessage(ctx, msg)
-		return
-	}
-
-	// 2) Inline-кнопки (CallbackQuery)
-	if cb := update.CallbackQuery; cb != nil {
-		// у callback всегда свой message
-		if cb.Message == nil || cb.Message.Chat == nil {
-			return
-		}
-		chatID := cb.Message.Chat.ID
-		t.handleCallback(ctx, chatID, cb)
-		return
-	}
-
-	// 3) Остальное (inline mode и т.п.) пока игнорируем
-}
-func (t *Telegram) handleStart(ctx context.Context, chatID int64) error {
-	_, err := t.getUser(ctx, chatID)
-	if err != nil {
-		_, err = t.Send(ctx, chatID, "Настройки не найдены, попробуй ещё раз /start")
-		return err
-	}
-
-	// Главное меню
-	replyKb := tgbotapi.NewReplyKeyboard(
-		tgbotapi.NewKeyboardButtonRow(
-			tgbotapi.NewKeyboardButton("▶️ Запустить бота"),
-			tgbotapi.NewKeyboardButton("⏹ Остановить бота"),
-		),
-		tgbotapi.NewKeyboardButtonRow(
-			tgbotapi.NewKeyboardButton("⚙️ Настройки"),
-			tgbotapi.NewKeyboardButton("📊 Статус"),
-		),
-	)
-
-	msgText := "Привет! Я торговый бот для OKX.\n\n" +
-		"1️⃣ Сначала укажи свои API-ключи OKX.\n" +
-		"2️⃣ Затем можешь запустить бота кнопкой «▶️ Запустить бота».\n\n" +
-		"Отправь свои API-ключи в формате:\n" +
-		"`OKX: apiKey; apiSecret; passphrase`"
-
-	msg := tgbotapi.NewMessage(chatID, msgText)
-	msg.ParseMode = "Markdown"
-	msg.ReplyMarkup = replyKb
-
-	_, err = t.SendMessage(ctx, msg)
-	return err
-}
-func (t *Telegram) handleTextMessage(ctx context.Context, msg *tgbotapi.Message) {
-	chatID := msg.Chat.ID
-	text := strings.TrimSpace(msg.Text)
-
-	// 1) Ключи OKX
-	if strings.HasPrefix(strings.ToUpper(text), "OKX:") {
-		t.handleOkxKeys(ctx, msg)
-		return
-	}
-
-	// 2) Гарантируем, что юзер есть
-	user, err := t.getUser(ctx, chatID)
-	if err != nil {
-		_, err = t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
-		return
-	}
-
-	switch text {
-	case "▶️ Запустить бота":
-		go func() {
-			runCtx := context.Background() // можно сделать per-user контекст, если захочешь
-			t.router.EnableUser(user, t)   // notifier = Telegram, exch = OKX client
-
-			_, err = t.Send(runCtx, chatID, "✅ Бот запущен для этого аккаунта.")
-		}()
-		return
-
-	case "⏹ Остановить бота":
-		// Тут предполагаем, что у manager есть StopForUser.
-		// Если пока нет — можно оставить заглушку и сделать TODO.
-		t.router.DisableUser(chatID)
-		_, err = t.Send(ctx, chatID, "🛑 Бот остановлен для этого аккаунта.")
-		return
-
-	case "⚙️ Настройки":
-		t.handleSettingsMenu(ctx, chatID)
-		return
-
-	case "📊 Статус":
-		go t.handleStatus(ctx, user)
-		return
-	}
-
-	// дальше — прочий текст, если понадобится
-}
-func (t *Telegram) handleOkxKeys(ctx context.Context, msg *tgbotapi.Message) {
-	chatID := msg.Chat.ID
-	text := strings.TrimSpace(msg.Text)
-	text = strings.TrimPrefix(text, "OKX:")
-	text = strings.TrimPrefix(text, "okx:")
-	text = strings.TrimSpace(text)
-
-	parts := strings.Split(text, ";")
-	if len(parts) != 3 {
-		t.SendMessage(ctx, tgbotapi.NewMessage(chatID, "Формат: `OKX: apiKey; apiSecret; passphrase`"))
-		return
-	}
-
-	for i := range parts {
-		parts[i] = strings.TrimSpace(parts[i])
-	}
-
-	user, err := t.getUser(ctx, chatID)
-	if err != nil {
-		t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
-		return
-	}
-
-	user.Settings.TradingSettings.OKXAPIKey = parts[0]
-	user.Settings.TradingSettings.OKXAPISecret = parts[1]
-	user.Settings.TradingSettings.OKXPassphrase = parts[2]
-
-	_ = t.repo.Update(ctx, user)
-
-	t.bot.Send(tgbotapi.NewMessage(chatID, "✅ Ключи OKX сохранены. Теперь можно запускать торговлю."))
-}
-func (t *Telegram) handleSettingsMenu(ctx context.Context, chatID int64) {
-	user, err := t.getUser(ctx, chatID)
-	if err != nil {
-		t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
-		return
-	}
-
-	confirmStatus := "выключено"
-	confirmBtnText := "⭕️ Подтверждение: выкл"
-	if user.Settings.TradingSettings.ConfirmRequired {
-		confirmStatus = "включено"
-		confirmBtnText = "✅ Подтверждение: вкл"
-	}
-
-	text := fmt.Sprintf(
-		"*Текущие настройки:*\n\n"+
-			//"EMA: %d / %d\n"+
-			//"RSI: period=%d OB=%.0f OS=%.0f\n"+
-			"Риск: %.2f%% на сделку\n"+
-			"Плечо: x%d\n"+
-			"Макс. позиций: %d\n"+
-			"Подтверждение сделок: *%s*\n",
-		//
-		//user.Settings.TradingSettings.EMAShort, user.Settings.TradingSettings.EMALong,
-		//user.Settings.TradingSettings.RSIPeriod, user.Settings.TradingSettings.RSIOverbought, user.Settings.TradingSettings.RSIOSold,
-		user.Settings.TradingSettings.RiskPct,
-		user.Settings.TradingSettings.Leverage,
-		user.Settings.TradingSettings.MaxOpenPositions,
-		confirmStatus,
-	)
-
-	kb := tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🧾 Конфиг", "show_config"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("⏱ Таймфрейм", "set_timeframe"),
-			tgbotapi.NewInlineKeyboardButtonData("📉 Риск", "set_risk"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("📏 Размер позиции", "set_position_pct"),
-			tgbotapi.NewInlineKeyboardButtonData("⚙️ EMA/RSI", "set_ema_rsi"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("🔑 Ключи OKX", "set_okx"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(confirmBtnText, "toggle_confirm"),
-		),
-	)
-
-	msg := tgbotapi.NewMessage(chatID, text)
-	msg.ParseMode = "Markdown"
-	msg.ReplyMarkup = kb
-
-	_, err = t.SendMessage(ctx, msg)
-}
-func (t *Telegram) handleCallback(ctx context.Context, chatID int64, cb *tgbotapi.CallbackQuery) {
-	_, err := t.getUser(ctx, chatID)
-	if err != nil {
-		_, err = t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
-		return
-	}
-
-	// отвечаем ТГ, чтобы убрать "часики" на кнопке
-	_, _ = t.bot.Request(tgbotapi.NewCallback(cb.ID, ""))
-
-	data := cb.Data
-
-	// 1) Сначала обрабатываем кнопки настроек
-	switch data {
-	case "set_timeframe":
-		t.handleSetTimeframe(ctx, chatID, cb.Message)
-		return
-	case "set_risk":
-		t.handleSetRisk(ctx, chatID, cb.Message)
-		return
-	case "set_position_pct":
-		t.handleSetPositionPct(ctx, chatID, cb.Message)
-		return
-	case "set_okx":
-		t.handleSetOkx(ctx, chatID, cb.Message)
-		return
-	case "toggle_confirm":
-		t.handleToggleConfirm(ctx, chatID, cb.Message)
-		return
-	case "show_config":
-
-		//txt := formatFullConfig(user)
-		out := tgbotapi.NewMessage(chatID, "")
-		out.ParseMode = "Markdown"
-		_, _ = t.SendMessage(ctx, out)
-		return
-	}
-	// 2) EMA/RSI редактирование
-	if strings.HasPrefix(data, "ema_rsi:") {
-		t.handleEmaRsiAdjust(ctx, chatID, cb.Message, data)
-		return
-	}
-	// 2) Подтверждения входа/пропуска: CONF::token / REJ::token
-	if strings.Contains(data, "::") {
-		t.handleConfirmCallback(chatID, data)
-		return
-	}
-}
-func (t *Telegram) handleSetTimeframe(ctx context.Context, chatID int64, msg *tgbotapi.Message) {
-	kb := tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("1m", "tf_1m"),
-			tgbotapi.NewInlineKeyboardButtonData("5m", "tf_5m"),
-			tgbotapi.NewInlineKeyboardButtonData("15m", "tf_15m"),
-		),
-	)
-	out := tgbotapi.NewMessage(chatID, "Выбери таймфрейм:")
-	out.ReplyMarkup = kb
-	_, _ = t.SendMessage(ctx, out)
-}
-
-func (t *Telegram) handleSetRisk(ctx context.Context, chatID int64, msg *tgbotapi.Message) {
-	_, _ = t.Send(ctx, chatID, "Введи риск в процентах, например: `1.0` (это 1% на сделку).")
-}
-
-func (t *Telegram) handleSetPositionPct(ctx context.Context, chatID int64, msg *tgbotapi.Message) {
-	_, _ = t.Send(ctx, chatID, "Введи размер позиции в процентах от баланса, например: `1.0`.")
-}
-
-func (t *Telegram) handleSetOkx(ctx context.Context, chatID int64, msg *tgbotapi.Message) {
-	_, _ = t.Send(ctx, chatID, "Отправь ключи OKX в формате:\n`OKX: apiKey; apiSecret; passphrase`")
-}
-
-// handleConfirmCallback обрабатывает callback-и вида CONF::token / REJ::token.
-func (t *Telegram) handleConfirmCallback(chatID int64, data string) {
-	verb, token := parseConfirmData(data)
-	if verb == "" || token == "" {
-		return
-	}
-
-	t.mu.Lock()
-	p, ok := t.pendings[token]
-	t.mu.Unlock()
-	if !ok {
-		return
-	}
-
-	accepted := verb == "CONF"
-	p.ch <- accepted
-	close(p.ch)
-
-	status := "Отклонено"
-	emoji := "❌"
-	if accepted {
-		status = "Подтверждено"
-		emoji = "✅"
-	}
-
-	_ = t.editReplyMarkupRemove(chatID, p.msgID)
-	_ = t.editText(chatID, p.msgID, fmt.Sprintf("%s\n\n%s %s", p.prompt, emoji, status))
-
-	t.mu.Lock()
-	delete(t.pendings, token)
-	t.mu.Unlock()
-}
-func parseConfirmData(data string) (verb, token string) {
-	for i := 0; i < len(data); i++ {
-		if i+1 < len(data) && data[i] == ':' && data[i+1] == ':' {
-			return data[:i], data[i+2:]
-		}
-	}
-	return "", ""
-}
-
-func buildEmaRsiKeyboard() tgbotapi.InlineKeyboardMarkup {
+func mainSettingsKB() tgbotapi.InlineKeyboardMarkup {
 	return tgbotapi.NewInlineKeyboardMarkup(
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("EMA S −", "ema_rsi:ema_s:-1"),
-			tgbotapi.NewInlineKeyboardButtonData("EMA S +", "ema_rsi:ema_s:+1"),
+			tgbotapi.NewInlineKeyboardButtonData("⚙️ Торговля", "settings:trade"),
+			tgbotapi.NewInlineKeyboardButtonData("📉 Риск/SL/TP", "settings:risk"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("EMA L −", "ema_rsi:ema_l:-1"),
-			tgbotapi.NewInlineKeyboardButtonData("EMA L +", "ema_rsi:ema_l:+1"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("RSI OB −5", "ema_rsi:rsi_ob:-5"),
-			tgbotapi.NewInlineKeyboardButtonData("RSI OB +5", "ema_rsi:rsi_ob:+5"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("RSI OS −5", "ema_rsi:rsi_os:-5"),
-			tgbotapi.NewInlineKeyboardButtonData("RSI OS +5", "ema_rsi:rsi_os:+5"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("✅ Готово", "ema_rsi:done"),
-			tgbotapi.NewInlineKeyboardButtonData("↩️ Назад", "ema_rsi:back"),
+			tgbotapi.NewInlineKeyboardButtonData("🧲 Trailing", "settings:trail"),
 		),
 	)
 }
-func (t *Telegram) handleEmaRsiAdjust(
-	ctx context.Context,
-	chatID int64,
-	msg *tgbotapi.Message,
-	data string,
-) {
-	//user, err := t.getUser(ctx, chatID)
-	//if err != nil {
-	//	_, _ = t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
-	//	return
-	//}
-	//
-	//// data вида: "ema_rsi:ema_s:-1" / "ema_rsi:rsi_ob:+5" / "ema_rsi:done"
-	//parts := strings.Split(data, ":")
-	//if len(parts) < 2 {
-	//	return
-	//}
-	//
-	//action := parts[1]
-	//
-	//// "Готово" и "Назад"
-	//if action == "done" {
-	//	// просто перерисуем основное меню настроек
-	//	t.handleSettingsMenu(ctx, chatID)
-	//	return
-	//}
-	//if action == "back" {
-	//	t.handleSettingsMenu(ctx, chatID)
-	//	return
-	//}
+func tradeSettingsKB(ts *models.TradingSettings) tgbotapi.InlineKeyboardMarkup {
+	confirmBtn := "⭕️ Confirm: выкл"
+	if ts.ConfirmRequired {
+		confirmBtn = "✅ Confirm: вкл"
+	}
 
-	//// Остальные: ema_s, ema_l, rsi_ob, rsi_os
-	//if len(parts) != 3 {
-	//	return
-	//}
-	//deltaStr := parts[2]
-	//delta, err := strconv.Atoi(deltaStr)
-	//if err != nil {
-	//	return
-	//}
-	//
-	//ts := &user.Settings.TradingSettings
-	//
-	//switch action {
-	//case "ema_s":
-
-	//
-	//default:
-	//	return
-	//}
-	//
-	//if err := t.repo.Update(ctx, user); err != nil {
-	//	log.Printf("update user ema/rsi error: %v", err)
-	//}
-
+	return tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("Lev −1", "trade:lev:-1"),
+			tgbotapi.NewInlineKeyboardButtonData("Lev +1", "trade:lev:+1"),
+			tgbotapi.NewInlineKeyboardButtonData("Lev +5", "trade:lev:+5"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("MaxPos −1", "trade:maxpos:-1"),
+			tgbotapi.NewInlineKeyboardButtonData("MaxPos +1", "trade:maxpos:+1"),
+			tgbotapi.NewInlineKeyboardButtonData("MaxPos +5", "trade:maxpos:+5"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("Pos% 0.5", "trade:pospct:set:0.5"),
+			tgbotapi.NewInlineKeyboardButtonData("Pos% 1.0", "trade:pospct:set:1.0"),
+			tgbotapi.NewInlineKeyboardButtonData("Pos% 2.0", "trade:pospct:set:2.0"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("✍️ Pos% вручную", "trade:pospct:ask"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData(confirmBtn, "trade:toggle_confirm"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("⏱ Timeout", "trade:timeout:ask"),
+			tgbotapi.NewInlineKeyboardButtonData("🕒 Cooldown", "trade:cooldown:ask"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("↩️ Назад", "settings:back"),
+		),
+	)
 }
 
-// в service.Telegram
+func (t *Telegram) handleCallback(ctx context.Context, chatID int64, cb *tgbotapi.CallbackQuery) {
+	// убрать "часики"
+	_, _ = t.bot.Request(tgbotapi.NewCallback(cb.ID, ""))
 
-func (t *Telegram) handleStatus(ctx context.Context, user *models.UserSettings) {
-	positions, err := t.router.StatusForUser(ctx, user.UserID)
-	if err != nil {
-		log.Printf("StatusForUser error: %v", err)
-		_, _ = t.Send(ctx, user.UserID, "⚠️ Не удалось получить статус: "+err.Error())
-		return
-	}
-
-	if len(positions) == 0 {
-
-		msg := tgbotapi.NewMessage(user.UserID, "📊 Открытых позиций нет.")
-		msg.ParseMode = "Markdown"
-		_, _ = t.SendMessage(ctx, msg)
-		return
-	}
-
-	var b strings.Builder
-	b.WriteString("*Открытые позиции:*\n\n")
-
-	var totalPnl float64
-
-	for _, p := range positions {
-		// подгони поля под свой тип PositionInfo
-		symbol := p.Symbol
-		side := strings.ToUpper(p.Side) // BUY/SELL или long/short
-		qty := p.Size                   // размер
-		entry := p.EntryPrice           // средняя цена входа
-		last := p.LastPrice             // последняя цена
-		upnl := p.UnrealizedPnl         // PnL в USDT
-		upnlPct := p.UnrealizedPnlPct   // PnL в %
-
-		totalPnl += upnl
-
-		fmt.Fprintf(&b,
-			"[%s] %s\n"+
-				"  Размер: `%.4f`\n"+
-				"  Вход:   `%.4f`\n"+
-				"  Сейчас: `%.4f`\n"+
-				"  PnL:    `%.2f USDT (%.2f%%)`\n\n",
-			symbol, side,
-			qty,
-			entry,
-			last,
-			upnl, upnlPct,
-		)
-	}
-
-	fmt.Fprintf(&b, "*Суммарный PnL:* `%.2f USDT`\n", totalPnl)
-
-	msg := tgbotapi.NewMessage(user.UserID, b.String())
-	msg.ParseMode = "Markdown"
-	_, _ = t.SendMessage(ctx, msg)
-}
-
-func (t *Telegram) handleToggleConfirm(ctx context.Context, chatID int64, msg *tgbotapi.Message) {
 	user, err := t.getUser(ctx, chatID)
 	if err != nil {
 		_, _ = t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
 		return
 	}
 
-	user.Settings.TradingSettings.ConfirmRequired = !user.Settings.TradingSettings.ConfirmRequired
+	data := cb.Data
 
-	if err := t.repo.Update(ctx, user); err != nil {
-		log.Printf("update user confirmRequired error: %v", err)
-		_, _ = t.Send(ctx, chatID, "⚠️ Не удалось сохранить настройку.")
+	switch {
+	// --- навигация ---
+	case data == "settings:trade":
+		t.renderTradeSettings(ctx, chatID, cb.Message.MessageID, user)
+		return
+	case data == "settings:risk":
+		t.renderRiskSettings(ctx, chatID, cb.Message.MessageID, user)
+		return
+	case data == "settings:trail":
+		t.renderTrailingSettings(ctx, chatID, cb.Message.MessageID, user)
+		return
+	case data == "settings:back":
+		t.editTextAndKb(ctx, chatID, cb.Message.MessageID, "*Настройки бота*", mainSettingsKB())
+		return
+
+	// --- trade ---
+	case strings.HasPrefix(data, "trade:"):
+		t.handleTradeCb(ctx, chatID, cb.Message, user, data)
+		return
+
+	// --- risk ---
+	case strings.HasPrefix(data, "risk:"):
+		t.handleRiskCb(ctx, chatID, cb.Message, user, data)
+		return
+
+	// --- trail ---
+	case strings.HasPrefix(data, "trail:"):
+		t.handleTrailCb(ctx, chatID, cb.Message, user, data)
+		return
+	}
+}
+
+func (t *Telegram) handleTradeCb(ctx context.Context, chatID int64, msg *tgbotapi.Message, user *models.UserSettings, data string) {
+	ts := &user.Settings.TradingSettings
+
+	switch {
+	case data == "trade:toggle_confirm":
+		ts.ConfirmRequired = !ts.ConfirmRequired
+		_ = t.repo.Update(ctx, user)
+		t.renderTradeSettings(ctx, chatID, msg.MessageID, user)
+		return
+
+	case strings.HasPrefix(data, "trade:lev:"):
+		delta := mustInt(strings.TrimPrefix(data, "trade:lev:"))
+		ts.Leverage += delta
+		if ts.Leverage < 1 {
+			ts.Leverage = 1
+		}
+		if ts.Leverage > 125 {
+			ts.Leverage = 125
+		}
+		_ = t.repo.Update(ctx, user)
+		t.renderTradeSettings(ctx, chatID, msg.MessageID, user)
+		return
+
+	case strings.HasPrefix(data, "trade:maxpos:"):
+		delta := mustInt(strings.TrimPrefix(data, "trade:maxpos:"))
+		ts.MaxOpenPositions += delta
+		if ts.MaxOpenPositions < 1 {
+			ts.MaxOpenPositions = 1
+		}
+		if ts.MaxOpenPositions > 50 {
+			ts.MaxOpenPositions = 50
+		}
+		_ = t.repo.Update(ctx, user)
+		t.renderTradeSettings(ctx, chatID, msg.MessageID, user)
+		return
+
+	case strings.HasPrefix(data, "trade:pospct:set:"):
+		v := mustFloat(strings.TrimPrefix(data, "trade:pospct:set:"))
+		if v <= 0 || v > 100 {
+			return
+		}
+		ts.PositionPct = v
+		_ = t.repo.Update(ctx, user)
+		t.renderTradeSettings(ctx, chatID, msg.MessageID, user)
+		return
+
+	case data == "trade:pospct:ask":
+		t.ask(ctx, chatID, "Введи PositionPct (например `1.0` = 1%):", "await:trade:pospct")
+		return
+
+	case data == "trade:timeout:ask":
+		t.ask(ctx, chatID, "Введи ConfirmTimeout (например `30s`, `2m`):", "await:trade:timeout")
+		return
+
+	case data == "trade:cooldown:ask":
+		t.ask(ctx, chatID, "Введи CooldownPerSymbol (например `30m`, `6h`):", "await:trade:cooldown")
+		return
+	}
+}
+func (t *Telegram) handleRiskCb(ctx context.Context, chatID int64, msg *tgbotapi.Message, user *models.UserSettings, data string) {
+	ts := &user.Settings.TradingSettings
+
+	switch {
+	case strings.HasPrefix(data, "risk:riskpct:set:"):
+		v := mustFloat(strings.TrimPrefix(data, "risk:riskpct:set:"))
+		if v <= 0 || v > 10 {
+			return
+		}
+		ts.RiskPct = v
+		_ = t.repo.Update(ctx, user)
+		t.renderRiskSettings(ctx, chatID, msg.MessageID, user)
+		return
+
+	case data == "risk:riskpct:ask":
+		t.ask(ctx, chatID, "Введи RiskPct (например `0.5`):", "await:risk:riskpct")
+		return
+
+	case strings.HasPrefix(data, "risk:stoppct:set:"):
+		v := mustFloat(strings.TrimPrefix(data, "risk:stoppct:set:"))
+		if v <= 0 || v > 20 {
+			return
+		}
+		ts.StopPct = v
+		_ = t.repo.Update(ctx, user)
+		t.renderRiskSettings(ctx, chatID, msg.MessageID, user)
+		return
+
+	case data == "risk:stoppct:ask":
+		t.ask(ctx, chatID, "Введи StopPct (например `1.2`):", "await:risk:stoppct")
+		return
+
+	case strings.HasPrefix(data, "risk:tp:set:"):
+		v := mustFloat(strings.TrimPrefix(data, "risk:tp:set:"))
+		if v < 0.5 || v > 10 {
+			return
+		}
+		ts.TakeProfitRR = v
+		_ = t.repo.Update(ctx, user)
+		t.renderRiskSettings(ctx, chatID, msg.MessageID, user)
+		return
+
+	case data == "risk:tp:ask":
+		t.ask(ctx, chatID, "Введи TakeProfitRR (например `2.0`):", "await:risk:tp")
+		return
+	}
+}
+func (t *Telegram) handleTrailCb(ctx context.Context, chatID int64, msg *tgbotapi.Message, user *models.UserSettings, data string) {
+	cfg := &user.Settings.TrailingConfig
+
+	switch data {
+	case "trail:toggle_partial":
+		cfg.PartialEnabled = !cfg.PartialEnabled
+		_ = t.repo.Update(ctx, user)
+		t.renderTrailingSettings(ctx, chatID, msg.MessageID, user)
+		return
+
+	case "trail:be_trg:ask":
+		t.ask(ctx, chatID, "Введи BETriggerR (например `0.6`):", "await:trail:be_trg")
+		return
+	case "trail:be_off:ask":
+		t.ask(ctx, chatID, "Введи BEOffsetR (например `0.0`):", "await:trail:be_off")
+		return
+	case "trail:lock_trg:ask":
+		t.ask(ctx, chatID, "Введи LockTriggerR (например `0.9`):", "await:trail:lock_trg")
+		return
+	case "trail:lock_off:ask":
+		t.ask(ctx, chatID, "Введи LockOffsetR (например `0.3`):", "await:trail:lock_off")
+		return
+	case "trail:time_bars:ask":
+		t.ask(ctx, chatID, "Введи TimeStopBars (например `12`):", "await:trail:time_bars")
+		return
+	case "trail:minmfe:ask":
+		t.ask(ctx, chatID, "Введи TimeStopMinMFER (например `0.3`):", "await:trail:minmfe")
+		return
+	case "trail:partial_trg:ask":
+		t.ask(ctx, chatID, "Введи PartialTriggerR (например `0.9`):", "await:trail:partial_trg")
+		return
+	case "trail:partial_close:ask":
+		t.ask(ctx, chatID, "Введи PartialCloseFrac в % (например `50`):", "await:trail:partial_close")
+		return
+	}
+}
+
+func (t *Telegram) handleSettingsMenu(ctx context.Context, chatID int64) {
+	kb := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("⚙️ Торговля", "settings:trade"),
+			tgbotapi.NewInlineKeyboardButtonData("📉 Риск / SL / TP", "settings:risk"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("🧲 Trailing / Partial", "settings:trail"),
+		),
+	)
+
+	msg := tgbotapi.NewMessage(chatID, "*Настройки бота*")
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = kb
+
+	_, _ = t.SendMessage(ctx, msg)
+}
+
+func riskSettingsKB() tgbotapi.InlineKeyboardMarkup {
+	return tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("Risk 0.25%", "risk:riskpct:set:0.25"),
+			tgbotapi.NewInlineKeyboardButtonData("Risk 0.5%", "risk:riskpct:set:0.5"),
+			tgbotapi.NewInlineKeyboardButtonData("Risk 1%", "risk:riskpct:set:1.0"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("✍️ Risk вручную", "risk:riskpct:ask"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("Stop 0.7%", "risk:stoppct:set:0.7"),
+			tgbotapi.NewInlineKeyboardButtonData("Stop 1.2%", "risk:stoppct:set:1.2"),
+			tgbotapi.NewInlineKeyboardButtonData("Stop 2.0%", "risk:stoppct:set:2.0"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("✍️ Stop вручную", "risk:stoppct:ask"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("TP 1.5R", "risk:tp:set:1.5"),
+			tgbotapi.NewInlineKeyboardButtonData("TP 2R", "risk:tp:set:2.0"),
+			tgbotapi.NewInlineKeyboardButtonData("TP 3R", "risk:tp:set:3.0"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("✍️ TP вручную", "risk:tp:ask"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("↩️ Назад", "settings:back"),
+		),
+	)
+}
+
+func trailingKB(cfg *models.TrailingConfig) tgbotapi.InlineKeyboardMarkup {
+	partialBtn := "⭕️ Partial: выкл"
+	if cfg.PartialEnabled {
+		partialBtn = "✅ Partial: вкл"
+	}
+
+	return tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("BE Trg", "trail:be_trg:ask"),
+			tgbotapi.NewInlineKeyboardButtonData("BE Off", "trail:be_off:ask"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("Lock Trg", "trail:lock_trg:ask"),
+			tgbotapi.NewInlineKeyboardButtonData("Lock Off", "trail:lock_off:ask"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("Time Bars", "trail:time_bars:ask"),
+			tgbotapi.NewInlineKeyboardButtonData("MinMFE", "trail:minmfe:ask"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData(partialBtn, "trail:toggle_partial"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("Partial Trg", "trail:partial_trg:ask"),
+			tgbotapi.NewInlineKeyboardButtonData("Close %", "trail:partial_close:ask"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData("↩️ Назад", "settings:back"),
+		),
+	)
+}
+
+func onOffEmoji(v bool) string {
+	if v {
+		return "✅ вкл"
+	}
+	return "❌ выкл"
+}
+func (t *Telegram) handleAwaitValue(ctx context.Context, chatID int64, text string, key string) {
+	user, err := t.getUser(ctx, chatID)
+	if err != nil {
+		_, _ = t.Send(ctx, chatID, "⚠️ Настройки не найдены, попробуй /start")
 		return
 	}
 
-	t.handleSettingsMenu(ctx, chatID)
+	ts := &user.Settings.TradingSettings
+	tr := &user.Settings.TrailingConfig
 
-	//edit := tgbotapi.NewEditMessageTextAndMarkup(
-	//	chatID,
-	//	msg.MessageID,
-	//	text,
-	//	kb,
-	//)
-	//edit.ParseMode = "Markdown"
-	//
-	//if _, err := t.bot.Send(edit); err != nil {
-	//	log.Printf("handleToggleConfirm edit error: %v", err)
-	//}
+	switch key {
+
+	// --- trade ---
+	case "await:trade:pospct":
+		v, err := strconv.ParseFloat(strings.ReplaceAll(text, ",", "."), 64)
+		if err != nil || v <= 0 || v > 100 {
+			_, _ = t.Send(ctx, chatID, "Некорректно. Пример: `1.0` (это 1%)")
+			return
+		}
+		ts.PositionPct = v
+		_ = t.repo.Update(ctx, user)
+		_, _ = t.Send(ctx, chatID, "✅ PositionPct сохранён")
+		return
+
+	case "await:trade:timeout":
+		d, err := time.ParseDuration(strings.TrimSpace(text))
+		if err != nil || d < 5*time.Second || d > 10*time.Minute {
+			_, _ = t.Send(ctx, chatID, "Некорректно. Пример: `30s`, `2m`")
+			return
+		}
+		ts.ConfirmTimeout = d
+		_ = t.repo.Update(ctx, user)
+		_, _ = t.Send(ctx, chatID, "✅ ConfirmTimeout сохранён")
+		return
+
+	case "await:trade:cooldown":
+		d, err := time.ParseDuration(strings.TrimSpace(text))
+		if err != nil || d < 0 || d > 7*24*time.Hour {
+			_, _ = t.Send(ctx, chatID, "Некорректно. Пример: `30m`, `6h`")
+			return
+		}
+		ts.CooldownPerSymbol = d
+		_ = t.repo.Update(ctx, user)
+		_, _ = t.Send(ctx, chatID, "✅ CooldownPerSymbol сохранён")
+		return
+
+	// --- risk ---
+	case "await:risk:riskpct":
+		v, err := strconv.ParseFloat(strings.ReplaceAll(text, ",", "."), 64)
+		if err != nil || v <= 0 || v > 10 {
+			_, _ = t.Send(ctx, chatID, "Некорректно. Пример: `0.5` (0.5%)")
+			return
+		}
+		ts.RiskPct = v
+		_ = t.repo.Update(ctx, user)
+		_, _ = t.Send(ctx, chatID, "✅ RiskPct сохранён")
+		return
+
+	case "await:risk:stoppct":
+		v, err := strconv.ParseFloat(strings.ReplaceAll(text, ",", "."), 64)
+		if err != nil || v <= 0 || v > 20 {
+			_, _ = t.Send(ctx, chatID, "Некорректно. Пример: `1.2`")
+			return
+		}
+		ts.StopPct = v
+		_ = t.repo.Update(ctx, user)
+		_, _ = t.Send(ctx, chatID, "✅ StopPct сохранён")
+		return
+
+	case "await:risk:tp":
+		v, err := strconv.ParseFloat(strings.ReplaceAll(text, ",", "."), 64)
+		if err != nil || v < 0.5 || v > 10 {
+			_, _ = t.Send(ctx, chatID, "Некорректно. Пример: `2.0`")
+			return
+		}
+		ts.TakeProfitRR = v
+		_ = t.repo.Update(ctx, user)
+		_, _ = t.Send(ctx, chatID, "✅ TakeProfitRR сохранён")
+		return
+
+	// --- trailing ---
+	case "await:trail:be_trg":
+		v := mustFloat(text)
+		if v < 0.05 || v > 5 {
+			_, _ = t.Send(ctx, chatID, "Некорректно. Пример: `0.6`")
+			return
+		}
+		tr.BETriggerR = v
+		_ = t.repo.Update(ctx, user)
+		_, _ = t.Send(ctx, chatID, "✅ BETriggerR сохранён")
+		return
+
+	case "await:trail:be_off":
+		v := mustFloat(text)
+		if v < -1 || v > 5 {
+			_, _ = t.Send(ctx, chatID, "Некорректно. Пример: `0.0`")
+			return
+		}
+		tr.BEOffsetR = v
+		_ = t.repo.Update(ctx, user)
+		_, _ = t.Send(ctx, chatID, "✅ BEOffsetR сохранён")
+		return
+
+	case "await:trail:lock_trg":
+		v := mustFloat(text)
+		if v < 0.05 || v > 10 {
+			_, _ = t.Send(ctx, chatID, "Некорректно. Пример: `0.9`")
+			return
+		}
+		tr.LockTriggerR = v
+		_ = t.repo.Update(ctx, user)
+		_, _ = t.Send(ctx, chatID, "✅ LockTriggerR сохранён")
+		return
+
+	case "await:trail:lock_off":
+		v := mustFloat(text)
+		if v < -1 || v > 10 {
+			_, _ = t.Send(ctx, chatID, "Некорректно. Пример: `0.3`")
+			return
+		}
+		tr.LockOffsetR = v
+		_ = t.repo.Update(ctx, user)
+		_, _ = t.Send(ctx, chatID, "✅ LockOffsetR сохранён")
+		return
+
+	case "await:trail:time_bars":
+		v, err := strconv.Atoi(strings.TrimSpace(text))
+		if err != nil || v < 1 || v > 500 {
+			_, _ = t.Send(ctx, chatID, "Некорректно. Пример: `12`")
+			return
+		}
+		tr.TimeStopBars = v
+		_ = t.repo.Update(ctx, user)
+		_, _ = t.Send(ctx, chatID, "✅ TimeStopBars сохранён")
+		return
+
+	case "await:trail:minmfe":
+		v := mustFloat(text)
+		if v < 0 || v > 10 {
+			_, _ = t.Send(ctx, chatID, "Некорректно. Пример: `0.3`")
+			return
+		}
+		tr.TimeStopMinMFER = v
+		_ = t.repo.Update(ctx, user)
+		_, _ = t.Send(ctx, chatID, "✅ TimeStopMinMFER сохранён")
+		return
+
+	case "await:trail:partial_trg":
+		v := mustFloat(text)
+		if v < 0.05 || v > 10 {
+			_, _ = t.Send(ctx, chatID, "Некорректно. Пример: `0.9`")
+			return
+		}
+		tr.PartialTriggerR = v
+		_ = t.repo.Update(ctx, user)
+		_, _ = t.Send(ctx, chatID, "✅ PartialTriggerR сохранён")
+		return
+
+	case "await:trail:partial_close":
+		v := mustFloat(text)
+		if v <= 0 || v > 100 {
+			_, _ = t.Send(ctx, chatID, "Некорректно. Пример: `50` (это 50%)")
+			return
+		}
+		tr.PartialCloseFrac = v / 100.0
+		_ = t.repo.Update(ctx, user)
+		_, _ = t.Send(ctx, chatID, "✅ PartialCloseFrac сохранён")
+		return
+	}
 }
-func maskSecret(s string) string {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return "—"
-	}
-	if len(s) <= 8 {
-		return "****"
-	}
-	return s[:4] + "****" + s[len(s)-4:]
+func (t *Telegram) editTextAndKb(ctx context.Context, chatID int64, msgID int, text string, kb tgbotapi.InlineKeyboardMarkup) {
+	edit := tgbotapi.NewEditMessageTextAndMarkup(chatID, msgID, text, kb)
+	edit.ParseMode = "Markdown"
+	_, _ = t.bot.Send(edit)
 }
 
-//func (t *Telegram) handleTimeframePick(
-//	ctx context.Context,
-//	chatID int64,
-//	msg *tgbotapi.Message,
-//	data string,
-//) {
-//	user, err := t.getUser(ctx, chatID)
-//	if err != nil {
-//		_, _ = t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
-//		return
-//	}
-//
-//	var tf string
-//	switch data {
-//	case "tf_1m":
-//		tf = "1m"
-//	case "tf_5m":
-//		tf = "5m"
-//	case "tf_15m":
-//		tf = "15m"
-//	default:
-//		return
-//	}
-//
-//	user.TradingSettings.Timeframe = tf
-//
-//	if err := t.repo.Update(ctx, user); err != nil {
-//		_, _ = t.Send(ctx, chatID, "⚠️ Не удалось сохранить таймфрейм: "+err.Error())
-//		return
-//	}
-//
-//	// Удобно: обновим меню настроек (перерисуем)
-//	if msg != nil {
-//		edit := tgbotapi.NewEditMessageText(chatID, msg.MessageID, "✅ Таймфрейм сохранён: `"+tf+"`")
-//		edit.ParseMode = "Markdown"
-//		_, _ = t.bot.Send(edit)
-//	}
-//
-//	// И покажем меню снова
-//	t.handleSettingsMenu(ctx, chatID)
-//}
+func (t *Telegram) renderTradeSettings(ctx context.Context, chatID int64, msgID int, user *models.UserSettings) {
+	ts := &user.Settings.TradingSettings
+	t.editTextAndKb(ctx, chatID, msgID, formatTradeSettings(ts), tradeSettingsKB(ts))
+}
+
+func (t *Telegram) renderRiskSettings(ctx context.Context, chatID int64, msgID int, user *models.UserSettings) {
+	ts := &user.Settings.TradingSettings
+	t.editTextAndKb(ctx, chatID, msgID, formatRiskSettings(ts), riskSettingsKB())
+}
+
+func (t *Telegram) renderTrailingSettings(ctx context.Context, chatID int64, msgID int, user *models.UserSettings) {
+	cfg := &user.Settings.TrailingConfig
+	t.editTextAndKb(ctx, chatID, msgID, formatTrailing(cfg), trailingKB(cfg))
+}
