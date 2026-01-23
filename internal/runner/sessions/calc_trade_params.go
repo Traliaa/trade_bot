@@ -23,13 +23,13 @@ func (s *UserSession) calcTradeParams(
 	}
 
 	// денежный риск
-	riskPct := s.Settings.TradingSettings.RiskPct / 100.0
+	riskPct := s.Settings.Settings.TradingSettings.RiskPct / 100.0
 	if riskPct <= 0 {
 		return nil, fmt.Errorf("riskPct <= 0")
 	}
 
 	// стоп-дистанция
-	stopPct := s.Settings.TradingSettings.StopPct / 100.0
+	stopPct := s.Settings.Settings.TradingSettings.StopPct / 100.0
 	if stopPct <= 0 {
 		return nil, fmt.Errorf("stopPct <= 0 (set TradingSettings.StopPct)")
 	}
@@ -38,12 +38,12 @@ func (s *UserSession) calcTradeParams(
 		return nil, fmt.Errorf("stopPct too big: %.4f", stopPct)
 	}
 
-	rr := s.Settings.TradingSettings.TakeProfitRR
+	rr := s.Settings.Settings.TradingSettings.TakeProfitRR
 	if rr <= 0 {
 		rr = 2.0
 	}
 
-	lev := s.Settings.TradingSettings.Leverage
+	lev := s.Settings.Settings.TradingSettings.Leverage
 	if lev <= 0 {
 		lev = 1
 	}
@@ -124,7 +124,7 @@ func (s *UserSession) calcTradeParams(
 		TP:        tp,
 		Size:      size,
 		TickSize:  instrument.TickSz,
-		RiskPct:   s.Settings.TradingSettings.RiskPct, // денежный риск
+		RiskPct:   s.Settings.Settings.TradingSettings.RiskPct, // денежный риск
 		RR:        rr,
 		RiskDist:  riskDist,
 		Leverage:  lev,

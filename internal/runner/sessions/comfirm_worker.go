@@ -23,13 +23,13 @@ func (s *UserSession) ConfirmWorker(ctx context.Context) {
 			defer s.setPending(sig.InstID, false)
 
 			// 1) лимит по открытым позициям
-			if s.Settings.TradingSettings.MaxOpenPositions > 0 {
+			if s.Settings.Settings.TradingSettings.MaxOpenPositions > 0 {
 				if positions, err := s.Okx.OpenPositions(ctx); err == nil &&
-					len(positions) >= s.Settings.TradingSettings.MaxOpenPositions {
+					len(positions) >= s.Settings.Settings.TradingSettings.MaxOpenPositions {
 					if s.canSend("limit_open_positions", 30*time.Minute) {
 						s.Notifier.SendF(ctx, s.UserID,
 							"⚠️ [%s] Лимит открытых позиций (%d) достигнут, сигнал пропущен",
-							sig.InstID, s.Settings.TradingSettings.MaxOpenPositions,
+							sig.InstID, s.Settings.Settings.TradingSettings.MaxOpenPositions,
 						)
 					}
 					return
@@ -43,11 +43,11 @@ func (s *UserSession) ConfirmWorker(ctx context.Context) {
 			)
 
 			ok := true
-			if s.Settings.TradingSettings.ConfirmRequired {
-				ok = s.Notifier.Confirm(ctx, s.UserID, prompt, s.Settings.TradingSettings.ConfirmTimeout)
+			if s.Settings.Settings.TradingSettings.ConfirmRequired {
+				ok = s.Notifier.Confirm(ctx, s.UserID, prompt, s.Settings.Settings.TradingSettings.ConfirmTimeout)
 			}
 			if !ok {
-				s.setCooldown(sig.InstID, time.Now().Add(s.Settings.TradingSettings.CooldownPerSymbol))
+				s.setCooldown(sig.InstID, time.Now().Add(s.Settings.Settings.TradingSettings.CooldownPerSymbol))
 				s.Notifier.SendF(ctx, s.UserID, "⛔️ [%s] Вход отменён/таймаут", sig.InstID)
 				return
 			}

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"sync"
 	"time"
-	"trade_bot/internal/helper"
 	"trade_bot/internal/runner/sessions"
 
 	"trade_bot/internal/models"
@@ -27,14 +26,12 @@ type UserSettingsSnapshot struct {
 // Router хранит активных юзеров и раздаёт сигналы.
 type Router struct {
 	mu    sync.RWMutex
-	users map[int64]*sessions.UserSession    // userID -> сессия
-	index map[string][]*sessions.UserSession // key(tf,strategy) -> сессии
+	users map[int64]*sessions.UserSession // userID -> сессия
 }
 
 func NewRouter() *Router {
 	return &Router{
 		users: make(map[int64]*sessions.UserSession),
-		index: make(map[string][]*sessions.UserSession),
 	}
 }
 
@@ -46,13 +43,7 @@ func (r *Router) OnSignal(ctx context.Context, sig models.Signal) {
 	fmt.Printf("[SIG ROUTER] %s %s",
 		sig.TF, sig.Strategy)
 
-	k := helper.Key(sig.TF, sig.Strategy)
-	sessions := r.index[k]
-	if len(sessions) == 0 {
-		return
-	}
-
-	for _, sess := range sessions {
+	for _, sess := range r.users {
 		select {
 		case sess.Queue <- sig:
 		default:

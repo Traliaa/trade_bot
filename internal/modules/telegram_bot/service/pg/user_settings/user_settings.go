@@ -30,7 +30,7 @@ func (u *UserSettings) Insert(ctx context.Context, tx pgx.Tx, user *models.UserS
 	}()
 
 	var data []byte
-	data, err = sonic.Marshal(user.TradingSettings)
+	data, err = sonic.Marshal(user.Settings)
 	if err != nil {
 		return err
 	}
@@ -53,7 +53,7 @@ func (u *UserSettings) Update(ctx context.Context, tx pgx.Tx, user *models.UserS
 		}
 	}()
 	var data []byte
-	data, err = sonic.Marshal(user.TradingSettings)
+	data, err = sonic.Marshal(user.Settings)
 	if err != nil {
 		return err
 	}
@@ -88,17 +88,17 @@ func (u *UserSettings) GetById(ctx context.Context, tx pgx.Tx, chatID int64) (us
 		return nil, err
 	}
 
-	var t models.TradingSettings
+	var t models.Settings
 	err = sonic.Unmarshal(resp.Settings, &t)
 	if err != nil {
 		return nil, err
 	}
 	return &models.UserSettings{
-		ID:              resp.ID,
-		UserID:          chatID,
-		Name:            resp.Name,
-		TradingSettings: t,
-		Step:            resp.Step,
+		ID:       resp.ID,
+		UserID:   chatID,
+		Name:     resp.Name,
+		Settings: t,
+		Step:     resp.Step,
 	}, nil
 }
 

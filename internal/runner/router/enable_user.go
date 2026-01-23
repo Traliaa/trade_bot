@@ -3,7 +3,6 @@ package router
 import (
 	"context"
 	"time"
-	"trade_bot/internal/helper"
 	"trade_bot/internal/models"
 	okx_client "trade_bot/internal/modules/okx_client/service"
 
@@ -46,9 +45,6 @@ func (r *Router) EnableUser(user *models.UserSettings, n TelegramNotifier) {
 	}
 
 	r.users[user.UserID] = sess
-
-	k := helper.Key("15m", user.TradingSettings.Strategy)
-	r.index[k] = append(r.index[k], sess)
 
 	r.mu.Unlock()
 

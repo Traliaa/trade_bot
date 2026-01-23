@@ -27,42 +27,49 @@ type Runner struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 
+	// deps
 	mkt *okx_websocket.Client
 	cfg *models.UserSettings
 	mx  *okx_client.Client
 	stg service2.Engine
 	n   TelegramNotifier
 
+	// runtime
 	queue       chan models.Signal
-	pending     map[string]bool      // symbol -> awaiting decision
-	cooldownTil map[string]time.Time // symbol -> until
-	lastTick    map[string]time.Time // symbol -> last candle time
+	pending     map[string]bool
+	cooldownTil map[string]time.Time
+	lastTick    map[string]time.Time
 
-	mu       sync.Mutex // pending/cooldown
-	healthMu sync.Mutex // lastTick
+	mu       sync.Mutex
+	healthMu sync.Mutex
 }
 
-func New(user *models.UserSettings, n TelegramNotifier, mkt *okx_websocket.Client) *Runner {
-
-	qsize := user.TradingSettings.ConfirmQueueMax
-	if qsize <= 0 {
-		qsize = 20
+func New(user *models.UserSettings, n TelegramNotifier, mkt *okx_websocket.Client, stg service2.Engine) *Runner {
+	if user == nil {
+		panic("runner.New: user is nil")
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+
 	return &Runner{
+		ctx:    ctx,
+		cancel: cancel,
+
 		cfg: user,
 		mx:  okx_client.NewClient(user),
 		n:   n,
-		//stg:         service2.NewEngine(),
-		queue:       make(chan models.Signal, qsize),
+		stg: stg,
+		mkt: mkt,
+
+		queue:       make(chan models.Signal, 32),
 		pending:     make(map[string]bool),
 		cooldownTil: make(map[string]time.Time),
 		lastTick:    make(map[string]time.Time),
-		mkt:         mkt,
 	}
 }
 
-// Stop — мягко гасит раннер.
+func (r *Runner) Ctx() context.Context { return r.ctx }
+
 func (r *Runner) Stop() {
 	if r.cancel != nil {
 		r.cancel()

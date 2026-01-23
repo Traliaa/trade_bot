@@ -36,9 +36,9 @@ func NewClient(cfg *config.Config, n ServiceNotifier) *Client {
 		wsDialer:  &websocket.Dialer{},
 		http:      &http.Client{Timeout: 10 * time.Second},
 		cfg:       cfg,
-		apiKey:    cfg.OKXAPIKey,
-		apiSecret: cfg.OKXAPISecret,
-		passph:    cfg.OKXPassphrase,
+		apiKey:    cfg.OKXWS.APIKey,
+		apiSecret: cfg.OKXWS.APISecret,
+		passph:    cfg.OKXWS.Passphrase,
 		n:         n,
 		subs:      make(map[string]map[chan models.CandleTick]struct{}),
 		watch:     nil,
@@ -58,8 +58,7 @@ func (c *Client) Start(ctx context.Context, out chan<- OutTick) {
 		c.n.SendService(ctx, "🚀 OKX WebSocket streamer started (5m/10m/15m)")
 	}
 
-	// 1. Берём топ N самых волатильных
-	syms := c.TopVolatile(c.cfg.DefaultWatchTopN)
+	syms := c.TopVolatile(c.cfg.Strategy.WatchTopN)
 	if len(syms) == 0 {
 		log.Println("[MARKET] пустой список волатильных инструментов")
 		return

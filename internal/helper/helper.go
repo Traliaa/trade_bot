@@ -4,7 +4,6 @@ import (
 	"math"
 	"strings"
 	"time"
-	"trade_bot/internal/models"
 )
 
 func NormTF(raw string) string {
@@ -71,9 +70,4 @@ func SplitTrailKey(key string) (instID string, posSide string, ok bool) {
 	}
 
 	return instID, posSide, true
-}
-
-// Key по таймфрейму и стратегии
-func Key(tf string, st models.StrategyType) string {
-	return tf + "::" + string(st)
 }

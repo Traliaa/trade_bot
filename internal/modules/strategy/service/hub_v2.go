@@ -110,19 +110,19 @@ func (h *Hub) onBecameReady(ctx context.Context, sym string) {
 		if h.n != nil {
 			h.n.SendService(ctx,
 				"🔥 Warmup started | engine=%s | LTF=%s HTF=%s | ожидаем=%d",
-				h.engine.Name(), h.cfg.LTF, h.cfg.HTF, h.cfg.DefaultWatchTopN,
+				h.engine.Name(), h.cfg.Strategy.LTF, h.cfg.Strategy.HTF, h.cfg.Strategy.WatchTopN,
 			)
 		}
 		return
 	}
 
 	// done
-	if !h.warmupDone && h.readyCnt >= h.cfg.DefaultWatchTopN {
+	if !h.warmupDone && h.readyCnt >= h.cfg.Strategy.WatchTopN {
 		h.warmupDone = true
 		if h.n != nil {
 			h.n.SendService(ctx,
 				"✅ Warmup finished: %d/%d ready. Теперь ждём сигналы.",
-				h.readyCnt, h.cfg.DefaultWatchTopN,
+				h.readyCnt, h.cfg.Strategy.WatchTopN,
 			)
 		}
 	}
@@ -135,14 +135,14 @@ func (h *Hub) maybeWarmupProgress(ctx context.Context) {
 	if !h.warmupMsgSent || h.warmupDone || h.n == nil {
 		return
 	}
-	if h.cfg.ProgressEvery <= 0 {
+	if h.cfg.Strategy.ProgressEvery <= 0 {
 		return
 	}
-	if time.Since(h.lastProgress) < h.cfg.ProgressEvery {
+	if time.Since(h.lastProgress) < h.cfg.Strategy.ProgressEvery {
 		return
 	}
 
-	h.n.SendService(ctx, "⏳ Warmup progress: %d/%d ready", h.readyCnt, h.cfg.DefaultWatchTopN)
+	h.n.SendService(ctx, "⏳ Warmup progress: %d/%d ready", h.readyCnt, h.cfg.Strategy.WatchTopN)
 	h.lastProgress = time.Now()
 }
 

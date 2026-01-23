@@ -3,3 +3,41 @@ service:
   public_port: 3000
   admin_port: 3001
   workers: 5
+
+telegram:
+  token: "" # можно пусто, если TELEGRAM_TOKEN в env
+
+db_dsn: "" # можно пусто, если DATABASE_DSN в env
+
+service_telegram_chat_id: 0 # можно пусто, если CHAT_ID в env
+
+okx_ws:
+  api_key: ""
+  api_secret: ""
+  passphrase: ""
+
+strategy:
+  ltf: "15m"
+  htf: "1h"
+  donchian_period: 20
+  min_channel_pct: 0.012
+  min_body_pct: 0.004
+  breakout_pct: 0.0025
+  htf_ema_fast: 50
+  htf_ema_slow: 200
+  min_warmup_ltf: 20
+  min_warmup_htf: 200
+  expected_symbols: 100
+  progress_every: 2m
+  watch_top_n: 100
+
+user_defaults:
+  default_leverage: 15
+  default_max_open_positions: 10
+  default_position_pct: 1.0
+  default_risk_pct: 0.5
+  default_stop_pct: 3.0
+  default_take_profit_rr: 2.0
+  default_confirm_required: true
+  default_confirm_timeout: 30s
+  default_cooldown_per_symbol: 6h

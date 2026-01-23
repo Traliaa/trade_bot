@@ -34,9 +34,9 @@ func NewClient(cfg *models.UserSettings) *Client {
 		//prices:    make(map[string]float64),
 		http:      &http.Client{Timeout: 10 * time.Second},
 		wsDialer:  &websocket.Dialer{},
-		apiKey:    cfg.TradingSettings.OKXAPIKey,
-		apiSecret: cfg.TradingSettings.OKXAPISecret,
-		passph:    cfg.TradingSettings.OKXPassphrase,
+		apiKey:    cfg.Settings.TradingSettings.OKXAPIKey,
+		apiSecret: cfg.Settings.TradingSettings.OKXAPISecret,
+		passph:    cfg.Settings.TradingSettings.OKXPassphrase,
 	}
 }
 

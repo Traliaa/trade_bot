@@ -37,11 +37,11 @@ func (w *Warmuper) Warmup(ctx context.Context, symbols []string) error {
 		return nil
 	}
 
-	ltfNeed := w.cfg.DonchianPeriod + 30
-	htfNeed := w.cfg.HTFEmaSlow + 30
+	ltfNeed := w.cfg.Strategy.DonchianPeriod + 30
+	htfNeed := w.cfg.Strategy.HTFEmaSlow + 30
 
 	w.n.SendService(ctx, fmt.Sprintf("🔥 REST warmup start: symbols=%d LTF=%s(%d) HTF=%s(%d)",
-		len(symbols), w.cfg.LTF, ltfNeed, w.cfg.HTF, htfNeed,
+		len(symbols), w.cfg.Strategy.LTF, ltfNeed, w.cfg.Strategy.HTF, htfNeed,
 	))
 	var cnt int64
 	var wg sync.WaitGroup
@@ -57,7 +57,7 @@ func (w *Warmuper) Warmup(ctx context.Context, symbols []string) error {
 			defer func() { <-w.sem }()
 
 			// 1) HTF
-			htf, err := w.mx.GetCandles(ctx, sym, w.cfg.HTF, htfNeed)
+			htf, err := w.mx.GetCandles(ctx, sym, w.cfg.Strategy.HTF, htfNeed)
 			if err != nil {
 				mu.Lock()
 				if firstErr == nil {
@@ -70,13 +70,13 @@ func (w *Warmuper) Warmup(ctx context.Context, symbols []string) error {
 				cnt++
 				w.hub.OnTick(ctx, okxws.OutTick{
 					InstID:    sym,
-					Timeframe: w.cfg.HTF,
+					Timeframe: w.cfg.Strategy.HTF,
 					Candle:    models.CandleTick{Open: c.Open, High: c.High, Low: c.Low, Close: c.Close, Start: c.Start, End: c.End},
 				})
 			}
 
 			// 2) LTF
-			ltf, err := w.mx.GetCandles(ctx, sym, w.cfg.LTF, ltfNeed)
+			ltf, err := w.mx.GetCandles(ctx, sym, w.cfg.Strategy.LTF, ltfNeed)
 			if err != nil {
 				mu.Lock()
 				if firstErr == nil {
@@ -89,7 +89,7 @@ func (w *Warmuper) Warmup(ctx context.Context, symbols []string) error {
 				cnt++
 				w.hub.OnTick(ctx, okxws.OutTick{
 					InstID:    sym,
-					Timeframe: w.cfg.LTF,
+					Timeframe: w.cfg.Strategy.LTF,
 					Candle:    models.CandleTick{Open: c.Open, High: c.High, Low: c.Low, Close: c.Close, Start: c.Start, End: c.End},
 				})
 			}

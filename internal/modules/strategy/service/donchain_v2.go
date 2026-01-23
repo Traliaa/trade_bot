@@ -56,10 +56,10 @@ func (e *DonchianV2HTF) get(sym string) *v2State {
 		return s
 	}
 	s := &v2State{
-		highs:   make([]float64, 0, e.cfg.DonchianPeriod),
-		lows:    make([]float64, 0, e.cfg.DonchianPeriod),
-		emaFast: newEMA(e.cfg.HTFEmaFast),
-		emaSlow: newEMA(e.cfg.HTFEmaSlow),
+		highs:   make([]float64, 0, e.cfg.Strategy.DonchianPeriod),
+		lows:    make([]float64, 0, e.cfg.Strategy.DonchianPeriod),
+		emaFast: newEMA(e.cfg.Strategy.HTFEmaFast),
+		emaSlow: newEMA(e.cfg.Strategy.HTFEmaSlow),
 		trend:   TrendNone,
 	}
 	e.st[sym] = s
@@ -94,13 +94,13 @@ func (e *DonchianV2HTF) OnCandle(t models.CandleTick) (models.Signal, bool, bool
 	switch tf {
 
 	// ---------------- HTF: тренд ----------------
-	case helper.NormTF(e.cfg.HTF):
+	case helper.NormTF(e.cfg.Strategy.HTF):
 		st.emaFast.Update(t.Close)
 		st.emaSlow.Update(t.Close)
 		st.wHTF++
 
 		// готовность HTF
-		if st.wHTF >= e.cfg.MinWarmupHTF && st.emaFast.Ready() && st.emaSlow.Ready() {
+		if st.wHTF >= e.cfg.Strategy.MinWarmupHTF && st.emaFast.Ready() && st.emaSlow.Ready() {
 			if !st.readyHTF {
 				st.readyHTF = true
 				becameReady = true
@@ -121,7 +121,7 @@ func (e *DonchianV2HTF) OnCandle(t models.CandleTick) (models.Signal, bool, bool
 		return models.Signal{}, false, becameReady
 
 	// ---------------- LTF: Donchian breakout ----------------
-	case helper.NormTF(e.cfg.LTF):
+	case helper.NormTF(e.cfg.Strategy.LTF):
 		// 0) если буфер уже прогрет — считаем канал ДО добавления текущей свечи
 		var (
 			dh, dl  float64
@@ -130,7 +130,7 @@ func (e *DonchianV2HTF) OnCandle(t models.CandleTick) (models.Signal, bool, bool
 			bodyPct float64
 		)
 
-		if len(st.highs) >= e.cfg.DonchianPeriod {
+		if len(st.highs) >= e.cfg.Strategy.DonchianPeriod {
 			dh = maxSlice(st.highs)
 			dl = minSlice(st.lows)
 			if dh > 0 && dl > 0 && dh > dl {
@@ -140,7 +140,7 @@ func (e *DonchianV2HTF) OnCandle(t models.CandleTick) (models.Signal, bool, bool
 
 		// 1) инкремент прогрева LTF (по закрытым свечам)
 		st.wLTF++
-		if st.wLTF >= e.cfg.MinWarmupLTF && len(st.highs) >= e.cfg.DonchianPeriod && !st.readyLTF {
+		if st.wLTF >= e.cfg.Strategy.MinWarmupLTF && len(st.highs) >= e.cfg.Strategy.DonchianPeriod && !st.readyLTF {
 			st.readyLTF = true
 			becameReady = true
 		}
@@ -149,14 +149,14 @@ func (e *DonchianV2HTF) OnCandle(t models.CandleTick) (models.Signal, bool, bool
 		if haveCh && st.readyLTF && st.readyHTF && st.trend != TrendNone {
 			// ширина канала
 			chPct = (dh - dl) / t.Close
-			if chPct >= e.cfg.MinChannelPct {
+			if chPct >= e.cfg.Strategy.MinChannelPct {
 
 				// тело свечи
 				bodyPct = math.Abs(t.Close-t.Open) / t.Close
-				if bodyPct >= e.cfg.MinBodyPct {
+				if bodyPct >= e.cfg.Strategy.MinBodyPct {
 
 					// breakout threshold (например 0.002 = 0.2%)
-					bo := e.cfg.BreakoutPct
+					bo := e.cfg.Strategy.BreakoutPct
 					if bo < 0 {
 						bo = 0
 					}
@@ -198,13 +198,13 @@ func (e *DonchianV2HTF) OnCandle(t models.CandleTick) (models.Signal, bool, bool
 
 					sig := models.Signal{
 						InstID:   t.InstID,
-						TF:       helper.NormTF(e.cfg.LTF),
+						TF:       helper.NormTF(e.cfg.Strategy.LTF),
 						Side:     side,
 						Price:    t.Close,
 						Strategy: "donchian_v2_htf",
 						Reason: fmt.Sprintf(
 							"trend=%v Don[%d] chPct=%.4f bodyPct=%.4f bo=%.4f upBo=%.4f dnBo=%.4f dh=%.6f dl=%.6f",
-							st.trend, e.cfg.DonchianPeriod, chPct, bodyPct, bo, upBoPct, dnBoPct, dh, dl,
+							st.trend, e.cfg.Strategy.DonchianPeriod, chPct, bodyPct, bo, upBoPct, dnBoPct, dh, dl,
 						),
 						CreatedAt: time.Now(),
 					}
@@ -212,7 +212,7 @@ func (e *DonchianV2HTF) OnCandle(t models.CandleTick) (models.Signal, bool, bool
 					// 3) теперь добавляем текущую свечу в буфер и выходим с сигналом
 					st.highs = append(st.highs, t.High)
 					st.lows = append(st.lows, t.Low)
-					if len(st.highs) > e.cfg.DonchianPeriod {
+					if len(st.highs) > e.cfg.Strategy.DonchianPeriod {
 						st.highs = st.highs[1:]
 						st.lows = st.lows[1:]
 					}
@@ -229,7 +229,7 @@ func (e *DonchianV2HTF) OnCandle(t models.CandleTick) (models.Signal, bool, bool
 		// 4) если сигнала нет — просто обновляем буфер текущей свечой
 		st.highs = append(st.highs, t.High)
 		st.lows = append(st.lows, t.Low)
-		if len(st.highs) > e.cfg.DonchianPeriod {
+		if len(st.highs) > e.cfg.Strategy.DonchianPeriod {
 			st.highs = st.highs[1:]
 			st.lows = st.lows[1:]
 		}
@@ -267,7 +267,7 @@ func (e *DonchianV2HTF) Dump(symbol string) string {
 
 	return fmt.Sprintf(
 		"v2[15m] w15=%d/%d ready15=%v dh=%.6f dl=%.6f | [1h] w1h=%d fast=%.6f slow=%.6f trend=%v ready1h=%v",
-		st.wLTF, e.cfg.MinWarmupLTF, st.readyLTF, dh, dl,
+		st.wLTF, e.cfg.Strategy.MinWarmupLTF, st.readyLTF, dh, dl,
 		st.wHTF, st.emaFast.Value(), st.emaSlow.Value(), st.trend, st.readyHTF,
 	)
 }

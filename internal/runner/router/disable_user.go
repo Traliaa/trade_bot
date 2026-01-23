@@ -8,21 +8,6 @@ func (r *Router) DisableUser(userID int64) {
 		return
 	}
 	delete(r.users, userID)
-
-	// вырезаем из индекса
-	for k, list := range r.index {
-		n := list[:0]
-		for _, s := range list {
-			if s.UserID != userID {
-				n = append(n, s)
-			}
-		}
-		if len(n) == 0 {
-			delete(r.index, k)
-		} else {
-			r.index[k] = n
-		}
-	}
 	r.mu.Unlock()
 
 	// ✅ останавливаем воркеры

@@ -24,14 +24,5 @@ func (t *Telegram) getUser(ctx context.Context, chatID int64) (*models.UserSetti
 		return nil, fmt.Errorf("get user settings: %w", err)
 	}
 
-	// ✅ not found в file-repo (обычно: user=nil, err=nil)
-	if user == nil {
-		user = models.NewTradingSettingsFromDefaults(chatID, t.cfg)
-		if err := t.repo.Create(ctx, user); err != nil {
-			return nil, fmt.Errorf("create user settings: %w", err)
-		}
-		return user, nil
-	}
-
 	return user, nil
 }

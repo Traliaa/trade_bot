@@ -35,7 +35,7 @@ func (s *UserSession) trailOne(ctx context.Context, ct models.CandleTick, p mode
 	st.UpdateMFE(ct.High, ct.Low)
 
 	// Решение только на 15m слот (даже если свеча 1m)
-	dec := decideTrail15m(st, s.Settings.TradingSettings, ct.End)
+	dec := decideTrail15m(st, s.Settings.Settings, ct.End)
 	if !dec.MoveSL && !dec.Close {
 		return
 	}
@@ -119,7 +119,7 @@ func (s *UserSession) trailOne(ctx context.Context, ct models.CandleTick, p mode
 
 func decideTrail15m(
 	st *models.PositionTrailState,
-	cfg models.TradingSettings,
+	cfg models.Settings,
 	slotEnd time.Time,
 ) models.TrailDecision {
 	R := st.RiskDist
@@ -158,12 +158,12 @@ func decideTrail15m(
 	}
 
 	// --- тайм-стоп: 3 часа и не дал 0.3R ---
-	if cfg.TimeStopBars > 0 &&
-		cfg.TimeStopMinMFER > 0 &&
+	if cfg.TrailingConfig.TimeStopBars > 0 &&
+		cfg.TrailingConfig.TimeStopMinMFER > 0 &&
 		!st.OpenedAt.IsZero() {
 
-		maxDur := time.Duration(cfg.TimeStopBars) * 15 * time.Minute
-		if slotEnd.Sub(st.OpenedAt) >= maxDur && mfeR < cfg.TimeStopMinMFER {
+		maxDur := time.Duration(cfg.TrailingConfig.TimeStopBars) * 15 * time.Minute
+		if slotEnd.Sub(st.OpenedAt) >= maxDur && mfeR < cfg.TrailingConfig.TimeStopMinMFER {
 			st.LastTrailEnd = slot
 			return models.TrailDecision{
 				Close:  true,
@@ -173,13 +173,13 @@ func decideTrail15m(
 	}
 
 	// --- 1) BE на 0.6R ---
-	if !st.MovedToBE && mfeR >= cfg.BETriggerR {
+	if !st.MovedToBE && mfeR >= cfg.TrailingConfig.BETriggerR {
 		cand := st.Entry
-		if cfg.BEOffsetR != 0 {
+		if cfg.TrailingConfig.BEOffsetR != 0 {
 			if st.PosSide == "long" {
-				cand = st.Entry + cfg.BEOffsetR*R
+				cand = st.Entry + cfg.TrailingConfig.BEOffsetR*R
 			} else {
-				cand = st.Entry - cfg.BEOffsetR*R
+				cand = st.Entry - cfg.TrailingConfig.BEOffsetR*R
 			}
 		}
 		if improves(cand) && improvesEnough(cand) {
@@ -190,12 +190,12 @@ func decideTrail15m(
 	}
 
 	// --- PARTIAL TAKE ---
-	if cfg.PartialEnabled &&
+	if cfg.TrailingConfig.PartialEnabled &&
 		!st.TookPartial &&
-		mfeR >= cfg.PartialTriggerR &&
+		mfeR >= cfg.TrailingConfig.PartialTriggerR &&
 		st.Size > 0 {
 
-		closeSz := st.Size * cfg.PartialCloseFrac
+		closeSz := st.Size * cfg.TrailingConfig.PartialCloseFrac
 		if closeSz > 0 {
 			st.TookPartial = true
 			st.LastTrailEnd = slot
@@ -204,19 +204,19 @@ func decideTrail15m(
 				CloseSize: closeSz,
 				Reason: fmt.Sprintf(
 					"PARTIAL@%.2fR (%.0f%%)",
-					cfg.PartialTriggerR,
-					cfg.PartialCloseFrac*100,
+					cfg.TrailingConfig.PartialTriggerR,
+					cfg.TrailingConfig.PartialCloseFrac*100,
 				),
 			}
 		}
 	}
 	// --- 2) Lock profit на 0.9R: SL = Entry + 0.3R ---
-	if !st.LockedProfit && mfeR >= cfg.LockTriggerR {
+	if !st.LockedProfit && mfeR >= cfg.TrailingConfig.LockTriggerR {
 		var cand float64
 		if st.PosSide == "long" {
-			cand = st.Entry + cfg.LockOffsetR*R
+			cand = st.Entry + cfg.TrailingConfig.LockOffsetR*R
 		} else {
-			cand = st.Entry - cfg.LockOffsetR*R
+			cand = st.Entry - cfg.TrailingConfig.LockOffsetR*R
 		}
 		if improves(cand) && improvesEnough(cand) {
 			st.LockedProfit = true
