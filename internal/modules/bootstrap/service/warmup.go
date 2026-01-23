@@ -40,10 +40,15 @@ func (w *Warmuper) Warmup(ctx context.Context, symbols []string) error {
 	ltfNeed := w.cfg.Strategy.DonchianPeriod + 30
 	htfNeed := w.cfg.Strategy.HTFEmaSlow + 30
 
-	w.n.SendService(ctx, fmt.Sprintf("🔥 REST warmup start: symbols=%d LTF=%s(%d) HTF=%s(%d)",
+	// Публичное сообщение в канал (на русском)
+	w.n.SendService(ctx, fmt.Sprintf(
+		"🔥 Прогрев данных (REST) запущен\n\n"+
+			"• Инструментов: %d\n"+
+			"• Младший ТФ (LTF): %s — нужно %d свечей\n"+
+			"• Старший ТФ (HTF): %s — нужно %d свечей",
 		len(symbols), w.cfg.Strategy.LTF, ltfNeed, w.cfg.Strategy.HTF, htfNeed,
 	))
-	var cnt int64
+
 	var wg sync.WaitGroup
 	var firstErr error
 	var mu sync.Mutex
@@ -51,8 +56,11 @@ func (w *Warmuper) Warmup(ctx context.Context, symbols []string) error {
 	for _, sym := range symbols {
 		sym := sym
 		wg.Add(1)
+
 		go func() {
 			defer wg.Done()
+
+			// ограничитель параллелизма
 			w.sem <- struct{}{}
 			defer func() { <-w.sem }()
 
@@ -61,17 +69,23 @@ func (w *Warmuper) Warmup(ctx context.Context, symbols []string) error {
 			if err != nil {
 				mu.Lock()
 				if firstErr == nil {
-					firstErr = fmt.Errorf("warmup HTF %s: %w", sym, err)
+					firstErr = fmt.Errorf("прогрев HTF %s: %w", sym, err)
 				}
 				mu.Unlock()
 				return
 			}
 			for _, c := range htf {
-				cnt++
 				w.hub.OnTick(ctx, okxws.OutTick{
 					InstID:    sym,
 					Timeframe: w.cfg.Strategy.HTF,
-					Candle:    models.CandleTick{Open: c.Open, High: c.High, Low: c.Low, Close: c.Close, Start: c.Start, End: c.End},
+					Candle: models.CandleTick{
+						Open:  c.Open,
+						High:  c.High,
+						Low:   c.Low,
+						Close: c.Close,
+						Start: c.Start,
+						End:   c.End,
+					},
 				})
 			}
 
@@ -80,17 +94,23 @@ func (w *Warmuper) Warmup(ctx context.Context, symbols []string) error {
 			if err != nil {
 				mu.Lock()
 				if firstErr == nil {
-					firstErr = fmt.Errorf("warmup LTF %s: %w", sym, err)
+					firstErr = fmt.Errorf("прогрев LTF %s: %w", sym, err)
 				}
 				mu.Unlock()
 				return
 			}
 			for _, c := range ltf {
-				cnt++
 				w.hub.OnTick(ctx, okxws.OutTick{
 					InstID:    sym,
 					Timeframe: w.cfg.Strategy.LTF,
-					Candle:    models.CandleTick{Open: c.Open, High: c.High, Low: c.Low, Close: c.Close, Start: c.Start, End: c.End},
+					Candle: models.CandleTick{
+						Open:  c.Open,
+						High:  c.High,
+						Low:   c.Low,
+						Close: c.Close,
+						Start: c.Start,
+						End:   c.End,
+					},
 				})
 			}
 		}()
@@ -99,10 +119,19 @@ func (w *Warmuper) Warmup(ctx context.Context, symbols []string) error {
 	wg.Wait()
 
 	if firstErr != nil {
-		w.n.SendService(ctx, "⚠️ REST warmup finished with error: "+firstErr.Error())
+		// Публичное сообщение в канал (на русском)
+		w.n.SendService(ctx,
+			"⚠️ *Прогрев данных завершён с ошибкой*\n\n"+
+				"Причина: "+firstErr.Error()+"\n\n"+
+				"👉 Если вы пользователь бота: откройте бота и нажмите *▶️ Запустить бота*.",
+		)
 		return firstErr
 	}
 
-	w.n.SendService(ctx, "✅ REST warmup finished. WS can start immediately.")
+	// Публичное сообщение в канал (на русском)
+	w.n.SendService(ctx,
+		"✅ *Прогрев данных завершён*\n\n"+
+			"Бот готов работать в реальном времени (WebSocket).",
+	)
 	return nil
 }
