@@ -86,19 +86,27 @@ func (t *Telegram) handleTextMessage(ctx context.Context, msg *tgbotapi.Message)
 	chatID := msg.Chat.ID
 	text := strings.TrimSpace(msg.Text)
 
-	// 1) Ключи OKX — всегда имеют приоритет
+	// 0) если ждём ввод значения
+
+	if key, ok := t.peekAwait(chatID); ok {
+		if strings.EqualFold(strings.TrimSpace(text), "отмена") {
+			t.clearAwait(chatID)
+			// куда вернуть — зависит от key (см. ниже)
+			t.handleSettingsMenu(ctx, chatID)
+			return
+		}
+
+		t.handleAwaitValue(ctx, chatID, text, key)
+		return
+	}
+
+	// 1) Ключи OKX
 	if strings.HasPrefix(strings.ToUpper(text), "OKX:") {
 		t.handleOkxKeys(ctx, msg)
 		return
 	}
 
-	// 2) Если ждём ввод (await)
-	if key := t.popAwait(chatID); key != "" {
-		t.handleAwaitValue(ctx, chatID, text, key)
-		return
-	}
-
-	// 3) Гарантируем, что юзер есть
+	// 2) Гарантируем, что юзер есть
 	user, err := t.getUser(ctx, chatID)
 	if err != nil {
 		_, _ = t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
@@ -120,11 +128,6 @@ func (t *Telegram) handleTextMessage(ctx context.Context, msg *tgbotapi.Message)
 		return
 
 	case "⚙️ Настройки":
-		// лучше показывать новое меню, если ты его добавил:
-		// msg2 := tgbotapi.NewMessage(chatID, "*Настройки бота*")
-		// msg2.ParseMode = "Markdown"
-		// msg2.ReplyMarkup = mainSettingsKB()
-		// _, _ = t.SendMessage(ctx, msg2)
 		t.handleSettingsMenu(ctx, chatID)
 		return
 
@@ -132,8 +135,6 @@ func (t *Telegram) handleTextMessage(ctx context.Context, msg *tgbotapi.Message)
 		go t.handleStatus(ctx, user)
 		return
 	}
-
-	// остальной текст игнорим или отвечаем подсказкой
 }
 
 func (t *Telegram) handleOkxKeys(ctx context.Context, msg *tgbotapi.Message) {
@@ -181,18 +182,6 @@ func (t *Telegram) handleSetTimeframe(ctx context.Context, chatID int64, msg *tg
 	_, _ = t.SendMessage(ctx, out)
 }
 
-func (t *Telegram) handleSetRisk(ctx context.Context, chatID int64, msg *tgbotapi.Message) {
-	_, _ = t.Send(ctx, chatID, "Введи риск в процентах, например: `1.0` (это 1% на сделку).")
-}
-
-func (t *Telegram) handleSetPositionPct(ctx context.Context, chatID int64, msg *tgbotapi.Message) {
-	_, _ = t.Send(ctx, chatID, "Введи размер позиции в процентах от баланса, например: `1.0`.")
-}
-
-func (t *Telegram) handleSetOkx(ctx context.Context, chatID int64, msg *tgbotapi.Message) {
-	_, _ = t.Send(ctx, chatID, "Отправь ключи OKX в формате:\n`OKX: apiKey; apiSecret; passphrase`")
-}
-
 // handleConfirmCallback обрабатывает callback-и вида CONF::token / REJ::token.
 func (t *Telegram) handleConfirmCallback(chatID int64, data string) {
 	verb, token := parseConfirmData(data)
@@ -233,89 +222,6 @@ func parseConfirmData(data string) (verb, token string) {
 	}
 	return "", ""
 }
-
-func buildEmaRsiKeyboard() tgbotapi.InlineKeyboardMarkup {
-	return tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("EMA S −", "ema_rsi:ema_s:-1"),
-			tgbotapi.NewInlineKeyboardButtonData("EMA S +", "ema_rsi:ema_s:+1"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("EMA L −", "ema_rsi:ema_l:-1"),
-			tgbotapi.NewInlineKeyboardButtonData("EMA L +", "ema_rsi:ema_l:+1"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("RSI OB −5", "ema_rsi:rsi_ob:-5"),
-			tgbotapi.NewInlineKeyboardButtonData("RSI OB +5", "ema_rsi:rsi_ob:+5"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("RSI OS −5", "ema_rsi:rsi_os:-5"),
-			tgbotapi.NewInlineKeyboardButtonData("RSI OS +5", "ema_rsi:rsi_os:+5"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData("✅ Готово", "ema_rsi:done"),
-			tgbotapi.NewInlineKeyboardButtonData("↩️ Назад", "ema_rsi:back"),
-		),
-	)
-}
-func (t *Telegram) handleEmaRsiAdjust(
-	ctx context.Context,
-	chatID int64,
-	msg *tgbotapi.Message,
-	data string,
-) {
-	//user, err := t.getUser(ctx, chatID)
-	//if err != nil {
-	//	_, _ = t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
-	//	return
-	//}
-	//
-	//// data вида: "ema_rsi:ema_s:-1" / "ema_rsi:rsi_ob:+5" / "ema_rsi:done"
-	//parts := strings.Split(data, ":")
-	//if len(parts) < 2 {
-	//	return
-	//}
-	//
-	//action := parts[1]
-	//
-	//// "Готово" и "Назад"
-	//if action == "done" {
-	//	// просто перерисуем основное меню настроек
-	//	t.handleSettingsMenu(ctx, chatID)
-	//	return
-	//}
-	//if action == "back" {
-	//	t.handleSettingsMenu(ctx, chatID)
-	//	return
-	//}
-
-	//// Остальные: ema_s, ema_l, rsi_ob, rsi_os
-	//if len(parts) != 3 {
-	//	return
-	//}
-	//deltaStr := parts[2]
-	//delta, err := strconv.Atoi(deltaStr)
-	//if err != nil {
-	//	return
-	//}
-	//
-	//ts := &user.Settings.TradingSettings
-	//
-	//switch action {
-	//case "ema_s":
-
-	//
-	//default:
-	//	return
-	//}
-	//
-	//if err := t.repo.Update(ctx, user); err != nil {
-	//	log.Printf("update user ema/rsi error: %v", err)
-	//}
-
-}
-
-// в service.Telegram
 
 func (t *Telegram) handleStatus(ctx context.Context, user *models.UserSettings) {
 	positions, err := t.router.StatusForUser(ctx, user.UserID)

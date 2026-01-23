@@ -4,13 +4,18 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
 func onOff(v bool) string {
 	if v {
-		return "вкл"
+		return "вкл ✅"
 	}
-	return "выкл"
+	return "выкл ⭕️"
+}
+func btn(text, data string) tgbotapi.InlineKeyboardButton {
+	return tgbotapi.NewInlineKeyboardButtonData(text, data)
 }
 
 func f2(v float64) string { // для красивого вывода

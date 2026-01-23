@@ -27,7 +27,7 @@ type Telegram struct {
 	pendings map[string]*pending
 	repo     *pg.User
 	router   *router.Router
-	await    map[int64]string
+	await    *awaitStore
 }
 
 func NewTelegram(cfg *config.Config, repo *pg.User, router *router.Router) (*Telegram, error) {
@@ -42,33 +42,20 @@ func NewTelegram(cfg *config.Config, repo *pg.User, router *router.Router) (*Tel
 		pendings: make(map[string]*pending),
 		repo:     repo,
 		router:   router,
-		await:    make(map[int64]string),
+		await:    newAwaitStore(),
 	}, nil
 }
 
 func (t *Telegram) ask(ctx context.Context, chatID int64, prompt string, awaitKey string) {
-	t.mu.Lock()
+	// гарантируем что awaitStore есть даже если кто-то забыл инициализировать
 	if t.await == nil {
-		t.await = make(map[int64]string)
+		t.await = newAwaitStore()
 	}
-	t.await[chatID] = awaitKey
-	t.mu.Unlock()
 
+	t.setAwait(chatID, awaitKey)
 	_, _ = t.Send(ctx, chatID, prompt)
 }
 
-func (t *Telegram) popAwait(chatID int64) string {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if t.await == nil {
-		return ""
-	}
-	key := t.await[chatID]
-	if key != "" {
-		delete(t.await, chatID)
-	}
-	return key
-}
 func (t *Telegram) SendService(ctx context.Context, format string, args ...any) {
 	if t.cfg.ServiceTelegramChatID == 0 {
 		return

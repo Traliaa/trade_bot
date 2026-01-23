@@ -18,8 +18,19 @@ type UserSettings struct {
 type Settings struct {
 	TradingSettings TradingSettings
 	TrailingConfig  TrailingConfig
+	FeatureFlags    FeatureFlags
 }
 
+type FeatureFlags struct {
+	// защиты/автоматизации
+	NearTPProtectEnabled bool `json:"near_tp_protect_enabled"`
+
+	// UX / качество жизни
+	TradeSimulationEnabled bool `json:"trade_simulation_enabled"` // 🧪 симуляция сделки перед входом
+	DealChartEnabled       bool `json:"deal_chart_enabled"`       // 📉 график сделки в TG
+	AutoRecommendEnabled   bool `json:"auto_recommend_enabled"`   // 🤖 авто-рекомендации настроек
+	ProModeEnabled         bool `json:"pro_mode_enabled"`         // 💎 PRO режим (показывать расширенные пункты)
+}
 type TradingSettings struct {
 	// TRADE keys (у каждого юзера свои)
 	OKXAPIKey     string `json:"okx_api_key"`
@@ -75,6 +86,17 @@ func NewTradingSettingsFromDefaults(userID int64, cfg *config.Config) *UserSetti
 				ConfirmRequired:   cfg.UserDefaults.DefaultConfirmRequired,
 				CooldownPerSymbol: cfg.UserDefaults.DefaultCooldownPerSymbol,
 				ConfirmTimeout:    cfg.UserDefaults.DefaultConfirmTimeout,
+			},
+			TrailingConfig: TrailingConfig{
+				BETriggerR:       cfg.DefaultTrailing.BETriggerR,
+				BEOffsetR:        cfg.DefaultTrailing.BEOffsetR,
+				LockTriggerR:     cfg.DefaultTrailing.LockTriggerR,
+				LockOffsetR:      cfg.DefaultTrailing.LockOffsetR,
+				TimeStopBars:     cfg.DefaultTrailing.TimeStopBars,
+				TimeStopMinMFER:  cfg.DefaultTrailing.TimeStopMinMFER,
+				PartialEnabled:   cfg.DefaultTrailing.PartialEnabled,
+				PartialTriggerR:  cfg.DefaultTrailing.PartialTriggerR,
+				PartialCloseFrac: cfg.DefaultTrailing.PartialCloseFrac,
 			},
 		},
 	}
