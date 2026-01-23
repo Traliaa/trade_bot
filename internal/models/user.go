@@ -18,18 +18,15 @@ type UserSettings struct {
 type Settings struct {
 	TradingSettings TradingSettings
 	TrailingConfig  TrailingConfig
-	FeatureFlags    FeatureFlags
+	FeatureFlags    FeatureConfig
 }
 
-type FeatureFlags struct {
-	// защиты/автоматизации
+type FeatureConfig struct {
 	NearTPProtectEnabled bool `json:"near_tp_protect_enabled"`
-
-	// UX / качество жизни
-	TradeSimulationEnabled bool `json:"trade_simulation_enabled"` // 🧪 симуляция сделки перед входом
-	DealChartEnabled       bool `json:"deal_chart_enabled"`       // 📉 график сделки в TG
-	AutoRecommendEnabled   bool `json:"auto_recommend_enabled"`   // 🤖 авто-рекомендации настроек
-	ProModeEnabled         bool `json:"pro_mode_enabled"`         // 💎 PRO режим (показывать расширенные пункты)
+	SimulateBeforeEntry  bool `json:"simulate_before_entry"`
+	DealChartEnabled     bool `json:"deal_chart_enabled"`
+	AutoRecommendEnabled bool `json:"auto_recommend_enabled"`
+	ProMode              bool `json:"pro_mode"`
 }
 type TradingSettings struct {
 	// TRADE keys (у каждого юзера свои)

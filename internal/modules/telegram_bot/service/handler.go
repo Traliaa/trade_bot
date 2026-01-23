@@ -29,6 +29,21 @@ func (t *Telegram) handleCallback(ctx context.Context, chatID int64, cb *tgbotap
 	case "toggle:partial":
 		t.togglePartial(ctx, chatID)
 		return
+	case "toggle:feat:near_tp":
+		t.toggleFeature(ctx, chatID, "near_tp")
+		return
+	case "toggle:feat:simulate":
+		t.toggleFeature(ctx, chatID, "simulate")
+		return
+	case "toggle:feat:chart":
+		t.toggleFeature(ctx, chatID, "chart")
+		return
+	case "toggle:feat:reco":
+		t.toggleFeature(ctx, chatID, "reco")
+		return
+	case "toggle:feat:pro":
+		t.toggleFeature(ctx, chatID, "pro")
+		return
 	}
 
 	if strings.HasPrefix(data, "preset:") {
@@ -79,6 +94,9 @@ func (t *Telegram) handleCallback(ctx context.Context, chatID int64, cb *tgbotap
 		return
 	case "menu:settings":
 		t.handleSettingsMenu(ctx, chatID)
+		return
+	case "menu:features":
+		t.handleFeaturesMenu(ctx, chatID)
 		return
 	}
 
@@ -137,6 +155,9 @@ func (t *Telegram) handleSettingsMenu(ctx context.Context, chatID int64) {
 		tgbotapi.NewInlineKeyboardRow(
 			btn("🔔 Подтверждение", "toggle:confirm"),
 			btn("📉 Trailing / Partial", "menu:trailing"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			btn("✨ Фичи", "menu:features"),
 		),
 	)
 
@@ -220,4 +241,64 @@ func (t *Telegram) handleTrailingMenu(ctx context.Context, chatID int64) {
 	msg.ParseMode = "Markdown"
 	msg.ReplyMarkup = kb
 	_, _ = t.SendMessage(ctx, msg)
+}
+
+func (t *Telegram) handleFeaturesMenu(ctx context.Context, chatID int64) {
+	user, err := t.getUser(ctx, chatID)
+	if err != nil {
+		_, _ = t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
+		return
+	}
+
+	ff := user.Settings.FeatureFlags
+
+	var b strings.Builder
+	b.WriteString("✨ *Фичи бота*\n\n")
+
+	fmt.Fprintf(&b,
+		"🛡 *Защита «почти тейк → стоп выше»*: *%s*\n"+
+			"— Если цена была близко к тейку и откатилась,\n"+
+			"  бот подтягивает стоп, чтобы не уйти в минус\n\n"+
+			"🧪 *Симуляция перед входом*: *%s*\n"+
+			"— Сначала покажет расчёты SL/TP/объёма,\n"+
+			"  и только потом попросит подтвердить вход\n\n"+
+			"📉 *График сделки в Telegram*: *%s*\n"+
+			"— После входа/выхода пришлёт мини-график\n\n"+
+			"🤖 *Авто-рекомендации*: *%s*\n"+
+			"— Подсказки по настройкам на основе результатов\n\n"+
+			"💎 *PRO режим*: *%s*\n"+
+			"— Показывает расширенные пункты меню\n",
+		onOff(ff.NearTPProtectEnabled),
+		onOff(ff.SimulateBeforeEntry),
+		onOff(ff.DealChartEnabled),
+		onOff(ff.AutoRecommendEnabled),
+		onOff(ff.ProMode),
+	)
+
+	kb := tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			btn(toggleLabel("🛡 Защита Near-TP", ff.NearTPProtectEnabled), "toggle:feat:near_tp"),
+			btn(toggleLabel("🧪 Симуляция", ff.SimulateBeforeEntry), "toggle:feat:simulate"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			btn(toggleLabel("📉 График", ff.DealChartEnabled), "toggle:feat:chart"),
+			btn(toggleLabel("🤖 Рекомендации", ff.AutoRecommendEnabled), "toggle:feat:reco"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			btn(toggleLabel("💎 PRO", ff.ProMode), "toggle:feat:pro"),
+			btn("⬅️ Назад", "menu:settings"),
+		),
+	)
+
+	msg := tgbotapi.NewMessage(chatID, b.String())
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = kb
+	_, _ = t.SendMessage(ctx, msg)
+}
+
+func toggleLabel(title string, enabled bool) string {
+	if enabled {
+		return "✅ " + title
+	}
+	return "⭕️ " + title
 }
