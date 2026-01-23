@@ -51,3 +51,10 @@ func (r *Router) OnSignal(ctx context.Context, sig models.Signal) {
 		}
 	}
 }
+
+func (r *Router) GetSession(userID int64) (*sessions.UserSession, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	s, ok := r.users[userID]
+	return s, ok
+}

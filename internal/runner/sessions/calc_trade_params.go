@@ -3,6 +3,7 @@ package sessions
 import (
 	"context"
 	"fmt"
+	"log"
 	"math"
 	"strings"
 	"trade_bot/internal/helper"
@@ -99,6 +100,15 @@ func (s *UserSession) calcTradeParams(
 	} else {
 		tp = helper.RoundDownToTick(tpRaw, instrument.TickSz)
 	}
+	ts := s.Settings.Settings.TradingSettings
+
+	log.Printf(
+		"[CREDS CHECK BEFORE calcSizeByRisk] chat=%d key=%t secret=%t pass=%t",
+		s.Settings.UserID,
+		ts.OKXAPIKey != "",
+		ts.OKXAPISecret != "",
+		ts.OKXPassphrase != "",
+	)
 
 	// 4) сайзинг по ДЕНЕЖНОМУ риску RiskPct
 	size, err := s.calcSizeByRiskWithMeta(

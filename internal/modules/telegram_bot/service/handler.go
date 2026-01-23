@@ -44,6 +44,12 @@ func (t *Telegram) handleCallback(ctx context.Context, chatID int64, cb *tgbotap
 	case "toggle:feat:pro":
 		t.toggleFeature(ctx, chatID, "pro")
 		return
+	case "testtrade:open":
+		t.openTestTradeBTC1x(ctx, chatID) // реализацию подключим к твоей торговой функции
+		return
+	case "testtrade:cancel":
+		_, _ = t.Send(ctx, chatID, "Ок, отменил ✅")
+		return
 	}
 
 	if strings.HasPrefix(data, "preset:") {
@@ -301,4 +307,31 @@ func toggleLabel(title string, enabled bool) string {
 		return "✅ " + title
 	}
 	return "⭕️ " + title
+}
+
+func (t *Telegram) handleHelp(ctx context.Context, chatID int64) {
+	msg := tgbotapi.NewMessage(chatID,
+		"❓ *Помощь*\n\n"+
+			"Канал поддержки и обновлений:\n"+
+			"t.me/trade_bot_info",
+	)
+	msg.ParseMode = "Markdown"
+	_, _ = t.SendMessage(ctx, msg)
+}
+
+func (t *Telegram) handleTestTradeMenu(ctx context.Context, chatID int64, user *models.UserSettings) {
+	msg := tgbotapi.NewMessage(chatID,
+		"🧪 *Тестовая сделка*\n\n"+
+			"Открою тестовую сделку по *BTC-USDT-SWAP* с плечом *x1*.\n"+
+			"Рекомендуется для проверки ключей и работы ордеров.\n\n"+
+			"Продолжить?",
+	)
+	msg.ParseMode = "Markdown"
+	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(
+		tgbotapi.NewInlineKeyboardRow(
+			btn("✅ Открыть тест", "testtrade:open"),
+			btn("❌ Отмена", "testtrade:cancel"),
+		),
+	)
+	_, _ = t.SendMessage(ctx, msg)
 }

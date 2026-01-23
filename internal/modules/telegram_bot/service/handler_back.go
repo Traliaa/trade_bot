@@ -134,6 +134,13 @@ func (t *Telegram) handleTextMessage(ctx context.Context, msg *tgbotapi.Message)
 	case "📊 Статус":
 		go t.handleStatus(ctx, user)
 		return
+	case "🧪 Тестовая сделка (BTC x1)":
+		t.handleTestTradeMenu(ctx, chatID, user) // или без user, как удобнее
+		return
+
+	case "❓ Помощь":
+		t.handleHelp(ctx, chatID)
+		return
 	}
 }
 

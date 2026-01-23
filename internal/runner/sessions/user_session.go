@@ -52,9 +52,9 @@ type UserSession struct {
 	LastMsgAt map[string]time.Time // key -> time
 }
 
-// openPositionWithTpSl открывает рыночный ордер и пытается поставить TP/SL.
+// OpenPositionWithTpSl открывает рыночный ордер и пытается поставить TP/SL.
 // Возвращает orderID рыночного ордера (если успешно) или ошибку.
-func (s *UserSession) openPositionWithTpSl(
+func (s *UserSession) OpenPositionWithTpSl(
 	ctx context.Context,
 	sig models.Signal,
 	params *models.TradeParams,
@@ -72,6 +72,15 @@ func (s *UserSession) openPositionWithTpSl(
 		return nil, fmt.Errorf("unknown direction: %q", params.Direction)
 	}
 
+	ts := s.Settings.Settings.TradingSettings
+
+	fmt.Printf(
+		"[CREDS CHECK INSIDE calcSizeByRisk] chat=%d keyLen=%d secretLen=%d passLen=%d",
+		s.UserID,
+		len(ts.OKXAPIKey),
+		len(ts.OKXAPISecret),
+		len(ts.OKXPassphrase),
+	)
 	// 2. Открываем рыночный ордер
 	orderID, err := s.Okx.PlaceMarket(
 		ctx,

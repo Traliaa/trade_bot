@@ -61,7 +61,7 @@ func (s *UserSession) ConfirmWorker(ctx context.Context) {
 			}
 
 			// 4) открытие + TP/SL
-			res, err := s.openPositionWithTpSl(ctx, sig, params)
+			res, err := s.OpenPositionWithTpSl(ctx, sig, params)
 			if err != nil {
 				s.Notifier.SendF(ctx, s.UserID,
 					"❗️ [%s] Ошибка открытия ордера: %v", sig.InstID, err)
