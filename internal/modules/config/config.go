@@ -3,6 +3,7 @@ package config
 import (
 	"log"
 	"os"
+	"strconv"
 	"time"
 
 	"gopkg.in/yaml.v2"
@@ -176,9 +177,7 @@ func NewConfig() (*Config, error) {
 	if v := os.Getenv(databaseDSN); v != "" {
 		cfg.DB = v
 	}
-	if v := os.Getenv(ServiceTelegramChatID); v != "" {
-		cfg.ServiceTelegramChatID = atoiDefault(v, cfg.ServiceTelegramChatID)
-	}
+	cfg.ServiceTelegramChatID = intFromEnv(ServiceTelegramChatID, 0)
 
 	// WS keys (сервисные)
 	if v := os.Getenv(OKXWSAPIKey); v != "" {
@@ -213,4 +212,12 @@ func atoiDefault(s string, def int) int {
 		n = n*10 + int(s[i]-'0')
 	}
 	return n
+}
+func intFromEnv(key string, def int) int {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			return n
+		}
+	}
+	return def
 }
