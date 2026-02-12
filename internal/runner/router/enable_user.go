@@ -25,11 +25,11 @@ func (r *Router) EnableUser(user *models.UserSettings) {
 		Notifier:       r.TelegramNotifier,
 		PositionsCache: make(map[models.PosKey]models.CachedPos),
 		Positions:      make(map[string]*models.PositionTrailState),
-
-		Ctx:       ctx,
-		Cancel:    cancel,
-		Repo:      r.Repository,
-		LastMsgAt: make(map[string]time.Time),
+		Settings:       user,
+		Ctx:            ctx,
+		Cancel:         cancel,
+		Repo:           r.Repository,
+		LastMsgAt:      make(map[string]time.Time),
 	}
 
 	// ✅ инициализируем настройки (снэпшот)
