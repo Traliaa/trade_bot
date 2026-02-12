@@ -3,14 +3,10 @@ package okx_websocket
 import (
 	"context"
 	"trade_bot/internal/modules/okx_websocket/service"
+	telegram "trade_bot/internal/modules/telegram_bot/service"
 
 	"go.uber.org/fx"
 )
-
-// этот интерфейс должен реализовать твой Telegram-сервис
-type ServiceNotifier interface {
-	SendService(ctx context.Context, format string, args ...any)
-}
 
 func newOutTickChan() chan service.OutTick {
 	return make(chan service.OutTick, 4096)
@@ -25,6 +21,10 @@ func Module() fx.Option {
 			service.NewClient,
 			newOutTickChan, // chan service.OutTick
 			asRecvOnly,     // <-chan service.OutTick
+			fx.Annotate(
+				func(s *telegram.Telegram) service.ServiceNotifier { return s },
+				fx.As(new(service.ServiceNotifier)),
+			),
 		),
 		fx.Invoke(func(lc fx.Lifecycle, s *service.Client, out chan service.OutTick) {
 			lc.Append(fx.Hook{

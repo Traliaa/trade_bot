@@ -17,6 +17,14 @@ func Module() fx.Option {
 	return fx.Module("runner",
 		fx.Provide(
 			router.NewRouter, // *Router
+			fx.Annotate(
+				func(s *service.Telegram) router.TelegramNotifier { return s },
+				fx.As(new(router.TelegramNotifier)),
+			),
+			fx.Annotate(
+				func(s *pg.User) router.Repository { return s },
+				fx.As(new(router.Repository)),
+			),
 		),
 
 		// ✅ Восстановление активных пользователей при старте сервиса

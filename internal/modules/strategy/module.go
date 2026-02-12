@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"trade_bot/internal/modules/strategy/service"
+	telegram "trade_bot/internal/modules/telegram_bot/service"
 
 	"go.uber.org/fx"
 
@@ -29,6 +30,10 @@ func Module() fx.Option {
 			asSendOnlyStopSignals,
 			service.NewEngine, // service.Engine
 			service.NewHub,    // *service.Hub (получит V2Config, Notifier, chan<-Signal, Engine)
+			fx.Annotate(
+				func(s *telegram.Telegram) service.ServiceNotifier { return s },
+				fx.As(new(service.ServiceNotifier)),
+			),
 		),
 
 		fx.Invoke(func(lc fx.Lifecycle, hub *service.Hub, ticks <-chan okxws.OutTick) {
