@@ -69,7 +69,13 @@ func (t *Telegram) SendService(ctx context.Context, format string, args ...any) 
 	if t.cfg.ServiceTelegramChatID == 0 {
 		return
 	}
-	text := fmt.Sprintf(format, args...)
+
+	// ✅ Если аргументов нет — это НЕ формат, это готовый текст.
+	text := format
+	if len(args) > 0 {
+		text = fmt.Sprintf(format, args...)
+	}
+
 	_, err := t.Send(ctx, int64(t.cfg.ServiceTelegramChatID), text)
 	if err != nil {
 		logger.Error(err.Error())
