@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"trade_bot/internal/models"
-	"trade_bot/internal/modules/telegram_bot/service/pg/user_settings"
+	"trade_bot/internal/modules/repository/pg/user_settings"
 	"trade_bot/pkg/db"
 
 	"github.com/jackc/pgx/v5"

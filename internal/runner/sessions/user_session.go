@@ -10,6 +10,7 @@ import (
 	"trade_bot/internal/helper"
 	"trade_bot/internal/models"
 	okx_client "trade_bot/internal/modules/okx_client/service"
+	"trade_bot/internal/modules/repository/pg"
 
 	tgbot "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -20,15 +21,11 @@ type TelegramNotifier interface {
 	Confirm(ctx context.Context, chatID int64, prompt string, timeout time.Duration) bool
 }
 
-type UserRepo interface {
-	Update(ctx context.Context, user *models.UserSettings) error
-}
-
 type UserSession struct {
 	Ctx      context.Context
 	Cancel   context.CancelFunc
 	settings atomic.Value // stores models.Settings
-	Repo     UserRepo     // ✅ добавили
+	Repo     *pg.User     // ✅ добавили
 
 	mu         sync.Mutex   // можно оставить для Pending/Cooldown
 	PosMu      sync.RWMutex // 🔒 Positions (trail state)

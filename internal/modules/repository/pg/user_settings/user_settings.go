@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"trade_bot/internal/models"
-	"trade_bot/internal/modules/telegram_bot/service/pg/user_settings/sql"
+	sql2 "trade_bot/internal/modules/repository/pg/user_settings/sql"
 
 	"github.com/bytedance/sonic"
 	"github.com/jackc/pgx/v5"
@@ -13,13 +13,13 @@ import (
 
 // UserSettings implement db store
 type UserSettings struct {
-	sql *sql.Queries
+	sql *sql2.Queries
 }
 
 // New instance
 func New() *UserSettings {
 	return &UserSettings{
-		sql: sql.New(),
+		sql: sql2.New(),
 	}
 }
 
@@ -35,7 +35,7 @@ func (u *UserSettings) Insert(ctx context.Context, tx pgx.Tx, user *models.UserS
 	if err != nil {
 		return err
 	}
-	_, err = u.sql.Insert(ctx, tx, &sql.InsertParams{
+	_, err = u.sql.Insert(ctx, tx, &sql2.InsertParams{
 		Chatid:   user.UserID,
 		Name:     user.Name,
 		Settings: data,
@@ -60,7 +60,7 @@ func (u *UserSettings) Update(ctx context.Context, tx pgx.Tx, user *models.UserS
 	if err != nil {
 		return err
 	}
-	return u.sql.Update(ctx, tx, &sql.UpdateParams{
+	return u.sql.Update(ctx, tx, &sql2.UpdateParams{
 		Chatid:   user.UserID,
 		Name:     user.Name,
 		Settings: data,
@@ -76,7 +76,7 @@ func (u *UserSettings) Delete(ctx context.Context, tx pgx.Tx, user *models.UserS
 			err = fmt.Errorf("UserSettings.Delete: %w", err)
 		}
 	}()
-	return u.sql.Delete(ctx, tx, &sql.DeleteParams{
+	return u.sql.Delete(ctx, tx, &sql2.DeleteParams{
 		Chatid: user.UserID,
 		ID:     user.ID,
 	})
@@ -105,7 +105,7 @@ func (u *UserSettings) GetById(ctx context.Context, tx pgx.Tx, chatID int64) (us
 		Settings: t,
 		Step:     resp.Step,
 		Status:   resp.Status,
-		Premium:  user.Premium,
+		Premium:  resp.Premium,
 	}, nil
 }
 

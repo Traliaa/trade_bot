@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 	"time"
+	"trade_bot/internal/modules/repository/pg"
 	"trade_bot/internal/runner/sessions"
 
 	"trade_bot/internal/models"
@@ -27,17 +28,12 @@ type UserSettingsSnapshot struct {
 type Router struct {
 	mu               sync.RWMutex
 	users            map[int64]*sessions.UserSession // userID -> сессия
-	Repository       Repository
+	Repository       *pg.User
 	TelegramNotifier TelegramNotifier
 }
 
-type Repository interface {
-	Update(ctx context.Context, user *models.UserSettings) error
-	ListEnabled(ctx context.Context) (users []*models.UserSettings, err error)
-}
-
 func NewRouter(
-	Repository Repository,
+	Repository *pg.User,
 	TelegramNotifier TelegramNotifier,
 ) *Router {
 	return &Router{

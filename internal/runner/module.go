@@ -3,11 +3,11 @@ package runner
 import (
 	"context"
 	"time"
+	"trade_bot/internal/modules/repository/pg"
 
 	"trade_bot/internal/helper"
 	"trade_bot/internal/models"
 	"trade_bot/internal/modules/telegram_bot/service"
-	"trade_bot/internal/modules/telegram_bot/service/pg"
 	"trade_bot/internal/runner/router"
 
 	"go.uber.org/fx"
@@ -20,10 +20,6 @@ func Module() fx.Option {
 			fx.Annotate(
 				func(s *service.Telegram) router.TelegramNotifier { return s },
 				fx.As(new(router.TelegramNotifier)),
-			),
-			fx.Annotate(
-				func(s *pg.User) router.Repository { return s },
-				fx.As(new(router.Repository)),
 			),
 		),
 

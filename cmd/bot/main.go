@@ -8,6 +8,7 @@ import (
 	"trade_bot/internal/modules/health"
 	"trade_bot/internal/modules/okx_websocket"
 	"trade_bot/internal/modules/postgres"
+	"trade_bot/internal/modules/repository"
 	"trade_bot/internal/modules/strategy"
 	telegram "trade_bot/internal/modules/telegram_bot"
 
@@ -23,9 +24,13 @@ func main() {
 				return context.Background()
 			},
 		),
+
+		postgres.Module(),
+		repository.Module(),
+
 		health.Module(),
 		config.Module(),
-		postgres.Module(),
+
 		okx_websocket.Module(),
 		strategy.Module(),
 		bootstrap.Module(),

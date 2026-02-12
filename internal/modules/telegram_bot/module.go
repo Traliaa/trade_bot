@@ -2,7 +2,6 @@ package telegram
 
 import (
 	"context"
-	"trade_bot/internal/modules/telegram_bot/service/pg"
 	"trade_bot/internal/runner/router"
 
 	"trade_bot/internal/modules/telegram_bot/service"
@@ -13,7 +12,6 @@ import (
 func Module() fx.Option {
 	return fx.Module("telegram",
 		fx.Provide(
-			pg.NewUser,
 			service.NewTelegram,
 		),
 		fx.Invoke(

@@ -7,7 +7,7 @@ import (
 	"time"
 	"trade_bot/internal/models"
 	"trade_bot/internal/modules/config"
-	"trade_bot/internal/modules/telegram_bot/service/pg"
+	"trade_bot/internal/modules/repository/pg"
 	"trade_bot/internal/runner/sessions"
 	"trade_bot/pkg/logger"
 
