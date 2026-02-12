@@ -35,13 +35,13 @@ func (s *UserSession) guardOnce(ctx context.Context) {
 	positions, err := s.Okx.OpenPositions(ctx)
 	if err != nil {
 		// не спамим в личку постоянно, но можно раз в N часов
-		s.Notifier.SendF(ctx, s.UserID, "⚠️ Не удалось проверить позиции на OKX: %v", err)
+		s.Notifier.SendF(ctx, s.User.TelegramID, "⚠️ Не удалось проверить позиции на OKX: %v", err)
 		return
 	}
 
 	// 2) инициализация мапы в настройках
-	if s.Settings.Settings.PositionGuard == nil {
-		s.Settings.Settings.PositionGuard = make(models.PositionGuardMap)
+	if s.User.Settings.PositionGuard == nil {
+		s.User.Settings.PositionGuard = make(models.PositionGuardMap)
 	}
 
 	now := time.Now()
@@ -49,7 +49,7 @@ func (s *UserSession) guardOnce(ctx context.Context) {
 	for _, p := range positions {
 		key := posKey(p.Symbol, p.Side)
 
-		st := s.Settings.Settings.PositionGuard[key]
+		st := s.User.Settings.PositionGuard[key]
 		if st.Blacklisted {
 			continue
 		}
@@ -88,18 +88,18 @@ func (s *UserSession) guardOnce(ctx context.Context) {
 			st.Blacklisted = true
 		}
 
-		s.Settings.Settings.PositionGuard[key] = st
+		s.User.Settings.PositionGuard[key] = st
 		_ = s.saveSettings(ctx) // см. ниже
 
 		if st.Blacklisted {
-			s.Notifier.SendF(ctx, s.UserID,
+			s.Notifier.SendF(ctx, s.User.TelegramID,
 				"⛔️ [%s %s] Нет %s. Я предупреждал уже 5 раз.\n"+
 					"Эту позицию больше не трогаю и не напоминаю.\n"+
 					"Если хочешь — закрой её или выставь SL/TP вручную.",
 				p.Symbol, strings.ToUpper(p.Side), strings.Join(missing, "+"),
 			)
 		} else {
-			s.Notifier.SendF(ctx, s.UserID,
+			s.Notifier.SendF(ctx, s.User.TelegramID,
 				"⚠️ [%s %s] В позиции НЕ выставлены: *%s*\n"+
 					"Я не буду сопровождать эту позицию (BE/Lock/Partial/TimeStop не применяются),\n"+
 					"пока ты не поставишь SL и TP на OKX.\n\n"+
@@ -116,6 +116,6 @@ func (s *UserSession) saveSettings(ctx context.Context) error {
 	if s.Repo == nil {
 		return nil
 	}
-	return s.Repo.Update(ctx, s.Settings)
+	return s.Repo.Update(ctx, s.User)
 
 }

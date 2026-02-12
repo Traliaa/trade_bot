@@ -15,6 +15,6 @@ func (r *Router) RestoreEnabled(ctx context.Context) {
 
 	for _, u := range users {
 		u := u
-		r.EnableUser(u) // ✅ repo прокинут
+		r.EnableUser(ctx, u) // ✅ repo прокинут
 	}
 }

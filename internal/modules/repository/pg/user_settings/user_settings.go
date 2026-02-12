@@ -36,7 +36,7 @@ func (u *UserSettings) Insert(ctx context.Context, tx pgx.Tx, user *models.UserS
 		return err
 	}
 	_, err = u.sql.Insert(ctx, tx, &sql2.InsertParams{
-		Chatid:   user.UserID,
+		Chatid:   user.TelegramID,
 		Name:     user.Name,
 		Settings: data,
 		Step:     user.Step,
@@ -61,7 +61,7 @@ func (u *UserSettings) Update(ctx context.Context, tx pgx.Tx, user *models.UserS
 		return err
 	}
 	return u.sql.Update(ctx, tx, &sql2.UpdateParams{
-		Chatid:   user.UserID,
+		Chatid:   user.TelegramID,
 		Name:     user.Name,
 		Settings: data,
 		Step:     user.Step,
@@ -77,7 +77,7 @@ func (u *UserSettings) Delete(ctx context.Context, tx pgx.Tx, user *models.UserS
 		}
 	}()
 	return u.sql.Delete(ctx, tx, &sql2.DeleteParams{
-		Chatid: user.UserID,
+		Chatid: user.TelegramID,
 		ID:     user.ID,
 	})
 }
@@ -99,13 +99,13 @@ func (u *UserSettings) GetById(ctx context.Context, tx pgx.Tx, chatID int64) (us
 		return nil, err
 	}
 	return &models.UserSettings{
-		ID:       resp.ID,
-		UserID:   chatID,
-		Name:     resp.Name,
-		Settings: t,
-		Step:     resp.Step,
-		Status:   resp.Status,
-		Premium:  resp.Premium,
+		ID:         resp.ID,
+		TelegramID: chatID,
+		Name:       resp.Name,
+		Settings:   t,
+		Step:       resp.Step,
+		Status:     resp.Status,
+		Premium:    resp.Premium,
 	}, nil
 }
 
@@ -152,13 +152,13 @@ func (u *UserSettings) ListEnabled(ctx context.Context, tx pgx.Tx) (users []*mod
 			return nil, err
 		}
 		users = append(users, &models.UserSettings{
-			ID:       resp[i].ID,
-			UserID:   resp[i].Chatid,
-			Name:     resp[i].Name,
-			Settings: t,
-			Step:     lo.FromPtr(resp[i].Step),
-			Status:   resp[i].Status,
-			Premium:  resp[i].Premium,
+			ID:         resp[i].ID,
+			TelegramID: resp[i].Chatid,
+			Name:       resp[i].Name,
+			Settings:   t,
+			Step:       lo.FromPtr(resp[i].Step),
+			Status:     resp[i].Status,
+			Premium:    resp[i].Premium,
 		})
 	}
 	return users, err

@@ -7,15 +7,15 @@ import (
 	"time"
 	"trade_bot/internal/helper"
 	"trade_bot/internal/modules/config"
+	"trade_bot/internal/modules/telegram_public/public"
 
 	"trade_bot/internal/models"
 	okxws "trade_bot/internal/modules/okx_websocket/service"
 )
 
 type ServiceNotifier interface {
-	SendService(ctx context.Context, format string, args ...any)
+	Set(ctx context.Context, st public.Status)
 }
-
 type Hub struct {
 	cfg       *config.Config
 	n         ServiceNotifier
@@ -36,9 +36,11 @@ type Hub struct {
 	lastReadyAt   time.Time
 	warmupStarted time.Time
 	warmupStalled bool
+	actualSymbols int
+	lastWarmupPct int
 }
 
-func NewHub(cfg *config.Config, n ServiceNotifier, out chan<- models.Signal, engine Engine) *Hub {
+func NewHub(cfg *config.Config, n *public.Service, out chan<- models.Signal, engine Engine) *Hub {
 	return &Hub{
 		cfg:       cfg,
 		n:         n,
@@ -103,10 +105,6 @@ func (h *Hub) OnTick(ctx context.Context, t okxws.OutTick) {
 	select {
 	case h.out <- sig:
 	default:
-		if h.n != nil {
-			h.n.SendService(ctx, "⚠️ signal channel full, drop %s %s @ %.6f (%s)",
-				sig.InstID, sig.Side, sig.Price, sig.TF)
-		}
 	}
 }
 
@@ -127,30 +125,33 @@ func (h *Hub) onBecameReady(ctx context.Context, sym string) {
 	h.lastReadyAt = time.Now() // ✅ прогресс реально сдвинулся
 
 	expected := h.cfg.Strategy.WatchTopN
-
-	// старт (один раз)
-	if !h.warmupMsgSent {
-		h.warmupMsgSent = true
-		h.lastProgress = time.Now()
-		if h.n != nil {
-			h.n.SendService(ctx,
-				"🔥 Warmup started | engine=%s | LTF=%s HTF=%s | ожидаем=%d",
-				h.engine.Name(), h.cfg.Strategy.LTF, h.cfg.Strategy.HTF, expected,
-			)
-		}
-		// не return — пусть может сразу завершиться, если expected маленький
+	actual := h.actualSymbols
+	expected = h.expectedSymbols(actual)
+	if expected <= 0 {
+		return
 	}
-
-	// done
-	if !h.warmupDone && expected > 0 && h.readyCnt >= expected {
+	// старт (один раз)
+	if !h.warmupDone && h.readyCnt >= expected {
 		h.warmupDone = true
 		if h.n != nil {
-			h.n.SendService(ctx,
-				"✅ Warmup finished: %d/%d ready. Теперь ждём сигналы.",
-				h.readyCnt, expected,
-			)
+			h.n.Set(ctx, public.Status{
+				State:       public.StateReady,
+				Exchange:    "OKX",
+				Instruments: expected,
+				Progress:    100,
+			})
 		}
 	}
+	//// done
+	//if !h.warmupDone && expected > 0 && h.readyCnt >= expected {
+	//	h.warmupDone = true
+	//	if h.n != nil {
+	//		h.n.SendService(ctx,
+	//			"✅ Warmup finished: %d/%d ready. Теперь ждём сигналы.",
+	//			h.readyCnt, expected,
+	//		)
+	//	}
+	//}
 }
 
 func (h *Hub) isWarmupDone() bool {
@@ -167,52 +168,68 @@ func (h *Hub) maybeWarmupProgress(ctx context.Context) {
 		return
 	}
 
-	now := time.Now()
-
-	// Инициализация таймеров
-	if h.startedAt.IsZero() {
-		h.startedAt = now
+	// expected строго по твоему конфигу
+	expected := h.cfg.Strategy.ExpectedSymbols
+	if expected <= 0 {
+		expected = h.cfg.Strategy.WatchTopN
 	}
-	if h.lastReadyAt.IsZero() {
-		h.lastReadyAt = now
-	}
-
-	expected := h.cfg.Strategy.WatchTopN
 	if expected <= 0 {
 		return
 	}
 
-	// 1) прогресс-лог не чаще чем ProgressEvery
-	if !h.lastProgress.IsZero() && now.Sub(h.lastProgress) >= h.cfg.Strategy.ProgressEvery {
-		if h.n != nil {
-			h.n.SendService(ctx, "⏳ Warmup progress: %d/%d ready", h.readyCnt, expected)
-		}
-		h.lastProgress = now
+	now := time.Now()
+
+	// дефолт, чтобы не было спама если progress_every не задан
+	every := h.cfg.Strategy.ProgressEvery
+	if every <= 0 {
+		every = 5 * time.Second
 	}
 
-	// 2) stall-detector: если почти всё готово и давно нет прогресса — считаем done
+	// 1) Обновление прогресса (не чаще чем every)
+	if h.n != nil && (h.lastProgress.IsZero() || now.Sub(h.lastProgress) >= every) {
+		pct := int(float64(h.readyCnt) * 100 / float64(expected))
+		if pct < 0 {
+			pct = 0
+		}
+		if pct > 99 {
+			pct = 99
+		}
+
+		// не редактируем, если процент не менялся
+		if pct != h.lastWarmupPct || h.lastProgress.IsZero() {
+			h.lastWarmupPct = pct
+			h.lastProgress = now
+
+			h.n.Set(ctx, public.Status{
+				State:       public.StatePreparing,
+				Exchange:    "OKX",
+				Instruments: expected,
+				Progress:    pct,
+			})
+		} else {
+			// даже если процент не менялся, отметим время последней проверки
+			h.lastProgress = now
+		}
+	}
+
+	// 2) Stall detector (без WarmupPct, только константа)
+	if h.lastReadyAt.IsZero() {
+		h.lastReadyAt = now
+	}
+
 	stallTimeout := 5 * time.Minute
-	minRatio := 0.99 // можно 0.95, если хочешь агрессивнее
+	minRatio := 0.99
 	minReady := int(float64(expected) * minRatio)
 
 	if h.readyCnt >= minReady && now.Sub(h.lastReadyAt) >= stallTimeout {
 		h.warmupDone = true
-
-		var miss []string
-		for inst, ok := range h.ready {
-			if !ok {
-				miss = append(miss, inst)
-				if len(miss) >= 5 {
-					break
-				}
-			}
-		}
-
 		if h.n != nil {
-			h.n.SendService(ctx,
-				"⚠️ Warmup stalled: %d/%d ready for %s. Continue without: %v",
-				h.readyCnt, expected, stallTimeout, miss,
-			)
+			h.n.Set(ctx, public.Status{
+				State:       public.StateReady,
+				Exchange:    "OKX",
+				Instruments: expected,
+				Progress:    100,
+			})
 		}
 	}
 }
@@ -228,4 +245,47 @@ func (h *Hub) notReadySymbols(limit int) []string {
 		}
 	}
 	return out
+}
+
+func (h *Hub) updateWarmupStatusLocked(ctx context.Context, expected int) {
+	if h.n == nil {
+		return
+	}
+
+	now := time.Now()
+
+	// Не чаще чем ProgressEvery
+	if !h.lastProgress.IsZero() && now.Sub(h.lastProgress) < h.cfg.Strategy.ProgressEvery {
+		return
+	}
+
+	pct := int(float64(h.readyCnt) * 100 / float64(expected))
+	if pct < 0 {
+		pct = 0
+	}
+	if pct > 99 && !h.warmupDone {
+		pct = 99
+	}
+
+	h.lastProgress = now
+
+	h.n.Set(ctx, public.Status{
+		State:       public.StatePreparing,
+		Exchange:    "OKX",
+		Instruments: expected,
+		Progress:    pct, // прогресс-бар внутри Render()
+	})
+}
+
+func (h *Hub) expectedSymbols(actual int) int {
+	if h.cfg.Strategy.ExpectedSymbols > 0 {
+		return h.cfg.Strategy.ExpectedSymbols
+	}
+	if actual > 0 {
+		return actual
+	}
+	if h.cfg.Strategy.WatchTopN > 0 {
+		return h.cfg.Strategy.WatchTopN
+	}
+	return 0
 }

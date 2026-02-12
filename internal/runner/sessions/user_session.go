@@ -18,7 +18,6 @@ import (
 type TelegramNotifier interface {
 	SendF(ctx context.Context, chatID int64, format string, args ...any) (tgbot.Message, error)
 	Send(ctx context.Context, chatID int64, msg string) (tgbot.Message, error)
-	Confirm(ctx context.Context, chatID int64, prompt string, timeout time.Duration) bool
 }
 
 type UserSession struct {
@@ -31,10 +30,8 @@ type UserSession struct {
 	PosMu      sync.RWMutex // 🔒 Positions (trail state)
 	PosCacheMu sync.RWMutex // 🔒 PositionsCache (OKX cache)
 
-	//ид пользователя
-	UserID int64
 	//настройки пользователя
-	Settings *models.UserSettings
+	User *models.UserSettings
 
 	// трейлинг состояние
 	Positions map[string]*models.PositionTrailState // key = instId:posSide
@@ -81,7 +78,7 @@ func (s *UserSession) OpenPositionWithTpSl(
 
 	fmt.Printf(
 		"[CREDS CHECK INSIDE calcSizeByRisk] chat=%d keyLen=%d secretLen=%d passLen=%d",
-		s.UserID,
+		s.User.TelegramID,
 		len(ts.OKXAPIKey),
 		len(ts.OKXAPISecret),
 		len(ts.OKXPassphrase),
@@ -106,7 +103,7 @@ func (s *UserSession) OpenPositionWithTpSl(
 	}
 
 	// debug для себя
-	s.Notifier.SendF(ctx, s.UserID,
+	s.Notifier.SendF(ctx, s.User.TelegramID,
 		"[%s] DEBUG entry=%.6f SL=%.6f TP=%.6f 1R=%.6f RR=%.2f risk=%.2f%% size=%.4f (%s)",
 		sig.InstID,
 		params.Entry, params.SL, params.TP, params.RiskDist,
@@ -117,21 +114,21 @@ func (s *UserSession) OpenPositionWithTpSl(
 	// 1) Stop-loss
 	slAlgoId, err := s.Okx.PlaceSingleAlgo(ctx, sig.InstID, posSide, params.Size, params.SL, false)
 	if err != nil {
-		s.Notifier.SendF(ctx, s.UserID,
+		s.Notifier.SendF(ctx, s.User.TelegramID,
 			"⚠️ [%s] TP/SL не выставлены на OKX: %v", sig.InstID, err)
 	}
 
 	// 2) Take-profit
 	tpAlgoId, err := s.Okx.PlaceSingleAlgo(ctx, sig.InstID, posSide, params.Size, params.TP, true)
 	if err != nil {
-		s.Notifier.SendF(ctx, s.UserID,
+		s.Notifier.SendF(ctx, s.User.TelegramID,
 			"⚠️ [%s] TP/SL не выставлены на OKX: %v", sig.InstID, err)
 
 	}
 
 	// 4. Финальное сообщение об успешном входе
 	s.Notifier.SendF(ctx,
-		s.UserID,
+		s.User.TelegramID,
 		"✅ [%s] Вход подтверждён | OPEN %-4s @ %.4f | SL=%.4f TP=%.4f lev=%dx size=%.4f | strategy=%s (orderId=%s)",
 		sig.InstID,
 		params.Direction,

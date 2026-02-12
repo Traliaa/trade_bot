@@ -2,20 +2,20 @@ package service
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 	"trade_bot/internal/models"
 	"trade_bot/internal/modules/config"
+	"trade_bot/internal/modules/telegram_public/public"
 
 	"github.com/gorilla/websocket"
 )
 
 type ServiceNotifier interface {
-	SendService(ctx context.Context, format string, args ...any)
+	SendServiceText(ctx context.Context, text string) (messageID int, err error)
+	EditServiceText(ctx context.Context, messageID int, text string) error
 }
 
 type Client struct {
@@ -55,12 +55,11 @@ type OutTick struct {
 }
 
 // Start собирает топ-волатильные и стримит по нескольким таймфреймам.
-// Start собирает топ-волатильные и стримит по нескольким таймфреймам.
 func (c *Client) Start(ctx context.Context, out chan<- OutTick) {
 	syms := c.TopVolatile(c.cfg.Strategy.WatchTopN)
 	if len(syms) == 0 {
 		if c.n != nil {
-			c.n.SendService(ctx, "⚠️ *Рынок:* не удалось собрать список волатильных инструментов — стример не запущен.")
+			c.n.SendServiceText(ctx, "⚠️ *Рынок:* не удалось собрать список волатильных инструментов — стример не запущен.")
 		}
 		log.Println("[MARKET] пустой список волатильных инструментов")
 		return
@@ -69,15 +68,14 @@ func (c *Client) Start(ctx context.Context, out chan<- OutTick) {
 	timeframes := []string{"1m", "5m", "15m"}
 
 	if c.n != nil {
-		c.n.SendService(ctx, fmt.Sprintf(
-			"🚀 OKX: WebSocket-стример запущен\n"+
-				"• Таймфреймы: 1m / 5m / 15m\n"+
-				"• Инструментов: 100",
-			strings.Join(timeframes, " / "),
-			len(syms),
-		))
-	}
+		c.n.SendServiceText(ctx, public.Status{
+			State:       public.StateRestarting,
+			Exchange:    "OKX",
+			Instruments: 100,
+			UpdatedAt:   time.Now(),
+		}.Render())
 
+	}
 	for _, tf := range timeframes {
 		go c.runTimeframe(ctx, tf, syms, out)
 	}
@@ -89,34 +87,15 @@ func (c *Client) runTimeframe(
 	syms []string,
 	out chan<- OutTick,
 ) {
-	if c.n != nil {
-		c.n.SendService(ctx, fmt.Sprintf(
-			"[РЫНОК] ▶️ WS: подключение %s — инструментов: %d",
-			timeframe, len(syms),
-		))
-	}
-
 	ticks := c.StreamCandlesBatch(ctx, syms, timeframe)
 
 	for {
 		select {
 		case <-ctx.Done():
-			if c.n != nil {
-				c.n.SendService(ctx, fmt.Sprintf(
-					"[РЫНОК] ⏹ WS: остановка %s",
-					timeframe,
-				))
-			}
 			return
 
 		case tick, ok := <-ticks:
 			if !ok {
-				if c.n != nil {
-					c.n.SendService(ctx, fmt.Sprintf(
-						"[РЫНОК] ❌ WS: поток закрыт %s",
-						timeframe,
-					))
-				}
 				return
 			}
 

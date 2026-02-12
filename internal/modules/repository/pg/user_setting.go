@@ -2,8 +2,11 @@ package pg
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"trade_bot/internal/models"
+	"trade_bot/internal/modules/config"
 	"trade_bot/internal/modules/repository/pg/user_settings"
 	"trade_bot/pkg/db"
 
@@ -83,6 +86,25 @@ func (u *User) Get(
 		})
 
 	return user, err
+}
+
+func (u *User) GetUser(ctx context.Context, chatID int64, cfg *config.Config) (*models.UserSettings, error) {
+	user, err := u.Get(ctx, chatID)
+	if err != nil {
+		// not found в PG
+		if errors.Is(err, sql.ErrNoRows) {
+			user = models.NewTradingSettingsFromDefaults(chatID, cfg)
+			if err := u.Create(ctx, user); err != nil {
+				return nil, fmt.Errorf("create user settings: %w", err)
+			}
+			return user, nil
+		}
+
+		// любая другая ошибка — пробрасываем
+		return nil, fmt.Errorf("get user settings: %w", err)
+	}
+
+	return user, nil
 }
 
 // Delete in db

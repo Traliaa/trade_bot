@@ -7,7 +7,6 @@ import (
 	"time"
 	"trade_bot/internal/models"
 	"trade_bot/internal/modules/config"
-	"trade_bot/internal/modules/repository/pg"
 	"trade_bot/internal/runner/sessions"
 	"trade_bot/pkg/logger"
 
@@ -26,23 +25,22 @@ type Telegram struct {
 	cfg      *config.Config
 	mu       sync.Mutex
 	pendings map[string]*pending
-	repo     *pg.User
 	router   Router
 	await    *awaitStore
 }
 
 type Router interface {
-	DisableUser(userID int64)
-	EnableUser(user *models.UserSettings)
-	ApplySettings(user *models.UserSettings)
+	DisableUser(ctx context.Context, userID int64)
+	EnableUser(ctx context.Context, user *models.UserSettings)
+	ApplySettings(ctx context.Context, user *models.UserSettings)
 	StatusForUser(ctx context.Context, userID int64) ([]models.OpenPosition, error)
-	GetSession(userID int64) (*sessions.UserSession, bool)
+	GetSession(ctx context.Context, userID int64) (*sessions.UserSession, error)
 }
 
 func (t *Telegram) SetRouter(r Router) {
 	t.router = r
 }
-func NewTelegram(cfg *config.Config, repo *pg.User) (*Telegram, error) {
+func NewTelegram(cfg *config.Config) (*Telegram, error) {
 	b, err := tgbot.NewBotAPI(cfg.Telegram.Token)
 	if err != nil {
 		return nil, err
@@ -52,7 +50,6 @@ func NewTelegram(cfg *config.Config, repo *pg.User) (*Telegram, error) {
 		bot:      b,
 		cfg:      cfg,
 		pendings: make(map[string]*pending),
-		repo:     repo,
 
 		await: newAwaitStore(),
 	}, nil

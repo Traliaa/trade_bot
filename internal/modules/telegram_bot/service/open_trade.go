@@ -8,25 +8,18 @@ import (
 )
 
 func (t *Telegram) openTestTradeBTC1x(ctx context.Context, chatID int64) {
-	user, err := t.getUser(ctx, chatID)
+	session, err := t.router.GetSession(ctx, chatID)
 	if err != nil {
 		_, _ = t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
 		return
 	}
 
 	// торговые креды именно пользователя
-	ts := user.Settings.TradingSettings
+	ts := session.User.Settings.TradingSettings
 	if strings.TrimSpace(ts.OKXAPIKey) == "" ||
 		strings.TrimSpace(ts.OKXAPISecret) == "" ||
 		strings.TrimSpace(ts.OKXPassphrase) == "" {
 		_, _ = t.Send(ctx, chatID, "🔑 Для тестовой сделки нужны OKX ключ/секрет/пасфраза. Добавь их и повтори.")
-		return
-	}
-
-	// нужна активная сессия (Okx клиент в ней уже инициализирован)
-	sess, ok := t.router.GetSession(chatID)
-	if !ok || sess == nil {
-		_, _ = t.Send(ctx, chatID, "Сначала нажми ▶️ Запустить бота, чтобы создать торговую сессию.")
 		return
 	}
 
@@ -35,7 +28,7 @@ func (t *Telegram) openTestTradeBTC1x(ctx context.Context, chatID int64) {
 	leverage := 1
 
 	// 1) Получаем цену и мету инструмента (LastPx уже внутри)
-	inst, err := sess.Okx.GetInstrumentMeta(ctx, instID)
+	inst, err := session.Okx.GetInstrumentMeta(ctx, instID)
 	if err != nil {
 		_, _ = t.Send(ctx, chatID, "⚠️ Не удалось получить данные инструмента BTC: "+err.Error())
 		return
@@ -89,7 +82,7 @@ func (t *Telegram) openTestTradeBTC1x(ctx context.Context, chatID int64) {
 		Reason:   "manual_test_btc_1x",
 	}
 
-	_, err = sess.OpenPositionWithTpSl(ctx, sig, params)
+	_, err = session.OpenPositionWithTpSl(ctx, sig, params)
 	if err != nil {
 		_, _ = t.Send(ctx, chatID, "❗️Тестовая сделка не открылась: "+err.Error())
 		return

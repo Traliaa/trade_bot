@@ -63,19 +63,15 @@ func (t *Telegram) handleCallback(ctx context.Context, chatID int64, cb *tgbotap
 			return
 		}
 
-		user, err := t.getUser(ctx, chatID)
+		user, err := t.router.GetSession(ctx, chatID)
 		if err != nil {
 			_, _ = t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
 			return
 		}
 
-		preset.Apply(&user.Settings.TrailingConfig)
+		preset.Apply(&user.User.Settings.TrailingConfig)
 
-		if err := t.repo.Update(ctx, user); err != nil {
-			_, _ = t.Send(ctx, chatID, "⚠️ Не удалось применить пресет")
-			return
-		}
-		t.router.ApplySettings(user) // ✅ горячее применение
+		t.router.ApplySettings(ctx, user.User) // ✅ горячее применение
 		t.handleSettingsMenu(ctx, chatID)
 
 		_, _ = t.Send(ctx, chatID,
@@ -107,14 +103,14 @@ func (t *Telegram) handleCallback(ctx context.Context, chatID int64, cb *tgbotap
 
 }
 func (t *Telegram) handleSettingsMenu(ctx context.Context, chatID int64) {
-	user, err := t.getUser(ctx, chatID)
+	user, err := t.router.GetSession(ctx, chatID)
 	if err != nil {
 		_, _ = t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
 		return
 	}
 
-	ts := user.Settings.TradingSettings
-	tr := user.Settings.TrailingConfig
+	ts := user.User.Settings.TradingSettings
+	tr := user.User.Settings.TrailingConfig
 
 	var b strings.Builder
 	b.WriteString("⚙️ *Настройки торговли*\n\n")
@@ -126,7 +122,6 @@ func (t *Telegram) handleSettingsMenu(ctx context.Context, chatID int64) {
 			"🎯 *Тейк*: `%.2fR`\n— Прибыль относительно риска\n\n"+
 			"📊 *Плечо*: `x%d`\n"+
 			"🔢 *Макс. позиций*: `%d`\n\n"+
-			"🔔 *Подтверждение входа*: *%s*\n"+
 			"↘️ *Частичная фиксация*: *%s* (%.0f%%)\n",
 		ts.PositionPct,
 		ts.RiskPct,
@@ -134,7 +129,6 @@ func (t *Telegram) handleSettingsMenu(ctx context.Context, chatID int64) {
 		ts.TakeProfitRR,
 		ts.Leverage,
 		ts.MaxOpenPositions,
-		onOff(ts.ConfirmRequired),
 		onOff(tr.PartialEnabled),
 		tr.PartialCloseFrac*100,
 	)
@@ -171,13 +165,13 @@ func (t *Telegram) handleSettingsMenu(ctx context.Context, chatID int64) {
 	_, _ = t.SendMessage(ctx, msg)
 }
 func (t *Telegram) handleTrailingMenu(ctx context.Context, chatID int64) {
-	user, err := t.getUser(ctx, chatID)
+	user, err := t.router.GetSession(ctx, chatID)
 	if err != nil {
 		_, _ = t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
 		return
 	}
 
-	tr := user.Settings.TrailingConfig
+	tr := user.User.Settings.TrailingConfig
 
 	var b strings.Builder
 	b.WriteString("📉 *Trailing / Partial*\n\n")
@@ -249,15 +243,15 @@ func (t *Telegram) handleTrailingMenu(ctx context.Context, chatID int64) {
 
 func (t *Telegram) handleFeaturesMenu(ctx context.Context, chatID int64) {
 
-	user, err := t.getUser(ctx, chatID)
+	user, err := t.router.GetSession(ctx, chatID)
 	if err != nil {
 		_, _ = t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
 		return
 	}
-	if !user.Premium {
+	if !user.User.Premium {
 		return
 	}
-	ff := user.Settings.FeatureFlags
+	ff := user.User.Settings.FeatureFlags
 
 	var b strings.Builder
 	b.WriteString("✨ *Фичи бота*\n\n")

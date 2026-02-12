@@ -35,7 +35,7 @@ func (s *UserSession) trailOne(ctx context.Context, ct models.CandleTick, p mode
 	st.UpdateMFE(ct.High, ct.Low)
 
 	// Решение только на 15m слот (даже если свеча 1m)
-	dec := decideTrail15m(st, s.Settings.Settings, ct.End)
+	dec := decideTrail15m(st, s.User.Settings, ct.End)
 	if !dec.MoveSL && !dec.Close {
 		return
 	}
@@ -60,7 +60,7 @@ func (s *UserSession) trailOne(ctx context.Context, ct models.CandleTick, p mode
 		s.PosMu.Unlock()
 
 		if s.canSend("partial:"+st.InstID+":"+st.PosSide, 30*time.Minute) {
-			s.Notifier.SendF(ctx, s.UserID,
+			s.Notifier.SendF(ctx, s.User.TelegramID,
 				"💰 [%s] Частичная фиксация (%s) закрыто=%.4f | %s",
 				st.InstID, st.PosSide, dec.CloseSize, dec.Reason,
 			)
@@ -76,7 +76,7 @@ func (s *UserSession) trailOne(ctx context.Context, ct models.CandleTick, p mode
 		delete(s.Positions, key)
 		s.PosMu.Unlock()
 
-		s.Notifier.SendF(ctx, s.UserID,
+		s.Notifier.SendF(ctx, s.User.TelegramID,
 			"🕒 [%s] TimeStop закрытие позиции (%s) | reason=%s",
 			st.InstID, st.PosSide, dec.Reason,
 		)
@@ -110,7 +110,7 @@ func (s *UserSession) trailOne(ctx context.Context, ct models.CandleTick, p mode
 	s.PosMu.Unlock()
 
 	if s.canSend("trail:"+st.InstID+":"+st.PosSide, 15*time.Minute) {
-		s.Notifier.SendF(ctx, s.UserID,
+		s.Notifier.SendF(ctx, s.User.TelegramID,
 			"🛡 [%s] SL обновлён (%s) -> %.6f | %s",
 			st.InstID, st.PosSide, newSL, dec.Reason,
 		)

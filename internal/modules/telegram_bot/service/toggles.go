@@ -1,34 +1,31 @@
 package service
 
-import "context"
+import (
+	"context"
+)
 
 func (t *Telegram) togglePartial(ctx context.Context, chatID int64) {
-	user, err := t.getUser(ctx, chatID)
+	session, err := t.router.GetSession(ctx, chatID)
 	if err != nil {
 		_, _ = t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
 		return
 	}
 
-	user.Settings.TrailingConfig.PartialEnabled = !user.Settings.TrailingConfig.PartialEnabled
-
-	if err := t.repo.Update(ctx, user); err != nil {
-		_, _ = t.Send(ctx, chatID, "⚠️ Не удалось сохранить настройку: "+err.Error())
-		return
-	}
-	t.router.ApplySettings(user) // ✅ горячее применение
+	session.User.Settings.TrailingConfig.PartialEnabled = !session.User.Settings.TrailingConfig.PartialEnabled
+	t.router.ApplySettings(ctx, session.User) // ✅ горячее применение
 	t.handleSettingsMenu(ctx, chatID)
 }
 func (t *Telegram) toggleFeature(ctx context.Context, chatID int64, key string) {
-	user, err := t.getUser(ctx, chatID)
+	session, err := t.router.GetSession(ctx, chatID)
 	if err != nil {
 		_, _ = t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
 		return
 	}
 
-	if !user.Premium {
+	if !session.User.Premium {
 		return
 	}
-	ff := &user.Settings.FeatureFlags
+	ff := &session.User.Settings.FeatureFlags
 
 	switch key {
 	case "near_tp":
@@ -46,11 +43,7 @@ func (t *Telegram) toggleFeature(ctx context.Context, chatID int64, key string) 
 		return
 	}
 
-	if err := t.repo.Update(ctx, user); err != nil {
-		_, _ = t.Send(ctx, chatID, "⚠️ Не удалось сохранить настройку: "+err.Error())
-		return
-	}
-	t.router.ApplySettings(user) // ✅ горячее применение
+	t.router.ApplySettings(ctx, session.User) // ✅ горячее применение
 	t.handleSettingsMenu(ctx, chatID)
 
 	_, _ = t.Send(ctx, chatID, "✅ Сохранено")

@@ -52,7 +52,7 @@ func (t *Telegram) handleUpdate(ctx context.Context, update tgbotapi.Update) {
 	// 3) Остальное (inline mode и т.п.) пока игнорируем
 }
 func (t *Telegram) handleStart(ctx context.Context, chatID int64) error {
-	_, err := t.getUser(ctx, chatID)
+	_, err := t.router.GetSession(ctx, chatID)
 	if err != nil {
 		_, err = t.Send(ctx, chatID, "Настройки не найдены, попробуй ещё раз /start")
 		return err
@@ -108,7 +108,7 @@ func (t *Telegram) handleTextMessage(ctx context.Context, msg *tgbotapi.Message)
 	}
 
 	// 2) Гарантируем, что юзер есть
-	user, err := t.getUser(ctx, chatID)
+	session, err := t.router.GetSession(ctx, chatID)
 	if err != nil {
 		_, _ = t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
 		return
@@ -119,21 +119,17 @@ func (t *Telegram) handleTextMessage(ctx context.Context, msg *tgbotapi.Message)
 		go func() {
 			runCtx := context.Background()
 
-			user.Status = true
-			if err := t.repo.Update(ctx, user); err != nil {
-				_, _ = t.Send(ctx, chatID, "⚠️ Не удалось применить пресет")
-				return
-			}
-			t.router.ApplySettings(user) // ✅ горячее применение
+			session.User.Status = true
+			t.router.ApplySettings(ctx, session.User) // ✅ горячее применение
 			t.handleSettingsMenu(ctx, chatID)
 
-			t.router.EnableUser(user)
+			t.router.EnableUser(ctx, session.User)
 			_, _ = t.Send(runCtx, chatID, "✅ Бот запущен для этого аккаунта.")
 		}()
 		return
 
 	case "⏹ Остановить бота":
-		t.router.DisableUser(chatID)
+		t.router.DisableUser(ctx, chatID)
 		_, _ = t.Send(ctx, chatID, "🛑 Бот остановлен для этого аккаунта.")
 		return
 
@@ -142,10 +138,10 @@ func (t *Telegram) handleTextMessage(ctx context.Context, msg *tgbotapi.Message)
 		return
 
 	case "📊 Статус":
-		go t.handleStatus(ctx, user)
+		go t.handleStatus(ctx, session.User)
 		return
 	case "🧪 Тестовая сделка (BTC x1)":
-		t.handleTestTradeMenu(ctx, chatID, user) // или без user, как удобнее
+		t.handleTestTradeMenu(ctx, chatID, session.User) // или без session, как удобнее
 		return
 
 	case "❓ Помощь":
@@ -171,21 +167,17 @@ func (t *Telegram) handleOkxKeys(ctx context.Context, msg *tgbotapi.Message) {
 		parts[i] = strings.TrimSpace(parts[i])
 	}
 
-	user, err := t.getUser(ctx, chatID)
+	session, err := t.router.GetSession(ctx, chatID)
 	if err != nil {
 		t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
 		return
 	}
 
-	user.Settings.TradingSettings.OKXAPIKey = parts[0]
-	user.Settings.TradingSettings.OKXAPISecret = parts[1]
-	user.Settings.TradingSettings.OKXPassphrase = parts[2]
+	session.User.Settings.TradingSettings.OKXAPIKey = parts[0]
+	session.User.Settings.TradingSettings.OKXAPISecret = parts[1]
+	session.User.Settings.TradingSettings.OKXPassphrase = parts[2]
 
-	if err := t.repo.Update(ctx, user); err != nil {
-		_, _ = t.Send(ctx, chatID, "⚠️ Не удалось применить пресет")
-		return
-	}
-	t.router.ApplySettings(user) // ✅ горячее применение
+	t.router.ApplySettings(ctx, session.User) // ✅ горячее применение
 	t.handleSettingsMenu(ctx, chatID)
 
 	t.bot.Send(tgbotapi.NewMessage(chatID, "✅ Ключи OKX сохранены. Теперь можно запускать торговлю."))
@@ -246,15 +238,15 @@ func parseConfirmData(data string) (verb, token string) {
 }
 
 func (t *Telegram) handleStatus(ctx context.Context, user *models.UserSettings) {
-	positions, err := t.router.StatusForUser(ctx, user.UserID)
+	positions, err := t.router.StatusForUser(ctx, user.TelegramID)
 	if err != nil {
 		log.Printf("StatusForUser error: %v", err)
-		_, _ = t.Send(ctx, user.UserID, "⚠️ Не удалось получить позиции с OKX: "+err.Error())
+		_, _ = t.Send(ctx, user.TelegramID, "⚠️ Не удалось получить позиции с OKX: "+err.Error())
 		return
 	}
 
 	if len(positions) == 0 {
-		msg := tgbotapi.NewMessage(user.UserID, "📊 Открытых позиций нет.")
+		msg := tgbotapi.NewMessage(user.TelegramID, "📊 Открытых позиций нет.")
 		msg.ParseMode = "Markdown"
 		_, _ = t.SendMessage(ctx, msg)
 		return
@@ -373,47 +365,7 @@ func (t *Telegram) handleStatus(ctx context.Context, user *models.UserSettings) 
 
 	fmt.Fprintf(&b, "%s *Суммарный PnL:* `%s USDT`\n", totalMark, fmtMoney(totalPnl))
 
-	msg := tgbotapi.NewMessage(user.UserID, b.String())
+	msg := tgbotapi.NewMessage(user.TelegramID, b.String())
 	msg.ParseMode = "Markdown"
 	_, _ = t.SendMessage(ctx, msg)
-}
-
-func (t *Telegram) handleToggleConfirm(ctx context.Context, chatID int64, msg *tgbotapi.Message) {
-	user, err := t.getUser(ctx, chatID)
-	if err != nil {
-		_, _ = t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
-		return
-	}
-
-	user.Settings.TradingSettings.ConfirmRequired = !user.Settings.TradingSettings.ConfirmRequired
-
-	if err := t.repo.Update(ctx, user); err != nil {
-		log.Printf("update user confirmRequired error: %v", err)
-		_, _ = t.Send(ctx, chatID, "⚠️ Не удалось сохранить настройку.")
-		return
-	}
-	t.router.ApplySettings(user) // ✅ горячее применение
-	t.handleSettingsMenu(ctx, chatID)
-
-	//edit := tgbotapi.NewEditMessageTextAndMarkup(
-	//	chatID,
-	//	msg.MessageID,
-	//	text,
-	//	kb,
-	//)
-	//edit.ParseMode = "Markdown"
-	//
-	//if _, err := t.bot.Send(edit); err != nil {
-	//	log.Printf("handleToggleConfirm edit error: %v", err)
-	//}
-}
-func maskSecret(s string) string {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return "—"
-	}
-	if len(s) <= 8 {
-		return "****"
-	}
-	return s[:4] + "****" + s[len(s)-4:]
 }

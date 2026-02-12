@@ -54,7 +54,7 @@ func (t *Telegram) askValue(ctx context.Context, chatID int64, key string) {
 }
 
 func (t *Telegram) handleAwaitValue(ctx context.Context, chatID int64, text, key string) {
-	user, err := t.getUser(ctx, chatID)
+	user, err := t.router.GetSession(ctx, chatID)
 	if err != nil {
 		_, _ = t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
 		return
@@ -68,8 +68,8 @@ func (t *Telegram) handleAwaitValue(ctx context.Context, chatID int64, text, key
 	}
 	text = strings.ReplaceAll(text, ",", ".")
 
-	ts := &user.Settings.TradingSettings
-	tr := &user.Settings.TrailingConfig
+	ts := &user.User.Settings.TradingSettings
+	tr := &user.User.Settings.TrailingConfig
 
 	switch key {
 	// -------- TradingSettings --------
@@ -196,12 +196,7 @@ func (t *Telegram) handleAwaitValue(ctx context.Context, chatID int64, text, key
 	if ts.ConfirmTimeout <= 0 {
 		ts.ConfirmTimeout = 30 * time.Second
 	}
-
-	if err := t.repo.Update(ctx, user); err != nil {
-		_, _ = t.Send(ctx, chatID, "⚠️ Не удалось сохранить настройку: "+err.Error())
-		return
-	}
-	t.router.ApplySettings(user) // ✅ горячее применение
+	t.router.ApplySettings(ctx, user.User) // ✅ горячее применение
 	t.handleSettingsMenu(ctx, chatID)
 
 	// ✅ успех — чистим await
@@ -229,7 +224,7 @@ func isTrailingKey(key string) bool {
 
 // применить пресет
 func (t *Telegram) applyPreset(ctx context.Context, chatID int64, key string) {
-	user, err := t.getUser(ctx, chatID)
+	session, err := t.router.GetSession(ctx, chatID)
 	if err != nil {
 		_, _ = t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
 		return
@@ -241,13 +236,8 @@ func (t *Telegram) applyPreset(ctx context.Context, chatID int64, key string) {
 		return
 	}
 
-	p.Apply(&user.Settings.TradingSettings, &user.Settings.TrailingConfig)
-
-	if err := t.repo.Update(ctx, user); err != nil {
-		_, _ = t.Send(ctx, chatID, "⚠️ Не удалось сохранить настройку: "+err.Error())
-		return
-	}
-	t.router.ApplySettings(user) // ✅ горячее применение
+	p.Apply(&session.User.Settings.TradingSettings, &session.User.Settings.TrailingConfig)
+	t.router.ApplySettings(ctx, session.User) // ✅ горячее применение
 	t.handleSettingsMenu(ctx, chatID)
 
 	_, _ = t.Send(ctx, chatID, fmt.Sprintf("✅ Применён пресет: *%s*\n%s", p.Name, p.Description))

@@ -4,11 +4,14 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
+	"time"
 	"trade_bot/internal/models"
 	"trade_bot/internal/modules/config"
 	okxws "trade_bot/internal/modules/okx_websocket/service"
 	strategy "trade_bot/internal/modules/strategy/service"
 	"trade_bot/internal/modules/telegram_bot/service"
+	"trade_bot/internal/modules/telegram_public/public"
 )
 
 type Warmuper struct {
@@ -37,21 +40,60 @@ func (w *Warmuper) Warmup(ctx context.Context, symbols []string) error {
 		return nil
 	}
 
+	total := len(symbols)
+
+	// 1) Старт: понятное “мы подготавливаемся”
+	w.n.SendService(ctx, public.Status{
+		State:       public.StatePreparing,
+		Exchange:    "OKX",
+		Instruments: total,
+		Progress:    0,
+		UpdatedAt:   time.Now(),
+	}.Render())
+
+	var (
+		wg       sync.WaitGroup
+		firstErr error
+		mu       sync.Mutex
+	)
+
+	// Прогресс (чтобы не спамить): обновляем максимум раз в N секунд
+	var done int64
+	progressTicker := time.NewTicker(4 * time.Second)
+	defer progressTicker.Stop()
+
+	// Отдельная горутина, которая иногда публикует прогресс
+	stopProgress := make(chan struct{})
+	defer close(stopProgress)
+
+	go func() {
+		for {
+			select {
+			case <-stopProgress:
+				return
+			case <-progressTicker.C:
+				d := atomic.LoadInt64(&done)
+				pct := int(d * 100 / int64(total))
+				if pct < 0 {
+					pct = 0
+				}
+				if pct > 99 { // 100 покажем финальным "готово"
+					pct = 99
+				}
+
+				w.n.SendService(ctx, public.Status{
+					State:       public.StatePreparing,
+					Exchange:    "OKX",
+					Instruments: total,
+					Progress:    pct,
+					UpdatedAt:   time.Now(),
+				}.Render())
+			}
+		}
+	}()
+
 	ltfNeed := w.cfg.Strategy.DonchianPeriod + 30
 	htfNeed := w.cfg.Strategy.HTFEmaSlow + 30
-
-	// Публичное сообщение в канал (на русском)
-	w.n.SendService(ctx, fmt.Sprintf(
-		"🔥 Прогрев данных (REST) запущен\n\n"+
-			"• Инструментов: %d\n"+
-			"• Младший ТФ (LTF): %s — нужно %d свечей\n"+
-			"• Старший ТФ (HTF): %s — нужно %d свечей",
-		len(symbols), w.cfg.Strategy.LTF, ltfNeed, w.cfg.Strategy.HTF, htfNeed,
-	))
-
-	var wg sync.WaitGroup
-	var firstErr error
-	var mu sync.Mutex
 
 	for _, sym := range symbols {
 		sym := sym
@@ -64,7 +106,7 @@ func (w *Warmuper) Warmup(ctx context.Context, symbols []string) error {
 			w.sem <- struct{}{}
 			defer func() { <-w.sem }()
 
-			// 1) HTF
+			// 1) HTF (внутри — как было, это не в паблик)
 			htf, err := w.mx.GetCandles(ctx, sym, w.cfg.Strategy.HTF, htfNeed)
 			if err != nil {
 				mu.Lock()
@@ -113,25 +155,39 @@ func (w *Warmuper) Warmup(ctx context.Context, symbols []string) error {
 					},
 				})
 			}
+
+			atomic.AddInt64(&done, 1)
 		}()
 	}
 
 	wg.Wait()
 
+	// Остановить прогресс-горутину (и избежать лишних апдейтов)
+	// close(stopProgress) уже в defer выше — но wg.Wait() уже прошёл, можно просто выйти.
+
 	if firstErr != nil {
-		// Публичное сообщение в канал (на русском)
-		w.n.SendService(ctx,
-			"⚠️ *Прогрев данных завершён с ошибкой*\n\n"+
-				"Причина: "+firstErr.Error()+"\n\n"+
-				"👉 Если вы пользователь бота: откройте бота и нажмите *▶️ Запустить бота*.",
-		)
+		// 2) Ошибка: понятное человеку сообщение
+		w.n.SendService(ctx, public.Status{
+			State:       public.StateError,
+			Exchange:    "OKX",
+			Instruments: total,
+			UpdatedAt:   time.Now(),
+		}.Render())
+
+		// (Опционально) подробности об ошибке — лучше в dev-лог, а не в публичный канал:
+		// w.log.Error("warmup failed", zap.Error(firstErr))
+
 		return firstErr
 	}
 
-	// Публичное сообщение в канал (на русском)
-	w.n.SendService(ctx,
-		"✅ *Прогрев данных завершён*\n\n"+
-			"Бот готов работать в реальном времени (WebSocket).",
-	)
+	// 3) Готово: финальный статус
+	w.n.SendService(ctx, public.Status{
+		State:       public.StateReady,
+		Exchange:    "OKX",
+		Instruments: total,
+		Progress:    100,
+		UpdatedAt:   time.Now(),
+	}.Render())
+
 	return nil
 }

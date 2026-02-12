@@ -191,21 +191,6 @@ func NewConfig() (*Config, error) {
 	return cfg, nil
 }
 
-// helpers (минимально)
-func atoiDefault(s string, def int) int {
-	n := def
-	for i := 0; i < len(s); i++ {
-		if s[i] < '0' || s[i] > '9' {
-			return def
-		}
-	}
-	// простейший парсер без strconv (можно заменить на strconv.Atoi)
-	n = 0
-	for i := 0; i < len(s); i++ {
-		n = n*10 + int(s[i]-'0')
-	}
-	return n
-}
 func intFromEnv(key string, def int) int {
 	if v := os.Getenv(key); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {

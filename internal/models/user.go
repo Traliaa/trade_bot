@@ -9,7 +9,7 @@ import (
 type UserSettings struct {
 	ID int64 `json:"id"`
 
-	UserID int64 `json:"user_id"` // Telegram chat/user ID
+	TelegramID int64 `json:"telegram_id"` // Telegram chat/user ID
 
 	Name     string   `json:"name"`
 	Step     string   `json:"step"`
@@ -46,8 +46,6 @@ type TradingSettings struct {
 	StopPct      float64 `json:"stop_pct"`       // расстояние SL (%)
 	TakeProfitRR float64 `json:"take_profit_rr"` // TP в R
 
-	// подтверждения
-	ConfirmRequired   bool          `json:"confirm_required"`
 	ConfirmTimeout    time.Duration `json:"confirm_timeout"`
 	CooldownPerSymbol time.Duration `json:"cooldown_per_symbol"`
 }
@@ -72,7 +70,7 @@ type TrailingConfig struct {
 
 func NewTradingSettingsFromDefaults(userID int64, cfg *config.Config) *UserSettings {
 	return &UserSettings{
-		UserID: userID,
+		TelegramID: userID,
 		Settings: Settings{
 			TradingSettings: TradingSettings{
 				Leverage:         cfg.UserDefaults.DefaultLeverage,

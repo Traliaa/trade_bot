@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 	"time"
+	"trade_bot/internal/modules/config"
 	"trade_bot/internal/modules/repository/pg"
 	"trade_bot/internal/runner/sessions"
 
@@ -30,16 +31,19 @@ type Router struct {
 	users            map[int64]*sessions.UserSession // userID -> сессия
 	Repository       *pg.User
 	TelegramNotifier TelegramNotifier
+	config           *config.Config
 }
 
 func NewRouter(
 	Repository *pg.User,
 	TelegramNotifier TelegramNotifier,
+	config *config.Config,
 ) *Router {
 	return &Router{
 		users:            make(map[int64]*sessions.UserSession),
 		Repository:       Repository,
 		TelegramNotifier: TelegramNotifier,
+		config:           config,
 	}
 }
 
@@ -58,11 +62,4 @@ func (r *Router) OnSignal(ctx context.Context, sig models.Signal) {
 			// очередь забита — можно логнуть / дропнуть
 		}
 	}
-}
-
-func (r *Router) GetSession(userID int64) (*sessions.UserSession, bool) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	s, ok := r.users[userID]
-	return s, ok
 }

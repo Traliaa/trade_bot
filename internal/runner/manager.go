@@ -32,13 +32,13 @@ func NewManager(mkt *okx_websocket.Client) *Manager {
 // StopForUser останавливает воркер для конкретного юзера (если запущен).
 func (m *Manager) StopForUser(ctx context.Context, user *models.UserSettings) error {
 	m.mu.Lock()
-	r, ok := m.runners[user.UserID]
+	r, ok := m.runners[user.TelegramID]
 	if !ok {
 		m.mu.Unlock()
-		return fmt.Errorf("runner not running for user %d", user.UserID)
+		return fmt.Errorf("runner not running for user %d", user.TelegramID)
 	}
 	// Можно заранее удалить, чтобы второй вызов не прошёл
-	delete(m.runners, user.UserID)
+	delete(m.runners, user.TelegramID)
 	m.mu.Unlock()
 
 	// Гасим раннер вне мьютекса

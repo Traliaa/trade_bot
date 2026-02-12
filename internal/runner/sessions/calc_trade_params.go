@@ -109,7 +109,7 @@ func (s *UserSession) calcTradeParams(
 
 	log.Printf(
 		"[CREDS CHECK BEFORE calcSizeByRisk] chat=%d key=%t secret=%t pass=%t",
-		s.Settings.UserID,
+		s.User.TelegramID,
 		ts.OKXAPIKey != "",
 		ts.OKXAPISecret != "",
 		ts.OKXPassphrase != "",

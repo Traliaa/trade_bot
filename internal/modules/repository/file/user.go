@@ -42,7 +42,7 @@ func (u *User) Create(ctx context.Context, user *models.UserSettings) error {
 	if err := u.loadLocked(); err != nil {
 		return err
 	}
-	u.cache[user.UserID] = cloneUser(user)
+	u.cache[user.TelegramID] = cloneUser(user)
 	return u.saveLocked()
 }
 
@@ -53,10 +53,10 @@ func (u *User) Update(ctx context.Context, user *models.UserSettings) error {
 	if err := u.loadLocked(); err != nil {
 		return err
 	}
-	if _, ok := u.cache[user.UserID]; !ok {
+	if _, ok := u.cache[user.TelegramID]; !ok {
 		// как в PG: можно либо ошибку, либо upsert. Сделаем upsert — быстрее для продакшена.
 	}
-	u.cache[user.UserID] = cloneUser(user)
+	u.cache[user.TelegramID] = cloneUser(user)
 	return u.saveLocked()
 }
 
@@ -81,7 +81,7 @@ func (u *User) Delete(ctx context.Context, user *models.UserSettings) error {
 	if err := u.loadLocked(); err != nil {
 		return err
 	}
-	delete(u.cache, user.UserID)
+	delete(u.cache, user.TelegramID)
 	return u.saveLocked()
 }
 
@@ -130,7 +130,7 @@ func (u *User) loadLocked() error {
 		if us == nil {
 			continue
 		}
-		u.cache[us.UserID] = cloneUser(us)
+		u.cache[us.TelegramID] = cloneUser(us)
 	}
 
 	u.loaded = true

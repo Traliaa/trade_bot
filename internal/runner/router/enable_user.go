@@ -7,13 +7,13 @@ import (
 	"trade_bot/internal/runner/sessions"
 )
 
-func (r *Router) EnableUser(user *models.UserSettings) {
+func (r *Router) EnableUser(ctx context.Context, user *models.UserSettings) {
 	if user == nil {
 		return
 	}
 
 	r.mu.Lock()
-	if _, ok := r.users[user.UserID]; ok {
+	if _, ok := r.users[user.TelegramID]; ok {
 		r.mu.Unlock()
 		return
 	}
@@ -21,11 +21,10 @@ func (r *Router) EnableUser(user *models.UserSettings) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	sess := &sessions.UserSession{
-		UserID:         user.UserID,
 		Notifier:       r.TelegramNotifier,
 		PositionsCache: make(map[models.PosKey]models.CachedPos),
 		Positions:      make(map[string]*models.PositionTrailState),
-		Settings:       user,
+		User:           user,
 		Ctx:            ctx,
 		Cancel:         cancel,
 		Repo:           r.Repository,
@@ -38,12 +37,12 @@ func (r *Router) EnableUser(user *models.UserSettings) {
 	// ✅ инициализируем OKX клиента из user (ключи)
 	sess.UpdateOKXClient(user)
 
-	r.users[user.UserID] = sess
+	r.users[user.TelegramID] = sess
 	r.mu.Unlock()
 
 	go sess.PositionCacheWorker(ctx)
 
-	if sess.Settings.Premium {
+	if sess.User.Premium {
 		go sess.PositionGuardWorker(ctx)
 	}
 

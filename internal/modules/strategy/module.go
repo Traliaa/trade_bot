@@ -4,7 +4,7 @@ import (
 	"context"
 	"log"
 	"trade_bot/internal/modules/strategy/service"
-	telegram "trade_bot/internal/modules/telegram_bot/service"
+	"trade_bot/internal/modules/telegram_public/public"
 
 	"go.uber.org/fx"
 
@@ -31,7 +31,7 @@ func Module() fx.Option {
 			service.NewEngine, // service.Engine
 			service.NewHub,    // *service.Hub (получит V2Config, Notifier, chan<-Signal, Engine)
 			fx.Annotate(
-				func(s *telegram.Telegram) service.ServiceNotifier { return s },
+				func(s *public.Service) service.ServiceNotifier { return s },
 				fx.As(new(service.ServiceNotifier)),
 			),
 		),

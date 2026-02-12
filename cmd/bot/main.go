@@ -11,7 +11,7 @@ import (
 	"trade_bot/internal/modules/repository"
 	"trade_bot/internal/modules/strategy"
 	telegram "trade_bot/internal/modules/telegram_bot"
-
+	"trade_bot/internal/modules/telegram_public"
 	"trade_bot/internal/runner"
 
 	"go.uber.org/fx"
@@ -36,6 +36,7 @@ func main() {
 		bootstrap.Module(),
 		runner.Module(),
 		telegram.Module(),
+		telegram_public.Module(),
 	)
 	if err := app.Start(context.Background()); err != nil {
 		log.Fatal(err)
