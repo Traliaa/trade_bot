@@ -23,9 +23,6 @@ func (t *Telegram) handleCallback(ctx context.Context, chatID int64, cb *tgbotap
 	data := cb.Data
 
 	switch data {
-	case "toggle:confirm":
-		t.toggleConfirm(ctx, chatID)
-		return
 	case "toggle:partial":
 		t.togglePartial(ctx, chatID)
 		return
@@ -78,6 +75,8 @@ func (t *Telegram) handleCallback(ctx context.Context, chatID int64, cb *tgbotap
 			_, _ = t.Send(ctx, chatID, "⚠️ Не удалось применить пресет")
 			return
 		}
+		t.router.ApplySettings(user) // ✅ горячее применение
+		t.handleSettingsMenu(ctx, chatID)
 
 		_, _ = t.Send(ctx, chatID,
 			fmt.Sprintf("✅ Применён пресет:\n*%s*\n_%s_",
@@ -159,7 +158,6 @@ func (t *Telegram) handleSettingsMenu(ctx context.Context, chatID int64) {
 			btn("🔢 Макс позиций", "set:maxpos"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
-			btn("🔔 Подтверждение", "toggle:confirm"),
 			btn("📉 Trailing / Partial", "menu:trailing"),
 		),
 		tgbotapi.NewInlineKeyboardRow(
@@ -250,12 +248,15 @@ func (t *Telegram) handleTrailingMenu(ctx context.Context, chatID int64) {
 }
 
 func (t *Telegram) handleFeaturesMenu(ctx context.Context, chatID int64) {
+
 	user, err := t.getUser(ctx, chatID)
 	if err != nil {
 		_, _ = t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
 		return
 	}
-
+	if !user.Premium {
+		return
+	}
 	ff := user.Settings.FeatureFlags
 
 	var b strings.Builder

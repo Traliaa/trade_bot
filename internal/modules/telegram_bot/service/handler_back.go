@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math"
 
 	"strings"
 	"trade_bot/internal/models"
@@ -117,7 +118,16 @@ func (t *Telegram) handleTextMessage(ctx context.Context, msg *tgbotapi.Message)
 	case "▶️ Запустить бота":
 		go func() {
 			runCtx := context.Background()
-			t.router.EnableUser(user, t)
+
+			user.Status = true
+			if err := t.repo.Update(ctx, user); err != nil {
+				_, _ = t.Send(ctx, chatID, "⚠️ Не удалось применить пресет")
+				return
+			}
+			t.router.ApplySettings(user) // ✅ горячее применение
+			t.handleSettingsMenu(ctx, chatID)
+
+			t.router.EnableUser(user)
 			_, _ = t.Send(runCtx, chatID, "✅ Бот запущен для этого аккаунта.")
 		}()
 		return
@@ -171,7 +181,12 @@ func (t *Telegram) handleOkxKeys(ctx context.Context, msg *tgbotapi.Message) {
 	user.Settings.TradingSettings.OKXAPISecret = parts[1]
 	user.Settings.TradingSettings.OKXPassphrase = parts[2]
 
-	_ = t.repo.Update(ctx, user)
+	if err := t.repo.Update(ctx, user); err != nil {
+		_, _ = t.Send(ctx, chatID, "⚠️ Не удалось применить пресет")
+		return
+	}
+	t.router.ApplySettings(user) // ✅ горячее применение
+	t.handleSettingsMenu(ctx, chatID)
 
 	t.bot.Send(tgbotapi.NewMessage(chatID, "✅ Ключи OKX сохранены. Теперь можно запускать торговлю."))
 }
@@ -234,50 +249,129 @@ func (t *Telegram) handleStatus(ctx context.Context, user *models.UserSettings) 
 	positions, err := t.router.StatusForUser(ctx, user.UserID)
 	if err != nil {
 		log.Printf("StatusForUser error: %v", err)
-		_, _ = t.Send(ctx, user.UserID, "⚠️ Не удалось получить статус: "+err.Error())
+		_, _ = t.Send(ctx, user.UserID, "⚠️ Не удалось получить позиции с OKX: "+err.Error())
 		return
 	}
 
 	if len(positions) == 0 {
-
 		msg := tgbotapi.NewMessage(user.UserID, "📊 Открытых позиций нет.")
 		msg.ParseMode = "Markdown"
 		_, _ = t.SendMessage(ctx, msg)
 		return
 	}
 
+	// helpers
+	fixNegZero := func(v float64) float64 {
+		if math.Abs(v) < 0.0000005 {
+			return 0
+		}
+		return v
+	}
+	priceDecimals := func(px float64) int {
+		px = math.Abs(px)
+		switch {
+		case px == 0:
+			return 6
+		case px >= 1000:
+			return 2
+		case px >= 1:
+			return 4
+		case px >= 0.01:
+			return 6
+		default:
+			return 8 // SHIB/PEPE
+		}
+	}
+	fmtPrice := func(px float64) string {
+		if px == 0 {
+			return "—"
+		}
+		return fmt.Sprintf("%.*f", priceDecimals(px), px)
+	}
+	fmtQty := func(q float64) string {
+		aq := math.Abs(q)
+		switch {
+		case aq >= 100:
+			return fmt.Sprintf("%.2f", q)
+		case aq >= 1:
+			return fmt.Sprintf("%.4f", q)
+		default:
+			return fmt.Sprintf("%.6f", q)
+		}
+	}
+	fmtMoney := func(v float64) string {
+		v = fixNegZero(v)
+		av := math.Abs(v)
+		switch {
+		case av >= 10:
+			return fmt.Sprintf("%.2f", v)
+		case av >= 1:
+			return fmt.Sprintf("%.3f", v)
+		default:
+			return fmt.Sprintf("%.5f", v)
+		}
+	}
+	sideTitle := func(side string) (emoji, title string) {
+		s := strings.ToLower(strings.TrimSpace(side))
+		switch s {
+		case "long":
+			return "🟢", "LONG"
+		case "short":
+			return "🔴", "SHORT"
+		default:
+			return "⚪️", strings.ToUpper(side)
+		}
+	}
+
 	var b strings.Builder
-	b.WriteString("*Открытые позиции:*\n\n")
+	b.WriteString("📊 *Открытые позиции*\n\n")
 
 	var totalPnl float64
 
 	for _, p := range positions {
-		// подгони поля под свой тип PositionInfo
 		symbol := p.Symbol
-		side := strings.ToUpper(p.Side) // BUY/SELL или long/short
-		qty := p.Size                   // размер
-		entry := p.EntryPrice           // средняя цена входа
-		last := p.LastPrice             // последняя цена
-		upnl := p.UnrealizedPnl         // PnL в USDT
-		upnlPct := p.UnrealizedPnlPct   // PnL в %
+		emo, side := sideTitle(p.Side)
+
+		qty := p.Size
+		entry := p.EntryPrice
+		last := p.LastPrice
+		upnl := fixNegZero(p.UnrealizedPnl)
+		upnlPct := fixNegZero(p.UnrealizedPnlPct)
 
 		totalPnl += upnl
 
+		arrow := "➡️"
+		if upnl > 0 {
+			arrow = "📈"
+		} else if upnl < 0 {
+			arrow = "📉"
+		}
+
 		fmt.Fprintf(&b,
-			"[%s] %s\n"+
-				"  Размер: `%.4f`\n"+
-				"  Вход:   `%.4f`\n"+
-				"  Сейчас: `%.4f`\n"+
-				"  PnL:    `%.2f USDT (%.2f%%)`\n\n",
-			symbol, side,
-			qty,
-			entry,
-			last,
-			upnl, upnlPct,
+			"%s *%s*  `%s`\n"+
+				"• Плечо: `%dx`\n"+
+				"• Размер: `%s`\n"+
+				"• Вход: `%s`\n"+
+				"• Сейчас: `%s`\n"+
+				"• PnL: %s `%s USDT` (`%+.2f%%`)\n\n",
+			emo, symbol, side,
+			p.Leverage,
+			fmtQty(qty),
+			fmtPrice(entry),
+			fmtPrice(last),
+			arrow, fmtMoney(upnl), upnlPct,
 		)
 	}
 
-	fmt.Fprintf(&b, "*Суммарный PnL:* `%.2f USDT`\n", totalPnl)
+	totalPnl = fixNegZero(totalPnl)
+	totalMark := "➡️"
+	if totalPnl > 0 {
+		totalMark = "🟩"
+	} else if totalPnl < 0 {
+		totalMark = "🟥"
+	}
+
+	fmt.Fprintf(&b, "%s *Суммарный PnL:* `%s USDT`\n", totalMark, fmtMoney(totalPnl))
 
 	msg := tgbotapi.NewMessage(user.UserID, b.String())
 	msg.ParseMode = "Markdown"
@@ -298,7 +392,7 @@ func (t *Telegram) handleToggleConfirm(ctx context.Context, chatID int64, msg *t
 		_, _ = t.Send(ctx, chatID, "⚠️ Не удалось сохранить настройку.")
 		return
 	}
-
+	t.router.ApplySettings(user) // ✅ горячее применение
 	t.handleSettingsMenu(ctx, chatID)
 
 	//edit := tgbotapi.NewEditMessageTextAndMarkup(
@@ -323,45 +417,3 @@ func maskSecret(s string) string {
 	}
 	return s[:4] + "****" + s[len(s)-4:]
 }
-
-//func (t *Telegram) handleTimeframePick(
-//	ctx context.Context,
-//	chatID int64,
-//	msg *tgbotapi.Message,
-//	data string,
-//) {
-//	user, err := t.getUser(ctx, chatID)
-//	if err != nil {
-//		_, _ = t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
-//		return
-//	}
-//
-//	var tf string
-//	switch data {
-//	case "tf_1m":
-//		tf = "1m"
-//	case "tf_5m":
-//		tf = "5m"
-//	case "tf_15m":
-//		tf = "15m"
-//	default:
-//		return
-//	}
-//
-//	user.TradingSettings.Timeframe = tf
-//
-//	if err := t.repo.Update(ctx, user); err != nil {
-//		_, _ = t.Send(ctx, chatID, "⚠️ Не удалось сохранить таймфрейм: "+err.Error())
-//		return
-//	}
-//
-//	// Удобно: обновим меню настроек (перерисуем)
-//	if msg != nil {
-//		edit := tgbotapi.NewEditMessageText(chatID, msg.MessageID, "✅ Таймфрейм сохранён: `"+tf+"`")
-//		edit.ParseMode = "Markdown"
-//		_, _ = t.bot.Send(edit)
-//	}
-//
-//	// И покажем меню снова
-//	t.handleSettingsMenu(ctx, chatID)
-//}

@@ -201,6 +201,8 @@ func (t *Telegram) handleAwaitValue(ctx context.Context, chatID int64, text, key
 		_, _ = t.Send(ctx, chatID, "⚠️ Не удалось сохранить настройку: "+err.Error())
 		return
 	}
+	t.router.ApplySettings(user) // ✅ горячее применение
+	t.handleSettingsMenu(ctx, chatID)
 
 	// ✅ успех — чистим await
 	t.popAwait(chatID)
@@ -240,7 +242,13 @@ func (t *Telegram) applyPreset(ctx context.Context, chatID int64, key string) {
 	}
 
 	p.Apply(&user.Settings.TradingSettings, &user.Settings.TrailingConfig)
-	_ = t.repo.Update(ctx, user)
+
+	if err := t.repo.Update(ctx, user); err != nil {
+		_, _ = t.Send(ctx, chatID, "⚠️ Не удалось сохранить настройку: "+err.Error())
+		return
+	}
+	t.router.ApplySettings(user) // ✅ горячее применение
+	t.handleSettingsMenu(ctx, chatID)
 
 	_, _ = t.Send(ctx, chatID, fmt.Sprintf("✅ Применён пресет: *%s*\n%s", p.Name, p.Description))
 	t.handleSettingsMenu(ctx, chatID)

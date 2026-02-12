@@ -7,17 +7,22 @@ import (
 	"trade_bot/internal/runner/sessions"
 )
 
-// StatusForUser возвращает позиции из кэша (без запроса в OKX).
+// StatusForUser возвращает список открытых позиций с OKX для данного пользователя.
 func (r *Router) StatusForUser(ctx context.Context, userID int64) ([]models.OpenPosition, error) {
 	r.mu.RLock()
-	sess, ok := r.users[userID]
+	sess := r.users[userID]
 	r.mu.RUnlock()
 
-	if !ok {
+	if sess == nil {
 		return nil, fmt.Errorf("бот не запущен для этого пользователя")
 	}
 
-	return buildStatusFromCache(sess), nil
+	// ✅ ИСТОЧНИК ПРАВДЫ — OKX positions
+	pos, err := sess.Okx.OpenPositions(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("okx positions: %w", err)
+	}
+	return pos, nil
 }
 
 func buildStatusFromCache(sess *sessions.UserSession) []models.OpenPosition {

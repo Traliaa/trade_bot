@@ -56,3 +56,14 @@ type TradeParams struct {
 	Leverage  int
 	Direction string // "BUY" или "SELL"
 }
+
+type PositionInfo struct {
+	Symbol           string
+	Side             string // LONG/SHORT
+	Size             float64
+	EntryPrice       float64
+	LastPrice        float64
+	UnrealizedPnl    float64
+	UnrealizedPnlPct float64 // %
+	Leverage         int
+}

@@ -26,6 +26,9 @@ func (s *UserSession) calcSizeByRiskWithMeta(
 	slPrice float64,
 ) (float64, error) {
 
+	cfg := s.SettingsSnapshot()
+	ts := cfg.TradingSettings
+
 	if entryPrice <= 0 || slPrice <= 0 {
 		return 0, fmt.Errorf("entry/sl <= 0")
 	}
@@ -38,14 +41,14 @@ func (s *UserSession) calcSizeByRiskWithMeta(
 		return 0, fmt.Errorf("equity <= 0")
 	}
 
-	riskFraction := s.Settings.Settings.TradingSettings.RiskPct / 100.0
+	riskFraction := ts.RiskPct / 100.0
 	if riskFraction <= 0 {
 		return 0, fmt.Errorf("riskFraction <= 0")
 	}
 	riskUSDT := equity * riskFraction
 
 	// leverage cap
-	lev := float64(s.Settings.Settings.TradingSettings.Leverage)
+	lev := float64(ts.Leverage)
 	if lev <= 0 {
 		lev = 1
 	}

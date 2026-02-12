@@ -18,19 +18,25 @@ func (s *UserSession) calcTradeParams(
 	side string,
 	entry float64,
 ) (*models.TradeParams, error) {
+
+	cfg := s.SettingsSnapshot()
+	ts := cfg.TradingSettings
+	//tr := cfg.TrailingConfig
+	//ff := cfg.FeatureFlags
+
 	side = strings.ToUpper(side)
 	if side != "BUY" && side != "SELL" {
 		return nil, fmt.Errorf("unknown side %q", side)
 	}
 
 	// денежный риск
-	riskPct := s.Settings.Settings.TradingSettings.RiskPct / 100.0
+	riskPct := ts.RiskPct / 100.0
 	if riskPct <= 0 {
 		return nil, fmt.Errorf("riskPct <= 0")
 	}
 
 	// стоп-дистанция
-	stopPct := s.Settings.Settings.TradingSettings.StopPct / 100.0
+	stopPct := ts.StopPct / 100.0
 	if stopPct <= 0 {
 		return nil, fmt.Errorf("stopPct <= 0 (set TradingSettings.StopPct)")
 	}
@@ -39,12 +45,12 @@ func (s *UserSession) calcTradeParams(
 		return nil, fmt.Errorf("stopPct too big: %.4f", stopPct)
 	}
 
-	rr := s.Settings.Settings.TradingSettings.TakeProfitRR
+	rr := ts.TakeProfitRR
 	if rr <= 0 {
 		rr = 2.0
 	}
 
-	lev := s.Settings.Settings.TradingSettings.Leverage
+	lev := ts.Leverage
 	if lev <= 0 {
 		lev = 1
 	}
@@ -100,7 +106,6 @@ func (s *UserSession) calcTradeParams(
 	} else {
 		tp = helper.RoundDownToTick(tpRaw, instrument.TickSz)
 	}
-	ts := s.Settings.Settings.TradingSettings
 
 	log.Printf(
 		"[CREDS CHECK BEFORE calcSizeByRisk] chat=%d key=%t secret=%t pass=%t",
@@ -134,7 +139,7 @@ func (s *UserSession) calcTradeParams(
 		TP:        tp,
 		Size:      size,
 		TickSize:  instrument.TickSz,
-		RiskPct:   s.Settings.Settings.TradingSettings.RiskPct, // денежный риск
+		RiskPct:   ts.RiskPct, // денежный риск
 		RR:        rr,
 		RiskDist:  riskDist,
 		Leverage:  lev,

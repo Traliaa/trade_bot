@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"trade_bot/internal/helper"
 	"trade_bot/internal/models"
@@ -19,9 +20,15 @@ type TelegramNotifier interface {
 	Confirm(ctx context.Context, chatID int64, prompt string, timeout time.Duration) bool
 }
 
+type UserRepo interface {
+	Update(ctx context.Context, user *models.UserSettings) error
+}
+
 type UserSession struct {
-	Ctx    context.Context
-	Cancel context.CancelFunc
+	Ctx      context.Context
+	Cancel   context.CancelFunc
+	settings atomic.Value // stores models.Settings
+	Repo     UserRepo     // ✅ добавили
 
 	mu         sync.Mutex   // можно оставить для Pending/Cooldown
 	PosMu      sync.RWMutex // 🔒 Positions (trail state)
@@ -42,11 +49,10 @@ type UserSession struct {
 	//сенлдер в телеграм
 	Notifier TelegramNotifier
 	//клиент биржи
-	Okx *okx_client.Client
+	okxMu sync.RWMutex
+	Okx   *okx_client.Client
 
-	Queue       chan models.Signal
-	Pending     map[string]bool
-	CooldownTil map[string]time.Time
+	Queue chan models.Signal
 
 	msgMu     sync.Mutex
 	LastMsgAt map[string]time.Time // key -> time
@@ -59,6 +65,10 @@ func (s *UserSession) OpenPositionWithTpSl(
 	sig models.Signal,
 	params *models.TradeParams,
 ) (*models.OpenResult, error) {
+	cfg := s.SettingsSnapshot()
+	ts := cfg.TradingSettings
+	//tr := cfg.TrailingConfig
+	//ff := cfg.FeatureFlags
 
 	// 1. Маппим сторону в OKX side/openType
 	openType := 1 // 1 = open long/short
@@ -71,8 +81,6 @@ func (s *UserSession) OpenPositionWithTpSl(
 	default:
 		return nil, fmt.Errorf("unknown direction: %q", params.Direction)
 	}
-
-	ts := s.Settings.Settings.TradingSettings
 
 	fmt.Printf(
 		"[CREDS CHECK INSIDE calcSizeByRisk] chat=%d keyLen=%d secretLen=%d passLen=%d",
@@ -173,4 +181,32 @@ func (s *UserSession) canSend(key string, every time.Duration) bool {
 	}
 	s.LastMsgAt[key] = now
 	return true
+}
+
+func (s *UserSession) InitSettings(cfg models.Settings) {
+	s.settings.Store(cfg)
+}
+
+func (s *UserSession) SettingsSnapshot() models.Settings {
+	v := s.settings.Load()
+	if v == nil {
+		return models.Settings{}
+	}
+	return v.(models.Settings)
+}
+
+func (s *UserSession) UpdateSettings(cfg models.Settings) {
+	s.settings.Store(cfg)
+}
+
+func (s *UserSession) UpdateOKXClient(user *models.UserSettings) {
+	s.okxMu.Lock()
+	defer s.okxMu.Unlock()
+	s.Okx = okx_client.NewClient(user)
+}
+
+func (s *UserSession) OkxClient() *okx_client.Client {
+	s.okxMu.RLock()
+	defer s.okxMu.RUnlock()
+	return s.Okx
 }

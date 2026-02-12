@@ -3,3 +3,13 @@
 //   sqlc v1.30.0
 
 package sql
+
+type UserSetting struct {
+	ID       int64   `db:"id"`
+	Chatid   int64   `db:"chatid"`
+	Name     string  `db:"name"`
+	Settings []byte  `db:"settings"`
+	Step     *string `db:"step"`
+	Status   bool    `db:"status"`
+	Premium  bool    `db:"premium"`
+}

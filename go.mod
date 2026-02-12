@@ -3,17 +3,18 @@ module trade_bot
 go 1.25.0
 
 require (
+	github.com/bytedance/sonic v1.14.1
 	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
 	github.com/gorilla/websocket v1.5.3
 	github.com/jackc/pgx/v5 v5.7.6
 	github.com/opentracing/opentracing-go v1.2.0
+	github.com/samber/lo v1.47.0
 	github.com/spf13/viper v1.21.0
 	github.com/uber/jaeger-client-go v2.30.0+incompatible
 	github.com/uber/jaeger-lib v2.4.1+incompatible
 	go.uber.org/fx v1.24.0
 	go.uber.org/zap v1.27.0
 	gopkg.in/yaml.v2 v2.4.0
-	github.com/bytedance/sonic v1.14.1
 )
 
 require github.com/pkg/errors v0.9.1
@@ -21,7 +22,6 @@ require github.com/pkg/errors v0.9.1
 require (
 	github.com/HdrHistogram/hdrhistogram-go v1.1.2 // indirect
 	github.com/bytedance/gopkg v0.1.3 // indirect
-	github.com/bytedance/sonic v1.14.1 // indirect
 	github.com/bytedance/sonic/loader v0.3.0 // indirect
 	github.com/cloudwego/base64x v0.1.6 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect

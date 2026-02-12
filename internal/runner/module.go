@@ -3,8 +3,11 @@ package runner
 import (
 	"context"
 	"time"
+
 	"trade_bot/internal/helper"
 	"trade_bot/internal/models"
+	"trade_bot/internal/modules/telegram_bot/service"
+	"trade_bot/internal/modules/telegram_bot/service/pg"
 	"trade_bot/internal/runner/router"
 
 	"go.uber.org/fx"
@@ -15,23 +18,36 @@ func Module() fx.Option {
 		fx.Provide(
 			router.NewRouter, // *Router
 		),
+
+		// ✅ Восстановление активных пользователей при старте сервиса
+		fx.Invoke(func(lc fx.Lifecycle, r *router.Router, repo *pg.User, tg *service.Telegram) {
+			lc.Append(fx.Hook{
+				OnStart: func(ctx context.Context) error {
+					r.RestoreEnabled(ctx)
+					return nil
+				},
+			})
+		}),
+
+		// ✅ Основной раннер сигналов/свечей
 		fx.Invoke(func(
 			lc fx.Lifecycle,
 			r *router.Router,
-			sigs chan models.Signal, // ⬅️ read-only
-			candles chan models.CandleTick, // канал для стопов
+			sigs chan models.Signal, // входящие сигналы
+			candles chan models.CandleTick, // канал для агрегации свечей
 		) {
 			lc.Append(fx.Hook{
-				OnStart: func(startCtx context.Context) error {
+				OnStart: func(_ context.Context) error {
 					runCtx, cancel := context.WithCancel(context.Background())
 
-					// stop
 					lc.Append(fx.Hook{
 						OnStop: func(_ context.Context) error {
 							cancel()
 							return nil
 						},
 					})
+
+					// #0 signals router
 					go func() {
 						for {
 							select {
@@ -95,6 +111,7 @@ func Module() fx.Option {
 							}
 						}
 					}()
+
 					return nil
 				},
 			})

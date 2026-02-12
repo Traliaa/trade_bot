@@ -25,7 +25,7 @@ func (q *Queries) Delete(ctx context.Context, db DBTX, arg *DeleteParams) error 
 }
 
 const getAll = `-- name: GetAll :many
-SELECT id, chatid, name, settings, step::text FROM user_settings
+SELECT id, chatid, name, settings, step::text, status,premium FROM user_settings
 `
 
 type GetAllRow struct {
@@ -34,6 +34,8 @@ type GetAllRow struct {
 	Name     string `db:"name"`
 	Settings []byte `db:"settings"`
 	Step     string `db:"step"`
+	Status   bool   `db:"status"`
+	Premium  bool   `db:"premium"`
 }
 
 func (q *Queries) GetAll(ctx context.Context, db DBTX) ([]*GetAllRow, error) {
@@ -51,6 +53,8 @@ func (q *Queries) GetAll(ctx context.Context, db DBTX) ([]*GetAllRow, error) {
 			&i.Name,
 			&i.Settings,
 			&i.Step,
+			&i.Status,
+			&i.Premium,
 		); err != nil {
 			return nil, err
 		}
@@ -63,7 +67,7 @@ func (q *Queries) GetAll(ctx context.Context, db DBTX) ([]*GetAllRow, error) {
 }
 
 const getById = `-- name: GetById :one
-SELECT id, name, settings, step::text FROM user_settings WHERE chatid = $1
+SELECT id, name, settings, step::text,status,premium FROM user_settings WHERE chatid = $1
 `
 
 type GetByIdRow struct {
@@ -71,6 +75,8 @@ type GetByIdRow struct {
 	Name     string `db:"name"`
 	Settings []byte `db:"settings"`
 	Step     string `db:"step"`
+	Status   bool   `db:"status"`
+	Premium  bool   `db:"premium"`
 }
 
 func (q *Queries) GetById(ctx context.Context, db DBTX, chatid int64) (*GetByIdRow, error) {
@@ -81,15 +87,17 @@ func (q *Queries) GetById(ctx context.Context, db DBTX, chatid int64) (*GetByIdR
 		&i.Name,
 		&i.Settings,
 		&i.Step,
+		&i.Status,
+		&i.Premium,
 	)
 	return &i, err
 }
 
 const insert = `-- name: Insert :one
 INSERT INTO user_settings (
-    chatid, name, settings, step
+    chatid, name, settings, step, status,premium
 ) VALUES (
-             $1, $2, $3, $4::text
+             $1, $2, $3, $4::text, $5, $6
          ) returning id
 `
 
@@ -98,6 +106,8 @@ type InsertParams struct {
 	Name     string `db:"name"`
 	Settings []byte `db:"settings"`
 	Step     string `db:"step"`
+	Status   bool   `db:"status"`
+	Premium  bool   `db:"premium"`
 }
 
 func (q *Queries) Insert(ctx context.Context, db DBTX, arg *InsertParams) (int64, error) {
@@ -106,22 +116,60 @@ func (q *Queries) Insert(ctx context.Context, db DBTX, arg *InsertParams) (int64
 		arg.Name,
 		arg.Settings,
 		arg.Step,
+		arg.Status,
+		arg.Premium,
 	)
 	var id int64
 	err := row.Scan(&id)
 	return id, err
 }
 
+const listEnabled = `-- name: ListEnabled :many
+SELECT id, chatid, name, settings, step, status, premium
+FROM user_settings
+WHERE status = true
+`
+
+func (q *Queries) ListEnabled(ctx context.Context, db DBTX) ([]*UserSetting, error) {
+	rows, err := db.Query(ctx, listEnabled)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []*UserSetting
+	for rows.Next() {
+		var i UserSetting
+		if err := rows.Scan(
+			&i.ID,
+			&i.Chatid,
+			&i.Name,
+			&i.Settings,
+			&i.Step,
+			&i.Status,
+			&i.Premium,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, &i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const update = `-- name: Update :exec
 UPDATE user_settings
-SET  name = $1, settings = $2, step = $3::text
-WHERE chatid = $4
+SET  name = $1, settings = $2, step = $3::text, status = $4,premium = $5
+WHERE chatid = $6
 `
 
 type UpdateParams struct {
 	Name     string `db:"name"`
 	Settings []byte `db:"settings"`
 	Step     string `db:"step"`
+	Status   bool   `db:"status"`
+	Premium  bool   `db:"premium"`
 	Chatid   int64  `db:"chatid"`
 }
 
@@ -130,6 +178,8 @@ func (q *Queries) Update(ctx context.Context, db DBTX, arg *UpdateParams) error 
 		arg.Name,
 		arg.Settings,
 		arg.Step,
+		arg.Status,
+		arg.Premium,
 		arg.Chatid,
 	)
 	return err

@@ -15,6 +15,4 @@ func (r *Router) DisableUser(userID int64) {
 		sess.Cancel()
 	}
 
-	// ✅ останавливаем confirmWorker
-	close(sess.Queue)
 }

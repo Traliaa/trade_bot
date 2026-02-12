@@ -101,3 +101,18 @@ func (u *User) Delete(
 		})
 	return err
 }
+
+// ListEnabled возвращает пользователей, у которых Enabled=true
+func (u *User) ListEnabled(ctx context.Context) (users []*models.UserSettings, err error) {
+	defer func() {
+		if err != nil {
+			err = fmt.Errorf("pg.User.ListEnabled: %w", err)
+		}
+	}()
+
+	err = u.db.RunMaster(ctx, func(ctxTx context.Context, tx pgx.Tx) error {
+		users, err = u.user.ListEnabled(ctxTx, tx)
+		return err
+	})
+	return users, err
+}

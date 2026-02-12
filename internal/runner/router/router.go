@@ -25,13 +25,25 @@ type UserSettingsSnapshot struct {
 
 // Router хранит активных юзеров и раздаёт сигналы.
 type Router struct {
-	mu    sync.RWMutex
-	users map[int64]*sessions.UserSession // userID -> сессия
+	mu               sync.RWMutex
+	users            map[int64]*sessions.UserSession // userID -> сессия
+	Repository       Repository
+	TelegramNotifier TelegramNotifier
 }
 
-func NewRouter() *Router {
+type Repository interface {
+	Update(ctx context.Context, user *models.UserSettings) error
+	ListEnabled(ctx context.Context) (users []*models.UserSettings, err error)
+}
+
+func NewRouter(
+	Repository Repository,
+	TelegramNotifier TelegramNotifier,
+) *Router {
 	return &Router{
-		users: make(map[int64]*sessions.UserSession),
+		users:            make(map[int64]*sessions.UserSession),
+		Repository:       Repository,
+		TelegramNotifier: TelegramNotifier,
 	}
 }
 

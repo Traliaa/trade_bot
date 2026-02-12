@@ -14,11 +14,14 @@ type UserSettings struct {
 	Name     string   `json:"name"`
 	Step     string   `json:"step"`
 	Settings Settings `json:"settings"`
+	Status   bool     `json:"Status"` // ✅ было ли "включено"
+	Premium  bool     `json:"Premium"`
 }
 type Settings struct {
 	TradingSettings TradingSettings
 	TrailingConfig  TrailingConfig
 	FeatureFlags    FeatureConfig
+	PositionGuard   PositionGuardMap `json:"position_guard"`
 }
 
 type FeatureConfig struct {
@@ -79,10 +82,6 @@ func NewTradingSettingsFromDefaults(userID int64, cfg *config.Config) *UserSetti
 
 				StopPct:      cfg.UserDefaults.DefaultStopPct,
 				TakeProfitRR: cfg.UserDefaults.DefaultTakeProfitRR,
-
-				ConfirmRequired:   cfg.UserDefaults.DefaultConfirmRequired,
-				CooldownPerSymbol: cfg.UserDefaults.DefaultCooldownPerSymbol,
-				ConfirmTimeout:    cfg.UserDefaults.DefaultConfirmTimeout,
 			},
 			TrailingConfig: TrailingConfig{
 				BETriggerR:       cfg.DefaultTrailing.BETriggerR,

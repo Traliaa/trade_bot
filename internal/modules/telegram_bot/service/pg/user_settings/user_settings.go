@@ -8,6 +8,7 @@ import (
 
 	"github.com/bytedance/sonic"
 	"github.com/jackc/pgx/v5"
+	"github.com/samber/lo"
 )
 
 // UserSettings implement db store
@@ -39,6 +40,8 @@ func (u *UserSettings) Insert(ctx context.Context, tx pgx.Tx, user *models.UserS
 		Name:     user.Name,
 		Settings: data,
 		Step:     user.Step,
+		Status:   user.Status,
+		Premium:  user.Premium,
 	})
 	if err != nil {
 		return err
@@ -62,6 +65,8 @@ func (u *UserSettings) Update(ctx context.Context, tx pgx.Tx, user *models.UserS
 		Name:     user.Name,
 		Settings: data,
 		Step:     user.Step,
+		Status:   user.Status,
+		Premium:  user.Premium,
 	})
 }
 
@@ -99,29 +104,62 @@ func (u *UserSettings) GetById(ctx context.Context, tx pgx.Tx, chatID int64) (us
 		Name:     resp.Name,
 		Settings: t,
 		Step:     resp.Step,
+		Status:   resp.Status,
+		Premium:  user.Premium,
 	}, nil
 }
 
-//func (u *UserSettings) GetAll(ctx context.Context, tx pgx.Tx) (users []*models.UserSettings, err error) {
-//	defer func() {
+//	func (u *UserSettings) GetAll(ctx context.Context, tx pgx.Tx) (users []*models.UserSettings, err error) {
+//		defer func() {
+//			if err != nil {
+//				err = fmt.Errorf("UserSettings.GetAll: %w", err)
+//			}
+//		}()
+//		resp, err := u.sql.GetAll(ctx, tx)
 //		if err != nil {
-//			err = fmt.Errorf("UserSettings.GetAll: %w", err)
+//			return nil, err
 //		}
-//	}()
-//	resp, err := u.sql.GetAll(ctx, tx)
-//	if err != nil {
-//		return nil, err
-//	}
-//	users = make([]*dto.UserSettings, len(resp))
+//		users = make([]*dto.UserSettings, len(resp))
 //
-//	for i := range resp {
-//		users = append(users, &dto.UserSettings{
-//			ID:       resp[i].ID,
-//			ChatID:   resp[i].Chatid,
-//			Name:     resp[i].Name,
-//			AuthCode: resp[i].AuthCode,
-//			Step:     resp[i].Step,
-//		})
+//		for i := range resp {
+//			users = append(users, &dto.UserSettings{
+//				ID:       resp[i].ID,
+//				ChatID:   resp[i].Chatid,
+//				Name:     resp[i].Name,
+//				AuthCode: resp[i].AuthCode,
+//				Step:     resp[i].Step,
+//			})
+//		}
+//		return users, nil
 //	}
-//	return users, nil
-//}
+//
+// ListEnabled возвращает пользователей, у которых Enabled=true
+func (u *UserSettings) ListEnabled(ctx context.Context, tx pgx.Tx) (users []*models.UserSettings, err error) {
+	defer func() {
+		if err != nil {
+			err = fmt.Errorf("pg.User.ListEnabled: %w", err)
+		}
+	}()
+
+	resp, err := u.sql.ListEnabled(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
+	for i := range resp {
+		var t models.Settings
+		err = sonic.Unmarshal(resp[i].Settings, &t)
+		if err != nil {
+			return nil, err
+		}
+		users = append(users, &models.UserSettings{
+			ID:       resp[i].ID,
+			UserID:   resp[i].Chatid,
+			Name:     resp[i].Name,
+			Settings: t,
+			Step:     lo.FromPtr(resp[i].Step),
+			Status:   resp[i].Status,
+			Premium:  resp[i].Premium,
+		})
+	}
+	return users, err
+}

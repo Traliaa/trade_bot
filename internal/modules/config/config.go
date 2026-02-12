@@ -80,10 +80,6 @@ type UserDefaultsConfig struct {
 	DefaultRiskPct          float64 `yaml:"default_risk_pct"`
 	DefaultStopPct          float64 `yaml:"default_stop_pct"`
 	DefaultTakeProfitRR     float64 `yaml:"default_take_profit_rr"`
-
-	DefaultConfirmRequired   bool          `yaml:"default_confirm_required"`
-	DefaultConfirmTimeout    time.Duration `yaml:"default_confirm_timeout"`
-	DefaultCooldownPerSymbol time.Duration `yaml:"default_cooldown_per_symbol"`
 }
 
 type TrailingDefaultsConfig struct {
@@ -148,9 +144,6 @@ func NewConfig() (*Config, error) {
 	cfg.UserDefaults.DefaultRiskPct = 0.5
 	cfg.UserDefaults.DefaultStopPct = 3.0
 	cfg.UserDefaults.DefaultTakeProfitRR = 2.0
-	cfg.UserDefaults.DefaultConfirmRequired = true
-	cfg.UserDefaults.DefaultConfirmTimeout = 30 * time.Second
-	cfg.UserDefaults.DefaultCooldownPerSymbol = 6 * time.Hour
 
 	// --- читаем yaml ---
 	configFileName := os.Getenv(configFilePathENV)
