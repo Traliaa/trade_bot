@@ -131,17 +131,17 @@ func (h *Hub) onBecameReady(ctx context.Context, sym string) {
 		return
 	}
 	// старт (один раз)
-	if !h.warmupDone && h.readyCnt >= expected {
-		h.warmupDone = true
-		if h.n != nil {
-			h.n.Set(ctx, public.Status{
-				State:       public.StateReady,
-				Exchange:    "OKX",
-				Instruments: expected,
-				Progress:    100,
-			})
-		}
-	}
+	//if !h.warmupDone && h.readyCnt >= expected {
+	//	h.warmupDone = true
+	//	if h.n != nil {
+	//		h.n.Set(ctx, public.Status{
+	//			State:       public.StateReady,
+	//			Exchange:    "OKX",
+	//			Instruments: expected,
+	//			Progress:    100,
+	//		})
+	//	}
+	//}
 	//// done
 	//if !h.warmupDone && expected > 0 && h.readyCnt >= expected {
 	//	h.warmupDone = true
@@ -195,21 +195,21 @@ func (h *Hub) maybeWarmupProgress(ctx context.Context) {
 			pct = 99
 		}
 
-		// не редактируем, если процент не менялся
-		if pct != h.lastWarmupPct || h.lastProgress.IsZero() {
-			h.lastWarmupPct = pct
-			h.lastProgress = now
-
-			h.n.Set(ctx, public.Status{
-				State:       public.StatePreparing,
-				Exchange:    "OKX",
-				Instruments: expected,
-				Progress:    pct,
-			})
-		} else {
-			// даже если процент не менялся, отметим время последней проверки
-			h.lastProgress = now
-		}
+		//// не редактируем, если процент не менялся
+		//if pct != h.lastWarmupPct || h.lastProgress.IsZero() {
+		//	h.lastWarmupPct = pct
+		//	h.lastProgress = now
+		//
+		//	h.n.Set(ctx, public.Status{
+		//		State:       public.StatePreparing,
+		//		Exchange:    "OKX",
+		//		Instruments: expected,
+		//		Progress:    pct,
+		//	})
+		//} else {
+		//	// даже если процент не менялся, отметим время последней проверки
+		//	h.lastProgress = now
+		//}
 	}
 
 	// 2) Stall detector (без WarmupPct, только константа)

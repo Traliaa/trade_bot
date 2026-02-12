@@ -82,7 +82,7 @@ func (s *Service) sendOrEdit(ctx context.Context, st Status) error {
 		return err
 	}
 
-	text := st.Render()
+	text := st.RenderHTML()
 
 	if !ok || meta.MessageID == 0 {
 		id, err := s.n.SendServiceText(ctx, text)
