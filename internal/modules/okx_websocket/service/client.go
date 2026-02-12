@@ -73,7 +73,7 @@ func (c *Client) Start(ctx context.Context, out chan<- OutTick) {
 			Exchange:    "OKX",
 			Instruments: 100,
 			UpdatedAt:   time.Now(),
-		}.Render())
+		}.RenderHTML())
 
 	}
 	for _, tf := range timeframes {

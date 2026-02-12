@@ -49,7 +49,7 @@ func (w *Warmuper) Warmup(ctx context.Context, symbols []string) error {
 		Instruments: total,
 		Progress:    0,
 		UpdatedAt:   time.Now(),
-	}.Render())
+	}.RenderHTML())
 
 	var (
 		wg       sync.WaitGroup
@@ -87,7 +87,7 @@ func (w *Warmuper) Warmup(ctx context.Context, symbols []string) error {
 					Instruments: total,
 					Progress:    pct,
 					UpdatedAt:   time.Now(),
-				}.Render())
+				}.RenderHTML())
 			}
 		}
 	}()
@@ -172,7 +172,7 @@ func (w *Warmuper) Warmup(ctx context.Context, symbols []string) error {
 			Exchange:    "OKX",
 			Instruments: total,
 			UpdatedAt:   time.Now(),
-		}.Render())
+		}.RenderHTML())
 
 		// (Опционально) подробности об ошибке — лучше в dev-лог, а не в публичный канал:
 		// w.log.Error("warmup failed", zap.Error(firstErr))
@@ -187,7 +187,7 @@ func (w *Warmuper) Warmup(ctx context.Context, symbols []string) error {
 		Instruments: total,
 		Progress:    100,
 		UpdatedAt:   time.Now(),
-	}.Render())
+	}.RenderHTML())
 
 	return nil
 }
