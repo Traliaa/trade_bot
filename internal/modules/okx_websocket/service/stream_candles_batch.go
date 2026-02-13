@@ -8,8 +8,6 @@ import (
 	"strconv"
 	"time"
 	"trade_bot/internal/models"
-
-	"github.com/gorilla/websocket"
 )
 
 // StreamCandlesBatch — один WebSocket на таймфрейм с пачкой инструментов в args.
@@ -22,14 +20,16 @@ func (c *Client) StreamCandlesBatch(ctx context.Context, instIDs []string, timef
 			return
 		}
 
-		channel := "candle" + timeframe
-		url := "wss://ws.okx.com:8443/ws/v5/business"
+		okxBar := toOKXBar(timeframe)
+		channel := "candle" + okxBar
 		tfDur := timeframeToDuration(timeframe)
+		url := "wss://ws.okx.com:8443/ws/v5/business"
+		log.Printf("[WS] subscribed %s (tf=%s okx=%s) %d symbols", channel, timeframe, okxBar, len(instIDs))
 
 		args := make([]map[string]string, 0, len(instIDs))
 		for _, id := range instIDs {
 			args = append(args, map[string]string{
-				"channel": channel,
+				"channel": channel, // ✅ теперь candle1H
 				"instId":  id,
 			})
 		}
@@ -73,7 +73,7 @@ func (c *Client) StreamCandlesBatch(ctx context.Context, instIDs []string, timef
 						return
 					case <-t.C:
 						// OKX нормально принимает {"op":"ping"}
-						_ = conn.WriteMessage(websocket.TextMessage, []byte("ping"))
+						_ = conn.WriteJSON(map[string]any{"op": "ping"})
 					}
 				}
 			}()
@@ -166,6 +166,7 @@ func (c *Client) StreamCandlesBatch(ctx context.Context, instIDs []string, timef
 							End:          end,
 							TimeframeRaw: timeframe,
 						}
+						log.Printf("[WS] %s %s(okx=%s) confirm=1 ts=%s close=%s", frame.Arg.InstID, timeframe, okxBar, row[0], row[4])
 
 						select {
 						case out <- tick:

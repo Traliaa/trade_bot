@@ -72,40 +72,40 @@ func (c *Client) Start(ctx context.Context, out chan<- OutTick) {
 	timeframes := uniqTimeframes("1m", c.cfg.Strategy.LTF, c.cfg.Strategy.HTF)
 
 	if c.n != nil {
-		c.n.SendServiceText(ctx, public.Status{
+		_, _ = c.n.SendServiceText(ctx, public.Status{
 			State:       public.StateRestarting,
 			Exchange:    "OKX",
 			Instruments: len(syms),
 			UpdatedAt:   time.Now(),
 		}.RenderHTML())
-
 	}
+
 	for _, tf := range timeframes {
-		go c.runTimeframe(ctx, tf, syms, out)
+		okxBar := toOKXBar(tf)
+		go c.runTimeframe(ctx, tf, okxBar, syms, out)
 	}
 }
 
 func (c *Client) runTimeframe(
 	ctx context.Context,
-	timeframe string,
+	internalTF string, // "1h"
+	okxBar string, // "1H"
 	syms []string,
 	out chan<- OutTick,
 ) {
-	logger.Error(fmt.Sprintf("запускаем стрим %s ", timeframe))
+	logger.Error(fmt.Sprintf("запускаем стрим %s (okx=%s)", internalTF, okxBar))
 
-	ticks := c.StreamCandlesBatch(ctx, syms, timeframe)
+	ticks := c.StreamCandlesBatch(ctx, syms, okxBar) // <-- ВАЖНО: okxBar
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
-
 		case tick, ok := <-ticks:
 			if !ok {
 				return
 			}
 
-			// прокидываем дальше
 			candle := models.CandleTick{
 				Open:   tick.Open,
 				High:   tick.High,
@@ -119,10 +119,9 @@ func (c *Client) runTimeframe(
 			select {
 			case out <- OutTick{
 				InstID:    tick.InstID,
-				Timeframe: timeframe,
+				Timeframe: internalTF, // наружу отдаём "1h", как ждёт engine
 				Candle:    candle,
 			}:
-				// ok
 			case <-ctx.Done():
 				return
 			}
@@ -145,4 +144,31 @@ func uniqTimeframes(tfs ...string) []string {
 		out = append(out, tf)
 	}
 	return out
+}
+
+func toOKXBar(tf string) string {
+	switch tf {
+	case "1m", "3m", "5m", "15m", "30m":
+		return tf
+	case "1h":
+		return "1H"
+	case "2h":
+		return "2H"
+	case "4h":
+		return "4H"
+	case "6h":
+		return "6H"
+	case "12h":
+		return "12H"
+	case "1d":
+		return "1D"
+	case "1w":
+		return "1W"
+	default:
+		return tf // fallback, но лучше логнуть
+	}
+}
+
+func okxCandleChannel(okxBar string) string {
+	return "candle" + okxBar
 }
