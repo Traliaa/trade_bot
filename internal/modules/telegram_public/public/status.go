@@ -40,12 +40,12 @@ func (s Status) RenderHTML() string {
 
 	switch s.State {
 	case StateRestarting:
-		b.WriteString("⚠️ <b>Бот перезапущен</b>\n\n")
+		b.WriteString("⚠️ Бот перезапущен\n\n")
 		b.WriteString("Восстанавливаем соединение и рыночные данные.\n")
 		b.WriteString("⏳ Пожалуйста, подождите.\n")
 
 	case StateConnecting:
-		b.WriteString("📡 <b>Подключаемся к бирже</b>\n\n")
+		b.WriteString("📡 Подключаемся к бирже\n\n")
 		if ex != "" {
 			b.WriteString("Биржа: " + ex + "\n")
 		}
@@ -55,7 +55,7 @@ func (s Status) RenderHTML() string {
 		b.WriteString("\nГотовим поток рыночных данных...\n")
 
 	case StatePreparing:
-		b.WriteString("📊 <b>Подготовка рыночных данных</b>\n\n")
+		b.WriteString("📊 Подготовка рыночных данных\n\n")
 		if ex != "" {
 			b.WriteString("Биржа: " + ex + "\n")
 		}
@@ -73,7 +73,7 @@ func (s Status) RenderHTML() string {
 		}
 
 	case StateReady:
-		b.WriteString("🟢 <b>Бот готов к работе</b>\n\n")
+		b.WriteString("🟢 Бот готов к работе\n\n")
 		if ex != "" {
 			b.WriteString("Биржа: " + ex + "\n")
 		}
@@ -84,9 +84,9 @@ func (s Status) RenderHTML() string {
 		b.WriteString("и уведомит о появлении торговых сигналов.\n")
 
 	case StatePaused:
-		b.WriteString("🟡 <b>Торговля приостановлена</b>\n\n")
+		b.WriteString("🟡 Торговля приостановлена\n\n")
 		b.WriteString("Бот продолжает наблюдать за рынком,\n")
-		b.WriteString("но <b>не будет открывать сделки</b>.\n")
+		b.WriteString("но не будет открывать сделки.\n")
 		if strings.TrimSpace(reason) != "" {
 			b.WriteString("\nПричина: " + reason + "\n")
 		}
@@ -94,7 +94,7 @@ func (s Status) RenderHTML() string {
 		b.WriteString("и нажмите «▶️ Запустить бота».\n")
 
 	case StateError:
-		b.WriteString("🔴 <b>Ошибка запуска</b>\n\n")
+		b.WriteString("🔴 Ошибка запуска\n\n")
 		b.WriteString("Не удалось подготовиться к работе.\n")
 		b.WriteString("Бот попробует восстановиться автоматически.\n")
 		if strings.TrimSpace(hint) != "" {

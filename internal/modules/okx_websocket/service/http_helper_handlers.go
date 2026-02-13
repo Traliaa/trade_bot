@@ -41,15 +41,11 @@ func (c *Client) HasCandles(instID, tf string) bool {
 	return true
 }
 
-func (c *Client) TopVolatile(n int) []string {
-	if n <= 0 {
-		return nil
-	}
-
+func (c *Client) TopVolatile(n int) ([]string, error) {
 	// все swap-инструменты
 	tickers, err := c.fetchSwapTickers()
 	if err != nil || len(tickers) == 0 {
-		return nil
+		return nil, err
 	}
 
 	type rec struct {
@@ -78,10 +74,6 @@ func (c *Client) TopVolatile(n int) []string {
 		arr = append(arr, rec{sym: t.InstID, score: score})
 	}
 
-	if len(arr) == 0 {
-		return nil
-	}
-
 	sort.Slice(arr, func(i, j int) bool { return arr[i].score > arr[j].score })
 	if n > len(arr) {
 		n = len(arr)
@@ -90,7 +82,7 @@ func (c *Client) TopVolatile(n int) []string {
 	for i := 0; i < n; i++ {
 		res = append(res, arr[i].sym)
 	}
-	return res
+	return res, nil
 }
 
 // ===== REST: top volatile SWAP instruments (OKX) =====

@@ -10,6 +10,6 @@ func NewWatchlist(mx *okx_websocket.Client) *OkxWatchlist {
 	return &OkxWatchlist{mx: mx}
 }
 
-func (w *OkxWatchlist) TopVolatile(n int) []string {
+func (w *OkxWatchlist) TopVolatile(n int) ([]string, error) {
 	return w.mx.TopVolatile(n) // подгони сигнатуру под свою
 }

@@ -20,8 +20,12 @@ func Module() fx.Option {
 				OnStart: func(ctx context.Context) error {
 					// тут твой func1 скорее всего и был
 					go func() {
-						syms := wl.TopVolatile(cfg.Strategy.WatchTopN)
-						if err := wu.Warmup(ctx, syms); err != nil {
+						syms, err := wl.TopVolatile(cfg.Strategy.WatchTopN)
+						if err != nil {
+							log.Fatal("[BOOT] warmup error: %v", err)
+							return
+						}
+						if err = wu.Warmup(ctx, syms); err != nil {
 							log.Printf("[BOOT] warmup error: %v", err)
 							return
 						}

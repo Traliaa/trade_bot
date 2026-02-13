@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"sync"
@@ -9,6 +10,7 @@ import (
 	"trade_bot/internal/models"
 	"trade_bot/internal/modules/config"
 	"trade_bot/internal/modules/telegram_public/public"
+	"trade_bot/pkg/logger"
 
 	"github.com/gorilla/websocket"
 )
@@ -56,11 +58,11 @@ type OutTick struct {
 
 // Start собирает топ-волатильные и стримит по нескольким таймфреймам.
 func (c *Client) Start(ctx context.Context, out chan<- OutTick) {
-	syms := c.TopVolatile(c.cfg.Strategy.WatchTopN)
+	syms, err := c.TopVolatile(c.cfg.Strategy.WatchTopN)
+	if err != nil {
+		log.Fatal("Error getting top volatile symbols: ", err)
+	}
 	if len(syms) == 0 {
-		if c.n != nil {
-			c.n.SendServiceText(ctx, "⚠️ *Рынок:* не удалось собрать список волатильных инструментов — стример не запущен.")
-		}
 		log.Println("[MARKET] пустой список волатильных инструментов")
 		return
 	}
@@ -87,6 +89,8 @@ func (c *Client) runTimeframe(
 	syms []string,
 	out chan<- OutTick,
 ) {
+	logger.Error(fmt.Sprintf("запускаем стрим %s ", timeframe))
+
 	ticks := c.StreamCandlesBatch(ctx, syms, timeframe)
 
 	for {

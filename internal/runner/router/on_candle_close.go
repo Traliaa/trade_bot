@@ -3,9 +3,13 @@ package router
 import (
 	"context"
 	"sync"
+	"time"
 	"trade_bot/internal/helper"
 	"trade_bot/internal/models"
 	sessions "trade_bot/internal/runner/sessions"
+
+	"github.com/bytedance/gopkg/util/logger"
+	"go.uber.org/zap"
 )
 
 type candleAgg struct {
@@ -51,14 +55,17 @@ func (r *Router) OnCandleClose(ctx context.Context, ct models.CandleTick) {
 
 	for _, sess := range uS {
 		s := sess
+
 		select {
 		case sem <- struct{}{}:
 			go func() {
 				defer func() { <-sem }()
 				s.OnCandleClose(ctx, ct)
 			}()
-		default:
-			// если лимит занят — пропускаем этот ct для этого юзера
+		case <-time.After(300 * time.Millisecond):
+			logger.Warn("пропуск свечи: заняты воркеры", zap.String("inst", ct.InstID))
+		case <-ctx.Done():
+			return
 		}
 	}
 }

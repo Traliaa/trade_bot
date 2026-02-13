@@ -40,12 +40,13 @@ type Hub struct {
 	lastWarmupPct int
 }
 
-func NewHub(cfg *config.Config, n *public.Service, out chan<- models.Signal, engine Engine) *Hub {
+func NewHub(cfg *config.Config, n *public.Service, out chan<- models.Signal, candleOut chan<- models.CandleTick, engine Engine) *Hub {
 	return &Hub{
 		cfg:       cfg,
 		n:         n,
 		out:       out,
 		engine:    engine,
+		candleOut: candleOut,
 		ready:     make(map[string]bool),
 		startedAt: time.Now(),
 	}
@@ -130,28 +131,6 @@ func (h *Hub) onBecameReady(ctx context.Context, sym string) {
 	if expected <= 0 {
 		return
 	}
-	// старт (один раз)
-	//if !h.warmupDone && h.readyCnt >= expected {
-	//	h.warmupDone = true
-	//	if h.n != nil {
-	//		h.n.Set(ctx, public.Status{
-	//			State:       public.StateReady,
-	//			Exchange:    "OKX",
-	//			Instruments: expected,
-	//			Progress:    100,
-	//		})
-	//	}
-	//}
-	//// done
-	//if !h.warmupDone && expected > 0 && h.readyCnt >= expected {
-	//	h.warmupDone = true
-	//	if h.n != nil {
-	//		h.n.SendService(ctx,
-	//			"✅ Warmup finished: %d/%d ready. Теперь ждём сигналы.",
-	//			h.readyCnt, expected,
-	//		)
-	//	}
-	//}
 }
 
 func (h *Hub) isWarmupDone() bool {
@@ -195,21 +174,6 @@ func (h *Hub) maybeWarmupProgress(ctx context.Context) {
 			pct = 99
 		}
 
-		//// не редактируем, если процент не менялся
-		//if pct != h.lastWarmupPct || h.lastProgress.IsZero() {
-		//	h.lastWarmupPct = pct
-		//	h.lastProgress = now
-		//
-		//	h.n.Set(ctx, public.Status{
-		//		State:       public.StatePreparing,
-		//		Exchange:    "OKX",
-		//		Instruments: expected,
-		//		Progress:    pct,
-		//	})
-		//} else {
-		//	// даже если процент не менялся, отметим время последней проверки
-		//	h.lastProgress = now
-		//}
 	}
 
 	// 2) Stall detector (без WarmupPct, только константа)

@@ -3,10 +3,9 @@ package runner
 import (
 	"context"
 	"time"
-	"trade_bot/internal/modules/repository/pg"
-
 	"trade_bot/internal/helper"
 	"trade_bot/internal/models"
+	"trade_bot/internal/modules/repository/pg"
 	"trade_bot/internal/modules/telegram_bot/service"
 	"trade_bot/internal/runner/router"
 
