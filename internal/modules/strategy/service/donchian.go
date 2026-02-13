@@ -15,13 +15,6 @@ type donState struct {
 	lows  []float64
 }
 
-func newDonState(n int) donState {
-	return donState{
-		highs: make([]float64, 0, n),
-		lows:  make([]float64, 0, n),
-	}
-}
-
 //// OnCandle возвращает (side, reason) или SideNone
 //func (s *donState) OnCandle(cfg DonchianConfig, close, high, low float64) (side string, reason string, ok bool) {
 //	// нужен минимум Period+1, потому что канал считаем по предыдущим Period свечам

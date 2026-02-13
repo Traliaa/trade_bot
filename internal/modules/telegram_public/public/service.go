@@ -84,6 +84,7 @@ func (s *Service) sendOrEdit(ctx context.Context, st Status) error {
 
 	text := st.RenderHTML()
 
+	// если сообщения ещё нет — отправляем
 	if !ok || meta.MessageID == 0 {
 		id, err := s.n.SendServiceText(ctx, text)
 		if err != nil {
@@ -92,5 +93,6 @@ func (s *Service) sendOrEdit(ctx context.Context, st Status) error {
 		return s.r.Upsert(ctx, Meta{MessageID: id})
 	}
 
+	// иначе редактируем
 	return s.n.EditServiceText(ctx, meta.MessageID, text)
 }

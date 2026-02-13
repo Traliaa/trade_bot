@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
 	"trade_bot/internal/helper"
@@ -91,8 +90,6 @@ func (h *Hub) OnTick(ctx context.Context, t okxws.OutTick) {
 	if helper.NormTF(ct.TimeframeRaw) == "1m" {
 		select {
 		case h.candleOut <- ct:
-			fmt.Printf("[CANDLE OUT] %s 1m close=%.6f end=%s\n", ct.InstID, ct.Close, ct.End.Format(time.RFC3339))
-
 		default:
 		}
 	}
@@ -179,22 +176,6 @@ func (h *Hub) maybeWarmupProgress(ctx context.Context) {
 	// 2) Stall detector (без WarmupPct, только константа)
 	if h.lastReadyAt.IsZero() {
 		h.lastReadyAt = now
-	}
-
-	stallTimeout := 5 * time.Minute
-	minRatio := 0.99
-	minReady := int(float64(expected) * minRatio)
-
-	if h.readyCnt >= minReady && now.Sub(h.lastReadyAt) >= stallTimeout {
-		h.warmupDone = true
-		if h.n != nil {
-			h.n.Set(ctx, public.Status{
-				State:       public.StateReady,
-				Exchange:    "OKX",
-				Instruments: expected,
-				Progress:    100,
-			})
-		}
 	}
 }
 

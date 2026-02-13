@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 	"trade_bot/internal/models"
@@ -60,20 +61,21 @@ type OutTick struct {
 func (c *Client) Start(ctx context.Context, out chan<- OutTick) {
 	syms, err := c.TopVolatile(c.cfg.Strategy.WatchTopN)
 	if err != nil {
-		log.Fatal("Error getting top volatile symbols: ", err)
+		log.Printf("[MARKET] ошибка TopVolatile: %v", err)
+		return
 	}
 	if len(syms) == 0 {
 		log.Println("[MARKET] пустой список волатильных инструментов")
 		return
 	}
 
-	timeframes := []string{"1m", "5m", "15m"}
+	timeframes := uniqTimeframes("1m", c.cfg.Strategy.LTF, c.cfg.Strategy.HTF)
 
 	if c.n != nil {
 		c.n.SendServiceText(ctx, public.Status{
 			State:       public.StateRestarting,
 			Exchange:    "OKX",
-			Instruments: 100,
+			Instruments: len(syms),
 			UpdatedAt:   time.Now(),
 		}.RenderHTML())
 
@@ -126,4 +128,21 @@ func (c *Client) runTimeframe(
 			}
 		}
 	}
+}
+
+func uniqTimeframes(tfs ...string) []string {
+	m := make(map[string]struct{}, len(tfs))
+	out := make([]string, 0, len(tfs))
+	for _, tf := range tfs {
+		tf = strings.TrimSpace(tf)
+		if tf == "" {
+			continue
+		}
+		if _, ok := m[tf]; ok {
+			continue
+		}
+		m[tf] = struct{}{}
+		out = append(out, tf)
+	}
+	return out
 }
