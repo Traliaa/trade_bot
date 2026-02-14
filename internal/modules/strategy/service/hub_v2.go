@@ -21,7 +21,7 @@ type Hub struct {
 	out       chan<- models.Signal
 	candleOut chan<- models.CandleTick
 
-	engine Engine
+	engine *DonchianV2HTF
 
 	mu            sync.Mutex
 	readyCnt      int
@@ -39,7 +39,7 @@ type Hub struct {
 	lastWarmupPct int
 }
 
-func NewHub(cfg *config.Config, n *public.Service, out chan<- models.Signal, candleOut chan<- models.CandleTick, engine Engine) *Hub {
+func NewHub(cfg *config.Config, n *public.Service, out chan<- models.Signal, candleOut chan<- models.CandleTick, engine *DonchianV2HTF) *Hub {
 	return &Hub{
 		cfg:       cfg,
 		n:         n,

@@ -28,8 +28,8 @@ func Module() fx.Option {
 			asSendOnlySignals, // chan<- models.Signal
 			newSignalsStopChan,
 			asSendOnlyStopSignals,
-			service.NewEngine, // service.Engine
-			service.NewHub,    // *service.Hub (получит V2Config, Notifier, chan<-Signal, Engine)
+			service.NewDonchianV2HTF, // service.Engine
+			service.NewHub,           // *service.Hub (получит V2Config, Notifier, chan<-Signal, Engine)
 			fx.Annotate(
 				func(s *public.Service) service.ServiceNotifier { return s },
 				fx.As(new(service.ServiceNotifier)),
