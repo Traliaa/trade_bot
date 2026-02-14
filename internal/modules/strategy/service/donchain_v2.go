@@ -191,40 +191,49 @@ func (e *DonchianV2HTF) OnCandle(t models.CandleTick) (models.Signal, bool, bool
 			becameReady = true
 		}
 
-		// ---- базовые условия готовности ----
+		// === БАЗОВЫЕ ПРОВЕРКИ ===
 		if !haveCh {
 			e.reject("no_channel")
-			goto UPDATE
+			e.updateBuffer(st, t)
+			e.maybeLogRejects()
+			return models.Signal{}, false, becameReady
 		}
+
 		if !st.readyLTF || !st.readyHTF {
 			e.reject("not_ready")
-			goto UPDATE
+			e.updateBuffer(st, t)
+			e.maybeLogRejects()
+			return models.Signal{}, false, becameReady
 		}
+
 		if st.trend == TrendNone {
 			e.reject("no_trend")
-			goto UPDATE
+			e.updateBuffer(st, t)
+			e.maybeLogRejects()
+			return models.Signal{}, false, becameReady
 		}
 
 		// ---- ширина канала ----
 		chPct = (dh - dl) / t.Close
 		if chPct < e.cfg.Strategy.MinChannelPct {
 			e.reject("small_channel")
-			goto UPDATE
+			e.updateBuffer(st, t)
+			e.maybeLogRejects()
+			return models.Signal{}, false, becameReady
 		}
 
 		// ---- тело свечи ----
 		bodyPct = math.Abs(t.Close-t.Open) / t.Close
 		if bodyPct < e.cfg.Strategy.MinBodyPct {
 			e.reject("small_body")
-			goto UPDATE
+			e.updateBuffer(st, t)
+			e.maybeLogRejects()
+			return models.Signal{}, false, becameReady
 		}
 
 		// ---- breakout ----
 		bo := e.cfg.Strategy.BreakoutPct
-		if bo < 0 {
-			bo = 0
-		}
-		if bo == 0 {
+		if bo <= 0 {
 			bo = 0.002
 		}
 
@@ -234,79 +243,60 @@ func (e *DonchianV2HTF) OnCandle(t models.CandleTick) (models.Signal, bool, bool
 		brokeUpByBody := t.Open <= dh && t.Close > dh
 		brokeDnByBody := t.Open >= dl && t.Close < dl
 
-		// ---- close near edge фильтр ----
 		rng := t.High - t.Low
 		if rng <= 0 {
 			e.reject("zero_range")
-			goto UPDATE
+			e.updateBuffer(st, t)
+			e.maybeLogRejects()
+			return models.Signal{}, false, becameReady
 		}
 
 		closePos := (t.Close - t.Low) / rng
 
 		if st.trend == TrendUp && closePos < 0.80 {
 			e.reject("weak_close_up")
-			goto UPDATE
+			e.updateBuffer(st, t)
+			e.maybeLogRejects()
+			return models.Signal{}, false, becameReady
 		}
+
 		if st.trend == TrendDown && closePos > 0.20 {
 			e.reject("weak_close_down")
-			goto UPDATE
+			e.updateBuffer(st, t)
+			e.maybeLogRejects()
+			return models.Signal{}, false, becameReady
 		}
 
 		var side models.Side
 
-		switch {
-		case st.trend == TrendUp && brokeUpByBody && upBoPct >= bo:
+		if st.trend == TrendUp && brokeUpByBody && upBoPct >= bo {
 			side = models.SideBuy
-
-		case st.trend == TrendDown && brokeDnByBody && dnBoPct >= bo:
+		} else if st.trend == TrendDown && brokeDnByBody && dnBoPct >= bo {
 			side = models.SideSell
-
-		default:
+		} else {
 			e.reject("no_breakout")
-			goto UPDATE
+			e.updateBuffer(st, t)
+			e.maybeLogRejects()
+			return models.Signal{}, false, becameReady
 		}
 
-		// ---- сигнал ----
+		// ---- СИГНАЛ ----
 		st.lastSignalEnd = t.End
 
 		sig := models.Signal{
-			InstID:   t.InstID,
-			TF:       helper.NormTF(e.cfg.Strategy.LTF),
-			Side:     side,
-			Price:    t.Close,
-			Strategy: "donchian_v2_htf",
-			Reason: fmt.Sprintf(
-				"trend=%v Don[%d] chPct=%.4f bodyPct=%.4f bo=%.4f upBo=%.4f dnBo=%.4f dh=%.6f dl=%.6f",
-				st.trend, e.cfg.Strategy.DonchianPeriod,
-				chPct, bodyPct, bo, upBoPct, dnBoPct, dh, dl,
-			),
+			InstID:    t.InstID,
+			TF:        helper.NormTF(e.cfg.Strategy.LTF),
+			Side:      side,
+			Price:     t.Close,
+			Strategy:  "donchian_v2_htf",
 			CreatedAt: time.Now(),
 		}
 
-		st.highs = append(st.highs, t.High)
-		st.lows = append(st.lows, t.Low)
-		if len(st.highs) > e.cfg.Strategy.DonchianPeriod {
-			st.highs = st.highs[1:]
-			st.lows = st.lows[1:]
-		}
-
-		fmt.Printf("[SIG] %s %s close=%.6f dh=%.6f dl=%.6f trend=%v upBo=%.4f dnBo=%.4f\n",
-			t.InstID, side, t.Close, dh, dl, st.trend, upBoPct, dnBoPct)
+		e.updateBuffer(st, t)
 
 		e.maybeLogRejects()
 
 		return sig, true, becameReady
-
-	UPDATE:
-		st.highs = append(st.highs, t.High)
-		st.lows = append(st.lows, t.Low)
-		if len(st.highs) > e.cfg.Strategy.DonchianPeriod {
-			st.highs = st.highs[1:]
-			st.lows = st.lows[1:]
-		}
-
-		e.maybeLogRejects()
-		return models.Signal{}, false, becameReady
 
 	default:
 		return models.Signal{}, false, false
@@ -351,5 +341,14 @@ func (t Trend) String() string {
 		return "down"
 	default:
 		return "none"
+	}
+}
+func (e *DonchianV2HTF) updateBuffer(st *v2State, t models.CandleTick) {
+	st.highs = append(st.highs, t.High)
+	st.lows = append(st.lows, t.Low)
+
+	if len(st.highs) > e.cfg.Strategy.DonchianPeriod {
+		st.highs = st.highs[1:]
+		st.lows = st.lows[1:]
 	}
 }
