@@ -63,3 +63,7 @@ func (r *Router) OnSignal(ctx context.Context, sig models.Signal) {
 		}
 	}
 }
+
+//func (r *Router) StrategyRejects(reset bool) service.RejectSnapshot {
+//	//return r.hub.RejectSnapshot(reset)
+//}

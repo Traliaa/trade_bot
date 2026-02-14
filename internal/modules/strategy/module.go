@@ -3,6 +3,7 @@ package strategy
 import (
 	"context"
 	"log"
+	"time"
 	"trade_bot/internal/modules/strategy/service"
 	"trade_bot/internal/modules/telegram_public/public"
 
@@ -52,6 +53,20 @@ func Module() fx.Option {
 									return
 								}
 								hub.OnTick(ctx, t)
+							}
+						}
+					}()
+					go func() {
+						ticker := time.NewTicker(10 * time.Minute)
+						defer ticker.Stop()
+
+						for {
+							select {
+							case <-ctx.Done():
+								return
+
+							case <-ticker.C:
+								hub.MaybeAutoTune()
 							}
 						}
 					}()

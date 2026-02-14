@@ -13,6 +13,9 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
+const cbAdminRejects = "ADMIN::REJECTS"
+const cbAdminRejectsReset = "ADMIN::REJECTS_RESET"
+
 func (t *Telegram) handleUpdate(ctx context.Context, update tgbotapi.Update) {
 	// 1) Обычные сообщения
 	if msg := update.Message; msg != nil {
@@ -194,47 +197,6 @@ func (t *Telegram) handleSetTimeframe(ctx context.Context, chatID int64, msg *tg
 	out := tgbotapi.NewMessage(chatID, "Выбери таймфрейм:")
 	out.ReplyMarkup = kb
 	_, _ = t.SendMessage(ctx, out)
-}
-
-// handleConfirmCallback обрабатывает callback-и вида CONF::token / REJ::token.
-func (t *Telegram) handleConfirmCallback(chatID int64, data string) {
-	verb, token := parseConfirmData(data)
-	if verb == "" || token == "" {
-		return
-	}
-
-	t.mu.Lock()
-	p, ok := t.pendings[token]
-	t.mu.Unlock()
-	if !ok {
-		return
-	}
-
-	accepted := verb == "CONF"
-	p.ch <- accepted
-	close(p.ch)
-
-	status := "Отклонено"
-	emoji := "❌"
-	if accepted {
-		status = "Подтверждено"
-		emoji = "✅"
-	}
-
-	_ = t.editReplyMarkupRemove(chatID, p.msgID)
-	_ = t.editText(chatID, p.msgID, fmt.Sprintf("%s\n\n%s %s", p.prompt, emoji, status))
-
-	t.mu.Lock()
-	delete(t.pendings, token)
-	t.mu.Unlock()
-}
-func parseConfirmData(data string) (verb, token string) {
-	for i := 0; i < len(data); i++ {
-		if i+1 < len(data) && data[i] == ':' && data[i+1] == ':' {
-			return data[:i], data[i+2:]
-		}
-	}
-	return "", ""
 }
 
 func (t *Telegram) handleStatus(ctx context.Context, user *models.UserSettings) {

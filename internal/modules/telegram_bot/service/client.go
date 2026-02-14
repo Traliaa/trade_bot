@@ -35,6 +35,7 @@ type Router interface {
 	ApplySettings(ctx context.Context, user *models.UserSettings)
 	StatusForUser(ctx context.Context, userID int64) ([]models.OpenPosition, error)
 	GetSession(ctx context.Context, userID int64) (*sessions.UserSession, error)
+	//StrategyRejects(reset bool) service.RejectSnapshot
 }
 
 func (t *Telegram) SetRouter(r Router) {

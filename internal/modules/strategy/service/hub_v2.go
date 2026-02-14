@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"log"
 	"sync"
 	"time"
 	"trade_bot/internal/helper"
@@ -21,7 +22,8 @@ type Hub struct {
 	out       chan<- models.Signal
 	candleOut chan<- models.CandleTick
 
-	engine *DonchianV2HTF
+	engine  *DonchianV2HTF
+	rejects *RejectStats
 
 	mu            sync.Mutex
 	readyCnt      int
@@ -48,6 +50,7 @@ func NewHub(cfg *config.Config, n *public.Service, out chan<- models.Signal, can
 		candleOut: candleOut,
 		ready:     make(map[string]bool),
 		startedAt: time.Now(),
+		rejects:   NewRejectStats(),
 	}
 }
 
@@ -233,4 +236,32 @@ func (h *Hub) expectedSymbols(actual int) int {
 		return h.cfg.Strategy.WatchTopN
 	}
 	return 0
+}
+
+func (h *Hub) RejectSnapshot(reset bool) RejectSnapshot {
+	return h.engine.RejectSnapshot(reset)
+}
+func (h *Hub) MaybeAutoTune() {
+	h.mu.Lock()
+	done := h.warmupDone
+	h.mu.Unlock()
+
+	if !done {
+		return
+	}
+
+	now := time.Now()
+	changed, before, after := h.engine.MaybeAutoTune(now)
+	if !changed {
+		return
+	}
+
+	// в лог (и можно в админ-чат, но не в публичный)
+	log.Printf("[TUNE] авто-ослабление: breakout %.4f->%.4f, ch %.4f->%.4f, body %.4f->%.4f, closeUp %.2f->%.2f, closeDn %.2f->%.2f",
+		before.BreakoutPct, after.BreakoutPct,
+		before.MinChannelPct, after.MinChannelPct,
+		before.MinBodyPct, after.MinBodyPct,
+		before.CloseUpMin, after.CloseUpMin,
+		before.CloseDnMax, after.CloseDnMax,
+	)
 }

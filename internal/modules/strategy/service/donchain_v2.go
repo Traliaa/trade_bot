@@ -28,8 +28,20 @@ type DonchianV2HTF struct {
 	rejectMu    sync.Mutex
 	rejectStats map[string]int
 	lastLog     time.Time
-}
 
+	tuneMu sync.RWMutex
+	tune   RuntimeTuning
+
+	lastSignalAt time.Time
+	lastTuneAt   time.Time
+}
+type RuntimeTuning struct {
+	MinChannelPct float64
+	MinBodyPct    float64
+	BreakoutPct   float64
+	CloseUpMin    float64 // было 0.80
+	CloseDnMax    float64 // было 0.20
+}
 type v2State struct {
 	// LTF
 	highs    []float64
@@ -54,6 +66,13 @@ func NewDonchianV2HTF(cfg *config.Config) *DonchianV2HTF {
 		cfg:         cfg,
 		st:          make(map[string]*v2State),
 		rejectStats: make(map[string]int),
+		tune: RuntimeTuning{
+			MinChannelPct: cfg.Strategy.MinChannelPct,
+			MinBodyPct:    cfg.Strategy.MinBodyPct,
+			BreakoutPct:   cfg.Strategy.BreakoutPct,
+			CloseUpMin:    0.80,
+			CloseDnMax:    0.20,
+		},
 	}
 }
 func (e *DonchianV2HTF) reject(reason string) {
@@ -113,6 +132,14 @@ func (e *DonchianV2HTF) get(sym string) *v2State {
 func (e *DonchianV2HTF) OnCandle(t models.CandleTick) (models.Signal, bool, bool) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+
+	e.tuneMu.RLock()
+	minCh := e.tune.MinChannelPct
+	minBody := e.tune.MinBodyPct
+	bo := e.tune.BreakoutPct
+	closeUp := e.tune.CloseUpMin
+	closeDn := e.tune.CloseDnMax
+	e.tuneMu.RUnlock()
 
 	tf := helper.NormTF(t.TimeframeRaw)
 	st := e.get(t.InstID)
@@ -215,7 +242,7 @@ func (e *DonchianV2HTF) OnCandle(t models.CandleTick) (models.Signal, bool, bool
 
 		// ---- ширина канала ----
 		chPct = (dh - dl) / t.Close
-		if chPct < e.cfg.Strategy.MinChannelPct {
+		if chPct < minCh {
 			e.reject("small_channel")
 			e.updateBuffer(st, t)
 			e.maybeLogRejects()
@@ -224,7 +251,7 @@ func (e *DonchianV2HTF) OnCandle(t models.CandleTick) (models.Signal, bool, bool
 
 		// ---- тело свечи ----
 		bodyPct = math.Abs(t.Close-t.Open) / t.Close
-		if bodyPct < e.cfg.Strategy.MinBodyPct {
+		if bodyPct < minBody {
 			e.reject("small_body")
 			e.updateBuffer(st, t)
 			e.maybeLogRejects()
@@ -232,7 +259,7 @@ func (e *DonchianV2HTF) OnCandle(t models.CandleTick) (models.Signal, bool, bool
 		}
 
 		// ---- breakout ----
-		bo := e.cfg.Strategy.BreakoutPct
+
 		if bo <= 0 {
 			bo = 0.002
 		}
@@ -253,14 +280,14 @@ func (e *DonchianV2HTF) OnCandle(t models.CandleTick) (models.Signal, bool, bool
 
 		closePos := (t.Close - t.Low) / rng
 
-		if st.trend == TrendUp && closePos < 0.80 {
+		if st.trend == TrendUp && closePos < closeUp {
 			e.reject("weak_close_up")
 			e.updateBuffer(st, t)
 			e.maybeLogRejects()
 			return models.Signal{}, false, becameReady
 		}
 
-		if st.trend == TrendDown && closePos > 0.20 {
+		if st.trend == TrendDown && closePos > closeDn {
 			e.reject("weak_close_down")
 			e.updateBuffer(st, t)
 			e.maybeLogRejects()
@@ -295,6 +322,7 @@ func (e *DonchianV2HTF) OnCandle(t models.CandleTick) (models.Signal, bool, bool
 		e.updateBuffer(st, t)
 
 		e.maybeLogRejects()
+		e.lastSignalAt = time.Now()
 
 		return sig, true, becameReady
 
@@ -351,4 +379,60 @@ func (e *DonchianV2HTF) updateBuffer(st *v2State, t models.CandleTick) {
 		st.highs = st.highs[1:]
 		st.lows = st.lows[1:]
 	}
+}
+func (e *DonchianV2HTF) MaybeAutoTune(now time.Time) (changed bool, before RuntimeTuning, after RuntimeTuning) {
+	// если ещё не было сигналов — считаем от старта
+	if e.lastSignalAt.IsZero() {
+		e.lastSignalAt = now
+		return false, RuntimeTuning{}, RuntimeTuning{}
+	}
+
+	// если недавно уже тюнили — не трогаем
+	if !e.lastTuneAt.IsZero() && now.Sub(e.lastTuneAt) < 30*time.Minute {
+		return false, RuntimeTuning{}, RuntimeTuning{}
+	}
+
+	// если сигнал был недавно — не трогаем
+	if now.Sub(e.lastSignalAt) < 60*time.Minute {
+		return false, RuntimeTuning{}, RuntimeTuning{}
+	}
+
+	e.tuneMu.Lock()
+	defer e.tuneMu.Unlock()
+
+	before = e.tune
+	after = e.tune
+
+	// Ослабляем на 15% за шаг, но не ниже “пола”
+	after.BreakoutPct = maxf(after.BreakoutPct*0.85, 0.0012)
+	after.MinChannelPct = maxf(after.MinChannelPct*0.85, 0.004)
+	after.MinBodyPct = maxf(after.MinBodyPct*0.85, 0.0015)
+
+	// close near edge чуть мягче
+	after.CloseUpMin = maxf(after.CloseUpMin-0.03, 0.65)
+	after.CloseDnMax = minf(after.CloseDnMax+0.03, 0.35)
+
+	// если ничего не поменялось — выходим
+	if after == before {
+		return false, RuntimeTuning{}, RuntimeTuning{}
+	}
+
+	e.tune = after
+	e.lastTuneAt = now
+	e.lastSignalAt = now // чтобы не тюнить каждую минуту
+
+	return true, before, after
+}
+
+func maxf(a, b float64) float64 {
+	if a > b {
+		return a
+	}
+	return b
+}
+func minf(a, b float64) float64 {
+	if a < b {
+		return a
+	}
+	return b
 }

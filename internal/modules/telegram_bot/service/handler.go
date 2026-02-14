@@ -23,6 +23,12 @@ func (t *Telegram) handleCallback(ctx context.Context, chatID int64, cb *tgbotap
 	data := cb.Data
 
 	switch data {
+
+	//case cbAdminRejects:
+	//	t.sendRejects(ctx, chatID, false)
+	//case cbAdminRejectsReset:
+	//	t.sendRejects(ctx, chatID, true)
+
 	case "toggle:partial":
 		t.togglePartial(ctx, chatID)
 		return
@@ -47,6 +53,7 @@ func (t *Telegram) handleCallback(ctx context.Context, chatID int64, cb *tgbotap
 	case "testtrade:cancel":
 		_, _ = t.Send(ctx, chatID, "Ок, отменил ✅")
 		return
+
 	}
 
 	if strings.HasPrefix(data, "preset:") {
@@ -156,6 +163,12 @@ func (t *Telegram) handleSettingsMenu(ctx context.Context, chatID int64) {
 		),
 		tgbotapi.NewInlineKeyboardRow(
 			btn("✨ Фичи", "menu:features"),
+		),
+		tgbotapi.NewInlineKeyboardRow(
+			tgbotapi.NewInlineKeyboardButtonData(
+				"📊 Reject статистика", cbAdminRejects),
+			tgbotapi.NewInlineKeyboardButtonData(
+				"🧹 Сбросить счётчики", cbAdminRejectsReset),
 		),
 	)
 
