@@ -114,6 +114,7 @@ func (c *Client) runTimeframe(
 				Volume: tick.Volume,
 				Start:  tick.Start,
 				End:    tick.End,
+				InstID: tick.InstID,
 			}
 
 			select {

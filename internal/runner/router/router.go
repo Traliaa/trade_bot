@@ -33,14 +33,14 @@ type Router struct {
 	Repository       *pg.User
 	TelegramNotifier TelegramNotifier
 	config           *config.Config
-	engine           *service.DonchianV2HTF
+	engine           *service.Service
 }
 
 func NewRouter(
 	Repository *pg.User,
 	TelegramNotifier TelegramNotifier,
 	config *config.Config,
-	engine *service.DonchianV2HTF,
+	engine *service.Service,
 ) *Router {
 	return &Router{
 		users:            make(map[int64]*sessions.UserSession),

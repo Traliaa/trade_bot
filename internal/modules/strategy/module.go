@@ -5,7 +5,6 @@ import (
 	"log"
 	"time"
 	"trade_bot/internal/modules/strategy/service"
-	"trade_bot/internal/modules/telegram_public/public"
 
 	"go.uber.org/fx"
 
@@ -29,15 +28,14 @@ func Module() fx.Option {
 			asSendOnlySignals, // chan<- models.Signal
 			newSignalsStopChan,
 			asSendOnlyStopSignals,
-			service.NewDonchianV2HTF, // service.Engine
-			service.NewHub,           // *service.Hub (получит V2Config, Notifier, chan<-Signal, Engine)
-			fx.Annotate(
-				func(s *public.Service) service.ServiceNotifier { return s },
-				fx.As(new(service.ServiceNotifier)),
-			),
+			service.NewService, // *service.Hub (получит V2Config, Notifier, chan<-Signal, Engine)
+			//fx.Annotate(
+			//	func(s *public.Service) service.ServiceNotifier { return s },
+			//	fx.As(new(service.ServiceNotifier)),
+			//),
 		),
 
-		fx.Invoke(func(lc fx.Lifecycle, hub *service.Hub, ticks <-chan okxws.OutTick) {
+		fx.Invoke(func(lc fx.Lifecycle, s *service.Service, ticks <-chan okxws.OutTick) {
 			lc.Append(fx.Hook{
 				OnStart: func(ctx context.Context) error {
 					go func() {
@@ -52,7 +50,7 @@ func Module() fx.Option {
 									log.Printf("[STRAT] ticks channel closed")
 									return
 								}
-								hub.OnTick(ctx, t)
+								s.OnTick(ctx, t)
 							}
 						}
 					}()
@@ -66,7 +64,7 @@ func Module() fx.Option {
 								return
 
 							case <-ticker.C:
-								hub.MaybeAutoTune()
+								s.MaybeAutoTuneNow()
 							}
 						}
 					}()

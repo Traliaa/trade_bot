@@ -23,7 +23,7 @@ type PublicNotifier interface {
 
 type Warmuper struct {
 	mx             *okxws.Client
-	hub            *strategy.Hub
+	hub            *strategy.Service
 	publicNotifier PublicNotifier
 
 	cfg *config.Config
@@ -32,7 +32,7 @@ type Warmuper struct {
 	sem chan struct{}
 }
 
-func NewWarmuper(mx *okxws.Client, hub *strategy.Hub, publicNotifier PublicNotifier, cfg *config.Config) *Warmuper {
+func NewWarmuper(mx *okxws.Client, hub *strategy.Service, publicNotifier PublicNotifier, cfg *config.Config) *Warmuper {
 	return &Warmuper{
 		mx:             mx,
 		hub:            hub,
@@ -194,13 +194,13 @@ func (w *Warmuper) Warmup(ctx context.Context, symbols []string) error {
 	}
 
 	// 3) Готово: финальный статус
-	_, err = w.publicNotifier.SendServiceText(ctx, public.Status{
+	err = w.publicNotifier.SendOrEdit(ctx, public.Status{
 		State:       public.StateReady,
 		Exchange:    "OKX",
 		Instruments: total,
 		Progress:    100,
 		UpdatedAt:   time.Now(),
-	}.RenderHTML())
+	})
 	if err != nil {
 		return err
 	}
