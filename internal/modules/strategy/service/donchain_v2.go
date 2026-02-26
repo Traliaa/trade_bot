@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"strconv"
 	"sync"
 	"time"
 	"trade_bot/internal/helper"
@@ -25,9 +26,7 @@ type DonchianV2HTF struct {
 	mu  sync.Mutex
 	st  map[string]*v2State
 
-	rejectMu    sync.Mutex
-	rejectStats map[string]int
-	lastLog     time.Time
+	rejects *RejectStats
 
 	tuneMu sync.RWMutex
 	tune   RuntimeTuning
@@ -63,9 +62,9 @@ type v2State struct {
 func NewDonchianV2HTF(cfg *config.Config) *DonchianV2HTF {
 
 	return &DonchianV2HTF{
-		cfg:         cfg,
-		st:          make(map[string]*v2State),
-		rejectStats: make(map[string]int),
+		cfg:     cfg,
+		st:      make(map[string]*v2State),
+		rejects: NewRejectStats(),
 		tune: RuntimeTuning{
 			MinChannelPct: cfg.Strategy.MinChannelPct,
 			MinBodyPct:    cfg.Strategy.MinBodyPct,
@@ -75,39 +74,36 @@ func NewDonchianV2HTF(cfg *config.Config) *DonchianV2HTF {
 		},
 	}
 }
-func (e *DonchianV2HTF) reject(reason string) {
-	e.rejectMu.Lock()
-	e.rejectStats[reason]++
-	e.rejectMu.Unlock()
+
+func (e *DonchianV2HTF) MaybeLogRejects() {
+	// не чаще раза в минуту
+	if !e.rejects.lastRejectLog.IsZero() && time.Since(e.rejects.lastRejectLog) < time.Minute {
+		return
+	}
+
+	snap := e.rejects.Snapshot(false)
+	if snap.Total == 0 {
+		e.rejects.lastRejectLog = time.Now()
+		return
+	}
+
+	// логируем топ-3
+	n := 3
+	if len(snap.Top) < n {
+		n = len(snap.Top)
+	}
+
+	msg := ""
+	for i := 0; i < n; i++ {
+		msg += string(snap.Top[i].Reason) + "=" + itoaU64(snap.Top[i].Count) + " "
+	}
+
+	log.Printf("[STRAT] rejects: total=%d top=%s", snap.Total, msg)
+	e.rejects.lastRejectLog = time.Now()
 }
-func (e *DonchianV2HTF) maybeLogRejects() {
-	e.rejectMu.Lock()
-	defer e.rejectMu.Unlock()
 
-	if time.Since(e.lastLog) < time.Minute {
-		return
-	}
-
-	if len(e.rejectStats) == 0 {
-		e.lastLog = time.Now()
-		return
-	}
-
-	total := 0
-	for _, v := range e.rejectStats {
-		total += v
-	}
-
-	msg := "[STRAT] reject stats: "
-	for k, v := range e.rejectStats {
-		msg += fmt.Sprintf("%s=%d ", k, v)
-	}
-
-	log.Println(msg)
-
-	// reset
-	e.rejectStats = make(map[string]int)
-	e.lastLog = time.Now()
+func itoaU64(v uint64) string {
+	return strconv.FormatUint(v, 10)
 }
 func (e *DonchianV2HTF) get(sym string) *v2State {
 	if s, ok := e.st[sym]; ok {
@@ -148,8 +144,8 @@ func (e *DonchianV2HTF) OnCandle(t models.CandleTick) (models.Signal, bool, bool
 
 	// ---- защита от мусора ----
 	if t.Close <= 0 || t.High <= 0 || t.Low <= 0 {
-		e.reject("invalid_price")
-		e.maybeLogRejects()
+		e.rejects.Inc(RejectInvalidPrice)
+		e.MaybeLogRejects()
 		return models.Signal{}, false, false
 	}
 
@@ -220,41 +216,41 @@ func (e *DonchianV2HTF) OnCandle(t models.CandleTick) (models.Signal, bool, bool
 
 		// === БАЗОВЫЕ ПРОВЕРКИ ===
 		if !haveCh {
-			e.reject("no_channel")
+			e.rejects.Inc(RejectNoChannel)
 			e.updateBuffer(st, t)
-			e.maybeLogRejects()
+			e.MaybeLogRejects()
 			return models.Signal{}, false, becameReady
 		}
 
 		if !st.readyLTF || !st.readyHTF {
-			e.reject("not_ready")
+			e.rejects.Inc(RejectNotReady)
 			e.updateBuffer(st, t)
-			e.maybeLogRejects()
+			e.MaybeLogRejects()
 			return models.Signal{}, false, becameReady
 		}
 
 		if st.trend == TrendNone {
-			e.reject("no_trend")
+			e.rejects.Inc(RejectNoTrend)
 			e.updateBuffer(st, t)
-			e.maybeLogRejects()
+			e.MaybeLogRejects()
 			return models.Signal{}, false, becameReady
 		}
 
 		// ---- ширина канала ----
 		chPct = (dh - dl) / t.Close
 		if chPct < minCh {
-			e.reject("small_channel")
+			e.rejects.Inc(RejectSmallChannel)
 			e.updateBuffer(st, t)
-			e.maybeLogRejects()
+			e.MaybeLogRejects()
 			return models.Signal{}, false, becameReady
 		}
 
 		// ---- тело свечи ----
 		bodyPct = math.Abs(t.Close-t.Open) / t.Close
 		if bodyPct < minBody {
-			e.reject("small_body")
+			e.rejects.Inc(RejectSmallBody)
 			e.updateBuffer(st, t)
-			e.maybeLogRejects()
+			e.MaybeLogRejects()
 			return models.Signal{}, false, becameReady
 		}
 
@@ -272,25 +268,25 @@ func (e *DonchianV2HTF) OnCandle(t models.CandleTick) (models.Signal, bool, bool
 
 		rng := t.High - t.Low
 		if rng <= 0 {
-			e.reject("zero_range")
+			e.rejects.Inc(RejectZeroRange)
 			e.updateBuffer(st, t)
-			e.maybeLogRejects()
+			e.MaybeLogRejects()
 			return models.Signal{}, false, becameReady
 		}
 
 		closePos := (t.Close - t.Low) / rng
 
 		if st.trend == TrendUp && closePos < closeUp {
-			e.reject("weak_close_up")
+			e.rejects.Inc(RejectWeakCloseUp)
 			e.updateBuffer(st, t)
-			e.maybeLogRejects()
+			e.MaybeLogRejects()
 			return models.Signal{}, false, becameReady
 		}
 
 		if st.trend == TrendDown && closePos > closeDn {
-			e.reject("weak_close_down")
+			e.rejects.Inc(RejectWeakCloseDown)
 			e.updateBuffer(st, t)
-			e.maybeLogRejects()
+			e.MaybeLogRejects()
 			return models.Signal{}, false, becameReady
 		}
 
@@ -301,9 +297,9 @@ func (e *DonchianV2HTF) OnCandle(t models.CandleTick) (models.Signal, bool, bool
 		} else if st.trend == TrendDown && brokeDnByBody && dnBoPct >= bo {
 			side = models.SideSell
 		} else {
-			e.reject("no_breakout")
+			e.rejects.Inc(RejectNoBreakout)
 			e.updateBuffer(st, t)
-			e.maybeLogRejects()
+			e.MaybeLogRejects()
 			return models.Signal{}, false, becameReady
 		}
 
@@ -321,7 +317,7 @@ func (e *DonchianV2HTF) OnCandle(t models.CandleTick) (models.Signal, bool, bool
 
 		e.updateBuffer(st, t)
 
-		e.maybeLogRejects()
+		e.MaybeLogRejects()
 		e.lastSignalAt = time.Now()
 
 		return sig, true, becameReady
@@ -435,4 +431,26 @@ func minf(a, b float64) float64 {
 		return a
 	}
 	return b
+}
+func maxSlice(xs []float64) float64 {
+	m := xs[0]
+	for _, v := range xs[1:] {
+		if v > m {
+			m = v
+		}
+	}
+	return m
+}
+
+func minSlice(xs []float64) float64 {
+	m := xs[0]
+	for _, v := range xs[1:] {
+		if v < m {
+			m = v
+		}
+	}
+	return m
+}
+func (e *DonchianV2HTF) RejectSnapshot(reset bool) RejectSnapshot {
+	return e.rejects.Snapshot(reset)
 }

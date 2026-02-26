@@ -14,20 +14,14 @@ func (t *Telegram) handleCallback(ctx context.Context, chatID int64, cb *tgbotap
 	// убрать "часики"
 	_, _ = t.bot.Request(tgbotapi.NewCallback(cb.ID, ""))
 
-	//user, err := t.getUser(ctx, chatID)
-	//if err != nil {
-	//	_, _ = t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
-	//	return
-	//}
-
 	data := cb.Data
 
 	switch data {
 
-	//case cbAdminRejects:
-	//	t.sendRejects(ctx, chatID, false)
-	//case cbAdminRejectsReset:
-	//	t.sendRejects(ctx, chatID, true)
+	case cbAdminRejects:
+		t.sendRejects(ctx, chatID, false)
+	case cbAdminRejectsReset:
+		t.sendRejects(ctx, chatID, true)
 
 	case "toggle:partial":
 		t.togglePartial(ctx, chatID)
@@ -164,13 +158,40 @@ func (t *Telegram) handleSettingsMenu(ctx context.Context, chatID int64) {
 		tgbotapi.NewInlineKeyboardRow(
 			btn("✨ Фичи", "menu:features"),
 		),
-		tgbotapi.NewInlineKeyboardRow(
-			tgbotapi.NewInlineKeyboardButtonData(
-				"📊 Reject статистика", cbAdminRejects),
-			tgbotapi.NewInlineKeyboardButtonData(
-				"🧹 Сбросить счётчики", cbAdminRejectsReset),
-		),
 	)
+	if chatID == adminChat {
+		kb = tgbotapi.NewInlineKeyboardMarkup(
+			tgbotapi.NewInlineKeyboardRow(
+				btn("🟢 Консервативный", "preset:safe"),
+				btn("🟡 Средний", "preset:mid"),
+				btn("🔴 Агрессивный", "preset:aggr"),
+			),
+			tgbotapi.NewInlineKeyboardRow(
+				btn("💰 Размер позиции", "set:position"),
+				btn("⚠️ Риск", "set:risk"),
+			),
+			tgbotapi.NewInlineKeyboardRow(
+				btn("📉 Стоп %", "set:stop"),
+				btn("🎯 Тейк R", "set:tp_rr"),
+			),
+			tgbotapi.NewInlineKeyboardRow(
+				btn("📊 Плечо", "set:lev"),
+				btn("🔢 Макс позиций", "set:maxpos"),
+			),
+			tgbotapi.NewInlineKeyboardRow(
+				btn("📉 Trailing / Partial", "menu:trailing"),
+			),
+			tgbotapi.NewInlineKeyboardRow(
+				btn("✨ Фичи", "menu:features"),
+			),
+			tgbotapi.NewInlineKeyboardRow(
+				tgbotapi.NewInlineKeyboardButtonData(
+					"📊 Reject статистика", cbAdminRejects),
+				tgbotapi.NewInlineKeyboardButtonData(
+					"🧹 Сбросить счётчики", cbAdminRejectsReset),
+			),
+		)
+	}
 
 	msg := tgbotapi.NewMessage(chatID, b.String())
 	msg.ParseMode = "Markdown"

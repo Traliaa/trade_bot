@@ -7,6 +7,7 @@ import (
 	"time"
 	"trade_bot/internal/modules/config"
 	"trade_bot/internal/modules/repository/pg"
+	"trade_bot/internal/modules/strategy/service"
 	"trade_bot/internal/runner/sessions"
 
 	"trade_bot/internal/models"
@@ -32,18 +33,21 @@ type Router struct {
 	Repository       *pg.User
 	TelegramNotifier TelegramNotifier
 	config           *config.Config
+	engine           *service.DonchianV2HTF
 }
 
 func NewRouter(
 	Repository *pg.User,
 	TelegramNotifier TelegramNotifier,
 	config *config.Config,
+	engine *service.DonchianV2HTF,
 ) *Router {
 	return &Router{
 		users:            make(map[int64]*sessions.UserSession),
 		Repository:       Repository,
 		TelegramNotifier: TelegramNotifier,
 		config:           config,
+		engine:           engine,
 	}
 }
 
@@ -63,7 +67,3 @@ func (r *Router) OnSignal(ctx context.Context, sig models.Signal) {
 		}
 	}
 }
-
-//func (r *Router) StrategyRejects(reset bool) service.RejectSnapshot {
-//	//return r.hub.RejectSnapshot(reset)
-//}

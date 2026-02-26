@@ -22,8 +22,7 @@ type Hub struct {
 	out       chan<- models.Signal
 	candleOut chan<- models.CandleTick
 
-	engine  *DonchianV2HTF
-	rejects *RejectStats
+	engine *DonchianV2HTF
 
 	mu            sync.Mutex
 	readyCnt      int
@@ -50,7 +49,6 @@ func NewHub(cfg *config.Config, n *public.Service, out chan<- models.Signal, can
 		candleOut: candleOut,
 		ready:     make(map[string]bool),
 		startedAt: time.Now(),
-		rejects:   NewRejectStats(),
 	}
 }
 
