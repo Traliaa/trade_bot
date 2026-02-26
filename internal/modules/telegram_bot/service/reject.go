@@ -13,8 +13,7 @@ const adminChat = 213532199
 
 func (t *Telegram) sendRejects(ctx context.Context, chatID int64, reset bool) {
 	// только админ-чат (сервисный)
-	adminChat := int64(t.cfg.ServiceTelegramChatID)
-	if adminChat == 0 || chatID != adminChat {
+	if chatID != adminChat {
 		_, _ = t.Send(ctx, chatID, "⛔️ Доступно только в админ-чате.")
 		return
 	}
