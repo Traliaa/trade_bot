@@ -1,4 +1,4 @@
-package service
+package models
 
 import (
 	"sort"
@@ -42,7 +42,7 @@ type RejectStats struct {
 	to            time.Time
 	total         uint64
 	by            map[RejectReason]uint64
-	lastRejectLog time.Time
+	LastRejectLog time.Time
 }
 
 func NewRejectStats() *RejectStats {

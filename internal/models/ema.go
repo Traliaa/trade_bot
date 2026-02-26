@@ -1,4 +1,4 @@
-package service
+package models
 
 type emaState struct {
 	period int
@@ -7,7 +7,7 @@ type emaState struct {
 	warmup int
 }
 
-func newEMA(period int) emaState {
+func NewEMA(period int) emaState {
 	if period <= 1 {
 		period = 1
 	}

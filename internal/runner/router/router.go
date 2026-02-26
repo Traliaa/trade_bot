@@ -67,3 +67,23 @@ func (r *Router) OnSignal(ctx context.Context, sig models.Signal) {
 		}
 	}
 }
+
+// AutoTuneNow запускает тюн немедленно и возвращает результат для UI.
+func (r *Router) AutoTuneNow(ctx context.Context) (models.TuneDecision, models.RuntimeTuning, time.Time, time.Time, bool, models.TuneMode) {
+	eng := r.engine // твоя стратегия
+
+	mode := r.engine.TuneMode()  // или eng.TuneMode()
+	dec := eng.AutoTuneNow(mode) // смотри примечание ниже
+
+	cur, lastSignalAt, lastTuneAt := eng.CurrentTuning()
+	warmupDone := eng.IsWarmupDone()
+
+	return dec, cur, lastSignalAt, lastTuneAt, warmupDone, mode
+}
+
+func (r *Router) ToggleTuneMode(ctx context.Context) models.TuneMode {
+	// если режим хранится в стратегии — просто toggle там
+	newMode := r.engine.ToggleTuneMode()
+
+	return newMode
+}

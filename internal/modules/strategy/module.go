@@ -3,7 +3,6 @@ package strategy
 import (
 	"context"
 	"log"
-	"time"
 	"trade_bot/internal/modules/strategy/service"
 
 	"go.uber.org/fx"
@@ -51,20 +50,6 @@ func Module() fx.Option {
 									return
 								}
 								s.OnTick(ctx, t)
-							}
-						}
-					}()
-					go func() {
-						ticker := time.NewTicker(10 * time.Minute)
-						defer ticker.Stop()
-
-						for {
-							select {
-							case <-ctx.Done():
-								return
-
-							case <-ticker.C:
-								s.MaybeAutoTuneNow()
 							}
 						}
 					}()

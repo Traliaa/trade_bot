@@ -14,31 +14,6 @@ import (
 	"trade_bot/internal/models"
 )
 
-type RuntimeTuning struct {
-	MinChannelPct float64
-	MinBodyPct    float64
-	BreakoutPct   float64
-	CloseUpMin    float64 // было 0.80
-	CloseDnMax    float64 // было 0.20
-}
-type v2State struct {
-	// LTF
-	highs    []float64
-	lows     []float64
-	wLTF     int
-	readyLTF bool
-
-	// HTF
-	emaFast  emaState
-	emaSlow  emaState
-	wHTF     int
-	readyHTF bool
-	trend    Trend
-
-	// anti-spam: одна LTF свеча -> максимум 1 сигнал
-	lastSignalEnd time.Time
-}
-
 type Service struct {
 	cfg *config.Config
 
@@ -50,15 +25,18 @@ type Service struct {
 	warmupDone atomic.Bool
 
 	mu sync.Mutex
-	st map[string]*v2State
+	st map[string]*models.V2State
 
-	rejects *RejectStats
-
-	tuneMu sync.RWMutex
-	tune   RuntimeTuning
+	rejects *models.RejectStats
 
 	lastSignalAt time.Time
-	lastTuneAt   time.Time
+
+	tuneMu          sync.RWMutex
+	tune            models.RuntimeTuning
+	tuneModeMu      sync.RWMutex
+	tuneMode        models.TuneMode
+	lastTuneCheckAt time.Time
+	lastTuneAt      time.Time
 }
 
 func NewService(cfg *config.Config, out chan<- models.Signal, candleOut chan<- models.CandleTick) *Service {
@@ -66,15 +44,16 @@ func NewService(cfg *config.Config, out chan<- models.Signal, candleOut chan<- m
 		cfg:       cfg,
 		out:       out,
 		candleOut: candleOut,
-		st:        make(map[string]*v2State),
-		rejects:   NewRejectStats(),
-		tune: RuntimeTuning{
+		st:        make(map[string]*models.V2State),
+		rejects:   models.NewRejectStats(),
+		tune: models.RuntimeTuning{
 			MinChannelPct: cfg.Strategy.MinChannelPct,
 			MinBodyPct:    cfg.Strategy.MinBodyPct,
 			BreakoutPct:   cfg.Strategy.BreakoutPct,
 			CloseUpMin:    0.80,
 			CloseDnMax:    0.20,
 		},
+		tuneMode: models.TuneMode(cfg.Strategy.TuneMode),
 	}
 }
 
@@ -86,6 +65,10 @@ func (e *Service) OnTick(ctx context.Context, t okxws.OutTick) {
 		case e.candleOut <- t.Candle:
 		default:
 		}
+	}
+
+	if helper.NormTF(t.Timeframe) == helper.NormTF(e.cfg.Strategy.LTF) {
+		_ = e.MaybeAutoTuneTick(time.Now())
 	}
 
 	// 2) стратегия
@@ -112,13 +95,13 @@ func (e *Service) IsWarmupDone() bool { return e.warmupDone.Load() }
 
 func (e *Service) MaybeLogRejects() {
 	// не чаще раза в минуту
-	if !e.rejects.lastRejectLog.IsZero() && time.Since(e.rejects.lastRejectLog) < time.Minute {
+	if !e.rejects.LastRejectLog.IsZero() && time.Since(e.rejects.LastRejectLog) < time.Minute {
 		return
 	}
 
 	snap := e.rejects.Snapshot(false)
 	if snap.Total == 0 {
-		e.rejects.lastRejectLog = time.Now()
+		e.rejects.LastRejectLog = time.Now()
 		return
 	}
 
@@ -134,38 +117,19 @@ func (e *Service) MaybeLogRejects() {
 	}
 
 	log.Printf("[STRAT] rejects: total=%d top=%s", snap.Total, msg)
-	e.rejects.lastRejectLog = time.Now()
+	e.rejects.LastRejectLog = time.Now()
 }
 
-func (e *Service) MaybeAutoTuneNow() {
-	if !e.IsWarmupDone() {
-		return
-	}
-
-	now := time.Now()
-	changed, before, after := e.MaybeAutoTune(now)
-	if !changed {
-		return
-	}
-
-	log.Printf("[TUNE] авто-ослабление: breakout %.4f->%.4f, ch %.4f->%.4f, body %.4f->%.4f, closeUp %.2f->%.2f, closeDn %.2f->%.2f",
-		before.BreakoutPct, after.BreakoutPct,
-		before.MinChannelPct, after.MinChannelPct,
-		before.MinBodyPct, after.MinBodyPct,
-		before.CloseUpMin, after.CloseUpMin,
-		before.CloseDnMax, after.CloseDnMax,
-	)
-}
-func (e *Service) get(sym string) *v2State {
+func (e *Service) get(sym string) *models.V2State {
 	if s, ok := e.st[sym]; ok {
 		return s
 	}
-	s := &v2State{
-		highs:   make([]float64, 0, e.cfg.Strategy.DonchianPeriod),
-		lows:    make([]float64, 0, e.cfg.Strategy.DonchianPeriod),
-		emaFast: newEMA(e.cfg.Strategy.HTFEmaFast),
-		emaSlow: newEMA(e.cfg.Strategy.HTFEmaSlow),
-		trend:   TrendNone,
+	s := &models.V2State{
+		Highs:   make([]float64, 0, e.cfg.Strategy.DonchianPeriod),
+		Lows:    make([]float64, 0, e.cfg.Strategy.DonchianPeriod),
+		EmaFast: models.NewEMA(e.cfg.Strategy.HTFEmaFast),
+		EmaSlow: models.NewEMA(e.cfg.Strategy.HTFEmaSlow),
+		Trend:   models.TrendNone,
 	}
 	e.st[sym] = s
 	return s
@@ -195,7 +159,7 @@ func (e *Service) OnCandle(t models.CandleTick) (models.Signal, bool, bool) {
 
 	// ---- защита от мусора ----
 	if t.Close <= 0 || t.High <= 0 || t.Low <= 0 {
-		e.rejects.Inc(RejectInvalidPrice)
+		e.rejects.Inc(models.RejectInvalidPrice)
 		e.MaybeLogRejects()
 		return models.Signal{}, false, false
 	}
@@ -207,28 +171,28 @@ func (e *Service) OnCandle(t models.CandleTick) (models.Signal, bool, bool) {
 	// =========================================================
 	case helper.NormTF(e.cfg.Strategy.HTF):
 
-		st.emaFast.Update(t.Close)
-		st.emaSlow.Update(t.Close)
-		st.wHTF++
+		st.EmaFast.Update(t.Close)
+		st.EmaSlow.Update(t.Close)
+		st.WHTF++
 
-		if st.wHTF >= e.cfg.Strategy.MinWarmupHTF &&
-			st.emaFast.Ready() && st.emaSlow.Ready() {
+		if st.WHTF >= e.cfg.Strategy.MinWarmupHTF &&
+			st.EmaFast.Ready() && st.EmaSlow.Ready() {
 
-			if !st.readyHTF {
-				st.readyHTF = true
+			if !st.ReadyHTF {
+				st.ReadyHTF = true
 				becameReady = true
 			}
 
-			f := st.emaFast.Value()
-			s := st.emaSlow.Value()
+			f := st.EmaFast.Value()
+			s := st.EmaSlow.Value()
 
 			switch {
 			case f > s:
-				st.trend = TrendUp
+				st.Trend = models.TrendUp
 			case f < s:
-				st.trend = TrendDown
+				st.Trend = models.TrendDown
 			default:
-				st.trend = TrendNone
+				st.Trend = models.TrendNone
 			}
 		}
 
@@ -247,41 +211,41 @@ func (e *Service) OnCandle(t models.CandleTick) (models.Signal, bool, bool) {
 		)
 
 		// ---- канал ДО добавления текущей свечи ----
-		if len(st.highs) >= e.cfg.Strategy.DonchianPeriod {
-			dh = maxSlice(st.highs)
-			dl = minSlice(st.lows)
+		if len(st.Highs) >= e.cfg.Strategy.DonchianPeriod {
+			dh = maxSlice(st.Highs)
+			dl = minSlice(st.Lows)
 			if dh > 0 && dl > 0 && dh > dl {
 				haveCh = true
 			}
 		}
 
 		// ---- прогрев LTF ----
-		st.wLTF++
-		if st.wLTF >= e.cfg.Strategy.MinWarmupLTF &&
-			len(st.highs) >= e.cfg.Strategy.DonchianPeriod &&
-			!st.readyLTF {
+		st.WLTF++
+		if st.WLTF >= e.cfg.Strategy.MinWarmupLTF &&
+			len(st.Highs) >= e.cfg.Strategy.DonchianPeriod &&
+			!st.ReadyLTF {
 
-			st.readyLTF = true
+			st.ReadyLTF = true
 			becameReady = true
 		}
 
 		// === БАЗОВЫЕ ПРОВЕРКИ ===
 		if !haveCh {
-			e.rejects.Inc(RejectNoChannel)
+			e.rejects.Inc(models.RejectNoChannel)
 			e.updateBuffer(st, t)
 			e.MaybeLogRejects()
 			return models.Signal{}, false, becameReady
 		}
 
-		if !st.readyLTF || !st.readyHTF {
-			e.rejects.Inc(RejectNotReady)
+		if !st.ReadyLTF || !st.ReadyHTF {
+			e.rejects.Inc(models.RejectNotReady)
 			e.updateBuffer(st, t)
 			e.MaybeLogRejects()
 			return models.Signal{}, false, becameReady
 		}
 
-		if st.trend == TrendNone {
-			e.rejects.Inc(RejectNoTrend)
+		if st.Trend == models.TrendNone {
+			e.rejects.Inc(models.RejectNoTrend)
 			e.updateBuffer(st, t)
 			e.MaybeLogRejects()
 			return models.Signal{}, false, becameReady
@@ -290,7 +254,7 @@ func (e *Service) OnCandle(t models.CandleTick) (models.Signal, bool, bool) {
 		// ---- ширина канала ----
 		chPct = (dh - dl) / t.Close
 		if chPct < minCh {
-			e.rejects.Inc(RejectSmallChannel)
+			e.rejects.Inc(models.RejectSmallChannel)
 			e.updateBuffer(st, t)
 			e.MaybeLogRejects()
 			return models.Signal{}, false, becameReady
@@ -299,7 +263,7 @@ func (e *Service) OnCandle(t models.CandleTick) (models.Signal, bool, bool) {
 		// ---- тело свечи ----
 		bodyPct = math.Abs(t.Close-t.Open) / t.Close
 		if bodyPct < minBody {
-			e.rejects.Inc(RejectSmallBody)
+			e.rejects.Inc(models.RejectSmallBody)
 			e.updateBuffer(st, t)
 			e.MaybeLogRejects()
 			return models.Signal{}, false, becameReady
@@ -319,7 +283,7 @@ func (e *Service) OnCandle(t models.CandleTick) (models.Signal, bool, bool) {
 
 		rng := t.High - t.Low
 		if rng <= 0 {
-			e.rejects.Inc(RejectZeroRange)
+			e.rejects.Inc(models.RejectZeroRange)
 			e.updateBuffer(st, t)
 			e.MaybeLogRejects()
 			return models.Signal{}, false, becameReady
@@ -327,15 +291,15 @@ func (e *Service) OnCandle(t models.CandleTick) (models.Signal, bool, bool) {
 
 		closePos := (t.Close - t.Low) / rng
 
-		if st.trend == TrendUp && closePos < closeUp {
-			e.rejects.Inc(RejectWeakCloseUp)
+		if st.Trend == models.TrendUp && closePos < closeUp {
+			e.rejects.Inc(models.RejectWeakCloseUp)
 			e.updateBuffer(st, t)
 			e.MaybeLogRejects()
 			return models.Signal{}, false, becameReady
 		}
 
-		if st.trend == TrendDown && closePos > closeDn {
-			e.rejects.Inc(RejectWeakCloseDown)
+		if st.Trend == models.TrendDown && closePos > closeDn {
+			e.rejects.Inc(models.RejectWeakCloseDown)
 			e.updateBuffer(st, t)
 			e.MaybeLogRejects()
 			return models.Signal{}, false, becameReady
@@ -343,19 +307,19 @@ func (e *Service) OnCandle(t models.CandleTick) (models.Signal, bool, bool) {
 
 		var side models.Side
 
-		if st.trend == TrendUp && brokeUpByBody && upBoPct >= bo {
+		if st.Trend == models.TrendUp && brokeUpByBody && upBoPct >= bo {
 			side = models.SideBuy
-		} else if st.trend == TrendDown && brokeDnByBody && dnBoPct >= bo {
+		} else if st.Trend == models.TrendDown && brokeDnByBody && dnBoPct >= bo {
 			side = models.SideSell
 		} else {
-			e.rejects.Inc(RejectNoBreakout)
+			e.rejects.Inc(models.RejectNoBreakout)
 			e.updateBuffer(st, t)
 			e.MaybeLogRejects()
 			return models.Signal{}, false, becameReady
 		}
 
 		// ---- СИГНАЛ ----
-		st.lastSignalEnd = t.End
+		st.LastSignalEnd = t.End
 
 		sig := models.Signal{
 			InstID:    t.InstID,
@@ -378,64 +342,230 @@ func (e *Service) OnCandle(t models.CandleTick) (models.Signal, bool, bool) {
 	}
 }
 
-func (e *Service) updateBuffer(st *v2State, t models.CandleTick) {
-	st.highs = append(st.highs, t.High)
-	st.lows = append(st.lows, t.Low)
+func (e *Service) updateBuffer(st *models.V2State, t models.CandleTick) {
+	st.Highs = append(st.Highs, t.High)
+	st.Lows = append(st.Lows, t.Low)
 
-	if len(st.highs) > e.cfg.Strategy.DonchianPeriod {
-		st.highs = st.highs[1:]
-		st.lows = st.lows[1:]
+	if len(st.Highs) > e.cfg.Strategy.DonchianPeriod {
+		st.Highs = st.Highs[1:]
+		st.Lows = st.Lows[1:]
 	}
 }
-func (e *Service) MaybeAutoTune(now time.Time) (changed bool, before RuntimeTuning, after RuntimeTuning) {
-	// если ещё не было сигналов — считаем от старта
-	if e.lastSignalAt.IsZero() {
-		e.lastSignalAt = now
-		return false, RuntimeTuning{}, RuntimeTuning{}
-	}
 
-	// если недавно уже тюнили — не трогаем
-	if !e.lastTuneAt.IsZero() && now.Sub(e.lastTuneAt) < 30*time.Minute {
-		return false, RuntimeTuning{}, RuntimeTuning{}
-	}
-
-	// если сигнал был недавно — не трогаем
-	if now.Sub(e.lastSignalAt) < 60*time.Minute {
-		return false, RuntimeTuning{}, RuntimeTuning{}
-	}
-
-	e.tuneMu.Lock()
-	defer e.tuneMu.Unlock()
-
-	before = e.tune
-	after = e.tune
-
-	// Ослабляем на 15% за шаг, но не ниже “пола”
-	after.BreakoutPct = maxf(after.BreakoutPct*0.85, 0.0012)
-	after.MinChannelPct = maxf(after.MinChannelPct*0.85, 0.004)
-	after.MinBodyPct = maxf(after.MinBodyPct*0.85, 0.0015)
-
-	// close near edge чуть мягче
-	after.CloseUpMin = maxf(after.CloseUpMin-0.03, 0.65)
-	after.CloseDnMax = minf(after.CloseDnMax+0.03, 0.35)
-
-	// если ничего не поменялось — выходим
-	if after == before {
-		return false, RuntimeTuning{}, RuntimeTuning{}
-	}
-
-	e.tune = after
-	e.lastTuneAt = now
-	e.lastSignalAt = now // чтобы не тюнить каждую минуту
-
-	return true, before, after
-}
-
-func (e *Service) RejectSnapshot(reset bool) RejectSnapshot {
+func (e *Service) RejectSnapshot(reset bool) models.RejectSnapshot {
 	return e.rejects.Snapshot(reset)
 }
-func (e *Service) CurrentTuning() (t RuntimeTuning, lastSignalAt, lastTuneAt time.Time) {
+func (e *Service) CurrentTuning() (t models.RuntimeTuning, lastSignalAt, lastTuneAt time.Time) {
 	e.tuneMu.RLock()
 	defer e.tuneMu.RUnlock()
 	return e.tune, e.lastSignalAt, e.lastTuneAt
+}
+
+func (e *Service) MaybeAutoTuneTick(now time.Time) models.TuneDecision {
+	// не чаще чем раз в 5 минут
+	if !e.lastTuneCheckAt.IsZero() && now.Sub(e.lastTuneCheckAt) < 5*time.Minute {
+		return models.TuneDecision{Changed: false, Why: models.TuneWhyCooldown}
+	}
+	e.lastTuneCheckAt = now
+	return e.MaybeAutoTuneAdaptive(now, e.tuneMode)
+}
+func (e *Service) MaybeAutoTuneAdaptive(now time.Time, mode models.TuneMode) models.TuneDecision {
+	if mode == models.TuneOff {
+		return models.TuneDecision{Changed: false, Why: models.TuneWhyOff}
+	}
+
+	if !e.IsWarmupDone() {
+		return models.TuneDecision{Changed: false, Why: models.TuneWhyWarmup}
+	}
+
+	// 1) Если сигналов ещё не было — просто инициализируем точку отсчёта
+	if e.lastSignalAt.IsZero() {
+		e.lastSignalAt = now
+		return models.TuneDecision{Changed: false, Why: models.TuneWhySignalsRecent}
+	}
+
+	// 2) Cooldown между тюнами
+	cooldown := 30 * time.Minute
+	if mode == models.TuneSafe {
+		cooldown = 45 * time.Minute
+	}
+	if !e.lastTuneAt.IsZero() && now.Sub(e.lastTuneAt) < cooldown {
+		return models.TuneDecision{Changed: false, Why: models.TuneWhyCooldown}
+	}
+
+	// 3) Если сигнал был недавно — не тюним
+	noSignalFor := 60 * time.Minute
+	if mode == models.TuneAuto {
+		noSignalFor = 30 * time.Minute
+	}
+	if now.Sub(e.lastSignalAt) < noSignalFor {
+		return models.TuneDecision{Changed: false, Why: models.TuneWhySignalsRecent}
+	}
+
+	// 4) Берём снимок reject-окна
+	snap := e.rejects.Snapshot(false)
+
+	// Чтобы не тюнить по шуму — минимальный объём отклонений
+	minRejects := uint64(30)
+	if mode == models.TuneAuto {
+		minRejects = 20
+	}
+	if snap.Total < minRejects {
+		return models.TuneDecision{
+			Changed: false, Why: models.TuneWhyNotEnoughData,
+			Total: snap.Total, From: snap.From, To: snap.To,
+		}
+	}
+
+	// 5) Доминирующая причина
+	dom, domPct, total := dominantReason(snap)
+	if dom == "" || domPct < 0.50 {
+		return models.TuneDecision{
+			Changed:  false,
+			Why:      models.TuneWhyNoDominant,
+			Dominant: dom,
+			DomPct:   domPct,
+			Total:    total,
+			From:     snap.From,
+			To:       snap.To,
+		}
+	}
+
+	// 6) Применяем “селективный” тюн
+	stepClose := 0.03
+	mulSoft := 0.85
+	if mode == models.TuneAuto {
+		stepClose = 0.05
+		mulSoft = 0.80
+	}
+
+	// Полы/потолки (важно, чтобы тюн не уходил в абсурд)
+	const (
+		minCloseUp = 0.65
+		maxCloseUp = 0.90
+
+		minCloseDn = 0.10
+		maxCloseDn = 0.35
+
+		minBody = 0.0010
+		maxBody = 0.0200
+
+		minCh = 0.0010
+		maxCh = 0.0500
+
+		minBo = 0.0008
+		maxBo = 0.0200
+	)
+
+	e.tuneMu.Lock()
+	before := e.tune
+	after := e.tune
+
+	switch dom {
+	case models.RejectWeakCloseUp: // aggregated weak_close
+		after.CloseUpMin = clamp(after.CloseUpMin-stepClose, minCloseUp, maxCloseUp)
+		after.CloseDnMax = clamp(after.CloseDnMax+stepClose, minCloseDn, maxCloseDn)
+
+	case models.RejectSmallBody:
+		after.MinBodyPct = clamp(after.MinBodyPct*mulSoft, minBody, maxBody)
+
+	case models.RejectSmallChannel:
+		after.MinChannelPct = clamp(after.MinChannelPct*mulSoft, minCh, maxCh)
+
+	case models.RejectNoBreakout:
+		after.BreakoutPct = clamp(after.BreakoutPct*mulSoft, minBo, maxBo)
+
+	default:
+		e.tuneMu.Unlock()
+		return models.TuneDecision{
+			Changed:  false,
+			Why:      models.TuneWhyNoDominant,
+			Dominant: dom,
+			DomPct:   domPct,
+			Total:    total,
+			From:     snap.From,
+			To:       snap.To,
+		}
+	}
+
+	changed := (after != before)
+	if changed {
+		e.tune = after
+		e.lastTuneAt = now
+		// “сдвигаем” точку, чтобы не тюнить каждую минуту после истечения noSignalFor
+		e.lastSignalAt = now
+	}
+	e.tuneMu.Unlock()
+
+	dec := models.TuneDecision{
+		Changed:  changed,
+		Why:      models.TuneWhyOK,
+		Before:   before,
+		After:    after,
+		Dominant: dom,
+		DomPct:   domPct,
+		Total:    total,
+		From:     snap.From,
+		To:       snap.To,
+	}
+
+	if !changed {
+		return dec
+	}
+
+	// 7) Сбросить окно rejects после успешного тюна
+	_ = e.rejects.Snapshot(true)
+
+	return dec
+}
+
+func (e *Service) AutoTuneNow(mode models.TuneMode) models.TuneDecision {
+	now := time.Now()
+	dec := e.MaybeAutoTuneAdaptive(now, mode)
+
+	if dec.Changed {
+		log.Printf(
+			"[TUNE] changed dom=%s pct=%.0f%% total=%d | breakout %.4f->%.4f ch %.4f->%.4f body %.4f->%.4f closeUp %.2f->%.2f closeDn %.2f->%.2f",
+			tuneReasonLabel(dec.Dominant), dec.DomPct*100, dec.Total,
+			dec.Before.BreakoutPct, dec.After.BreakoutPct,
+			dec.Before.MinChannelPct, dec.After.MinChannelPct,
+			dec.Before.MinBodyPct, dec.After.MinBodyPct,
+			dec.Before.CloseUpMin, dec.After.CloseUpMin,
+			dec.Before.CloseDnMax, dec.After.CloseDnMax,
+		)
+	} else {
+		log.Printf(
+			"[TUNE] skipped why=%s dom=%s pct=%.0f%% total=%d window=%s..%s",
+			dec.Why, tuneReasonLabel(dec.Dominant), dec.DomPct*100, dec.Total,
+			dec.From.Format("15:04:05"), dec.To.Format("15:04:05"),
+		)
+	}
+
+	return dec
+}
+func (e *Service) TuneMode() models.TuneMode {
+	e.tuneModeMu.RLock()
+	defer e.tuneModeMu.RUnlock()
+	return e.tuneMode
+}
+
+func (e *Service) SetTuneMode(m models.TuneMode) {
+	e.tuneModeMu.Lock()
+	e.tuneMode = m
+	e.tuneModeMu.Unlock()
+}
+
+func (e *Service) ToggleTuneMode() models.TuneMode {
+	e.tuneModeMu.Lock()
+	defer e.tuneModeMu.Unlock()
+
+	switch e.tuneMode {
+	case models.TuneOff:
+		e.tuneMode = models.TuneSafe
+	case models.TuneSafe:
+		e.tuneMode = models.TuneAuto
+	default:
+		e.tuneMode = models.TuneOff
+	}
+	return e.tuneMode
 }

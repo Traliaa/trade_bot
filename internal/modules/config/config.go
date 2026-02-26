@@ -70,6 +70,8 @@ type StrategyConfig struct {
 	ProgressEvery   time.Duration `yaml:"progress_every"`
 
 	WatchTopN int `yaml:"watch_top_n"`
+
+	TuneMode int `yaml:"tune_mode"`
 }
 
 type UserDefaultsConfig struct {
@@ -136,6 +138,7 @@ func NewConfig() (*Config, error) {
 	cfg.Strategy.ExpectedSymbols = 100
 	cfg.Strategy.ProgressEvery = 2 * time.Minute
 	cfg.Strategy.WatchTopN = 100
+	cfg.Strategy.TuneMode = 2
 
 	// User defaults (только стартовые)
 	cfg.UserDefaults.DefaultLeverage = 15

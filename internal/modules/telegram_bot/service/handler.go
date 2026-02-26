@@ -10,6 +10,11 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
 
+const (
+	cbAdminTuneNow        = "admin:tune:now"
+	cbAdminTuneModeToggle = "admin:tune:mode:toggle"
+)
+
 func (t *Telegram) handleCallback(ctx context.Context, chatID int64, cb *tgbotapi.CallbackQuery) {
 	// убрать "часики"
 	_, _ = t.bot.Request(tgbotapi.NewCallback(cb.ID, ""))
@@ -27,19 +32,19 @@ func (t *Telegram) handleCallback(ctx context.Context, chatID int64, cb *tgbotap
 		t.togglePartial(ctx, chatID)
 		return
 	case "toggle:feat:near_tp":
-		t.toggleFeature(ctx, chatID, "near_tp")
+		t.toggleFeature(ctx, chatID, "near_tp", cb)
 		return
 	case "toggle:feat:simulate":
-		t.toggleFeature(ctx, chatID, "simulate")
+		t.toggleFeature(ctx, chatID, "simulate", cb)
 		return
 	case "toggle:feat:chart":
-		t.toggleFeature(ctx, chatID, "chart")
+		t.toggleFeature(ctx, chatID, "chart", cb)
 		return
 	case "toggle:feat:reco":
-		t.toggleFeature(ctx, chatID, "reco")
+		t.toggleFeature(ctx, chatID, "reco", cb)
 		return
 	case "toggle:feat:pro":
-		t.toggleFeature(ctx, chatID, "pro")
+		t.toggleFeature(ctx, chatID, "pro", cb)
 		return
 	case "testtrade:open":
 		t.openTestTradeBTC1x(ctx, chatID) // реализацию подключим к твоей торговой функции
@@ -47,7 +52,14 @@ func (t *Telegram) handleCallback(ctx context.Context, chatID int64, cb *tgbotap
 	case "testtrade:cancel":
 		_, _ = t.Send(ctx, chatID, "Ок, отменил ✅")
 		return
+	case "admin:tune:now":
+		// 1) получаем результат тюна
+		dec, cur, lastSignalAt, lastTuneAt, warmupDone, mode := t.router.AutoTuneNow(ctx)
 
+		report := FormatTuneDecision(dec, warmupDone, lastSignalAt, lastTuneAt, cur, mode)
+
+		_, _ = t.Send(ctx, chatID, report)                          // отдельное сообщение
+		t.handleSettingsMenuEdit(ctx, chatID, cb.Message.MessageID) // обновить кнопку режима
 	}
 
 	if strings.HasPrefix(data, "preset:") {
@@ -102,233 +114,6 @@ func (t *Telegram) handleCallback(ctx context.Context, chatID int64, cb *tgbotap
 		return
 	}
 
-}
-func (t *Telegram) handleSettingsMenu(ctx context.Context, chatID int64) {
-	user, err := t.router.GetSession(ctx, chatID)
-	if err != nil {
-		_, _ = t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
-		return
-	}
-
-	ts := user.User.Settings.TradingSettings
-	tr := user.User.Settings.TrailingConfig
-
-	var b strings.Builder
-	b.WriteString("⚙️ *Настройки торговли*\n\n")
-
-	fmt.Fprintf(&b,
-		"💰 *Размер позиции*: `%.2f%%`\n— Сколько депозита используется в сделке\n\n"+
-			"⚠️ *Риск*: `%.2f%%`\n— Потеря при срабатывании стопа\n\n"+
-			"📉 *Стоп*: `%.2f%%`\n— Допустимое движение против тебя\n\n"+
-			"🎯 *Тейк*: `%.2fR`\n— Прибыль относительно риска\n\n"+
-			"📊 *Плечо*: `x%d`\n"+
-			"🔢 *Макс. позиций*: `%d`\n\n"+
-			"↘️ *Частичная фиксация*: *%s* (%.0f%%)\n",
-		ts.PositionPct,
-		ts.RiskPct,
-		ts.StopPct,
-		ts.TakeProfitRR,
-		ts.Leverage,
-		ts.MaxOpenPositions,
-		onOff(tr.PartialEnabled),
-		tr.PartialCloseFrac*100,
-	)
-
-	kb := tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			btn("🟢 Консервативный", "preset:safe"),
-			btn("🟡 Средний", "preset:mid"),
-			btn("🔴 Агрессивный", "preset:aggr"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			btn("💰 Размер позиции", "set:position"),
-			btn("⚠️ Риск", "set:risk"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			btn("📉 Стоп %", "set:stop"),
-			btn("🎯 Тейк R", "set:tp_rr"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			btn("📊 Плечо", "set:lev"),
-			btn("🔢 Макс позиций", "set:maxpos"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			btn("📉 Trailing / Partial", "menu:trailing"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			btn("✨ Фичи", "menu:features"),
-		),
-	)
-	if chatID == adminChat {
-		kb = tgbotapi.NewInlineKeyboardMarkup(
-			tgbotapi.NewInlineKeyboardRow(
-				btn("🟢 Консервативный", "preset:safe"),
-				btn("🟡 Средний", "preset:mid"),
-				btn("🔴 Агрессивный", "preset:aggr"),
-			),
-			tgbotapi.NewInlineKeyboardRow(
-				btn("💰 Размер позиции", "set:position"),
-				btn("⚠️ Риск", "set:risk"),
-			),
-			tgbotapi.NewInlineKeyboardRow(
-				btn("📉 Стоп %", "set:stop"),
-				btn("🎯 Тейк R", "set:tp_rr"),
-			),
-			tgbotapi.NewInlineKeyboardRow(
-				btn("📊 Плечо", "set:lev"),
-				btn("🔢 Макс позиций", "set:maxpos"),
-			),
-			tgbotapi.NewInlineKeyboardRow(
-				btn("📉 Trailing / Partial", "menu:trailing"),
-			),
-			tgbotapi.NewInlineKeyboardRow(
-				btn("✨ Фичи", "menu:features"),
-			),
-			tgbotapi.NewInlineKeyboardRow(
-				tgbotapi.NewInlineKeyboardButtonData(
-					"📊 Reject статистика", cbAdminRejects),
-				tgbotapi.NewInlineKeyboardButtonData(
-					"🧹 Сбросить счётчики", cbAdminRejectsReset),
-			),
-		)
-	}
-
-	msg := tgbotapi.NewMessage(chatID, b.String())
-	msg.ParseMode = "Markdown"
-	msg.ReplyMarkup = kb
-	_, _ = t.SendMessage(ctx, msg)
-}
-func (t *Telegram) handleTrailingMenu(ctx context.Context, chatID int64) {
-	user, err := t.router.GetSession(ctx, chatID)
-	if err != nil {
-		_, _ = t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
-		return
-	}
-
-	tr := user.User.Settings.TrailingConfig
-
-	var b strings.Builder
-	b.WriteString("📉 *Trailing / Partial*\n\n")
-
-	fmt.Fprintf(&b,
-		"🟢 *Безубыток (BE)*\n"+
-			"• Условие: `%.2fR`\n"+
-			"• Сдвиг стопа: `%.2fR`\n"+
-			"— При достижении указанной прибыли\n"+
-			"  стоп-лосс переносится в точку входа\n"+
-			"  или в небольшой плюс\n\n"+
-			"🔒 *Фиксация прибыли (Lock)*\n"+
-			"• Условие: `%.2fR`\n"+
-			"• Фиксация: `+%.2fR`\n"+
-			"— При росте цены стоп-лосс подтягивается выше,\n"+
-			"  чтобы сохранить часть заработанной прибыли\n\n"+
-			"⏱ *Выход по времени (TimeStop)*\n"+
-			"• Ожидание: `%d` свечей\n"+
-			"• Минимальный прогресс: `%.2fR`\n"+
-			"— Если за это время цена почти не движется,\n"+
-			"  сделка закрывается как неэффективная\n\n"+
-			"↘️ *Частичная фиксация*: *%s*\n"+
-			"• Условие: `%.2fR`\n"+
-			"• Закрыть: `%.0f%%` позиции\n"+
-			"— Часть позиции фиксируется,\n"+
-			"  остальное остаётся на дальнейший рост\n\n"+
-			"💡 R — это отношение прибыли к риску (1R = риск по стоп-лоссу)",
-		tr.BETriggerR, tr.BEOffsetR,
-		tr.LockTriggerR, tr.LockOffsetR,
-		tr.TimeStopBars, tr.TimeStopMinMFER,
-		onOff(tr.PartialEnabled),
-		tr.PartialTriggerR,
-		tr.PartialCloseFrac*100,
-	)
-
-	kb := tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			btn("🟢 Осторожный", "tr_preset:safe"),
-			btn("🟡 Сбаланс.", "tr_preset:mid"),
-			btn("🔴 Агрессивный", "tr_preset:aggr"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			btn("🟢 BE Trigger", "set:be_trigger_r"),
-			btn("🟢 BE Offset", "set:be_offset_r"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			btn("🔒 Lock Trigger", "set:lock_trigger_r"),
-			btn("🔒 Lock Offset", "set:lock_offset_r"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			btn("⏱ Bars", "set:timestop_bars"),
-			btn("⏱ Min MFE", "set:timestop_min_mfe_r"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			btn("↘️ Partial ON/OFF", "toggle:partial"),
-			btn("↘️ Trigger", "set:partial_trigger_r"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			btn("↘️ Close %", "set:partial_close_frac"),
-			btn("⬅️ Назад", "menu:settings"),
-		),
-	)
-
-	msg := tgbotapi.NewMessage(chatID, b.String())
-	msg.ParseMode = "Markdown"
-	msg.ReplyMarkup = kb
-	_, _ = t.SendMessage(ctx, msg)
-}
-
-func (t *Telegram) handleFeaturesMenu(ctx context.Context, chatID int64) {
-
-	user, err := t.router.GetSession(ctx, chatID)
-	if err != nil {
-		_, _ = t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
-		return
-	}
-	if !user.User.Premium {
-		return
-	}
-	ff := user.User.Settings.FeatureFlags
-
-	var b strings.Builder
-	b.WriteString("✨ *Фичи бота*\n\n")
-
-	fmt.Fprintf(&b,
-		"🛡 *Защита «почти тейк → стоп выше»*: *%s*\n"+
-			"— Если цена была близко к тейку и откатилась,\n"+
-			"  бот подтягивает стоп, чтобы не уйти в минус\n\n"+
-			"🧪 *Симуляция перед входом*: *%s*\n"+
-			"— Сначала покажет расчёты SL/TP/объёма,\n"+
-			"  и только потом попросит подтвердить вход\n\n"+
-			"📉 *График сделки в Telegram*: *%s*\n"+
-			"— После входа/выхода пришлёт мини-график\n\n"+
-			"🤖 *Авто-рекомендации*: *%s*\n"+
-			"— Подсказки по настройкам на основе результатов\n\n"+
-			"💎 *PRO режим*: *%s*\n"+
-			"— Показывает расширенные пункты меню\n",
-		onOff(ff.NearTPProtectEnabled),
-		onOff(ff.SimulateBeforeEntry),
-		onOff(ff.DealChartEnabled),
-		onOff(ff.AutoRecommendEnabled),
-		onOff(ff.ProMode),
-	)
-
-	kb := tgbotapi.NewInlineKeyboardMarkup(
-		tgbotapi.NewInlineKeyboardRow(
-			btn(toggleLabel("🛡 Защита Near-TP", ff.NearTPProtectEnabled), "toggle:feat:near_tp"),
-			btn(toggleLabel("🧪 Симуляция", ff.SimulateBeforeEntry), "toggle:feat:simulate"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			btn(toggleLabel("📉 График", ff.DealChartEnabled), "toggle:feat:chart"),
-			btn(toggleLabel("🤖 Рекомендации", ff.AutoRecommendEnabled), "toggle:feat:reco"),
-		),
-		tgbotapi.NewInlineKeyboardRow(
-			btn(toggleLabel("💎 PRO", ff.ProMode), "toggle:feat:pro"),
-			btn("⬅️ Назад", "menu:settings"),
-		),
-	)
-
-	msg := tgbotapi.NewMessage(chatID, b.String())
-	msg.ParseMode = "Markdown"
-	msg.ReplyMarkup = kb
-	_, _ = t.SendMessage(ctx, msg)
 }
 
 func toggleLabel(title string, enabled bool) string {

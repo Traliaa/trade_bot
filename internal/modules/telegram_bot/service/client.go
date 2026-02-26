@@ -7,7 +7,6 @@ import (
 	"time"
 	"trade_bot/internal/models"
 	"trade_bot/internal/modules/config"
-	"trade_bot/internal/modules/strategy/service"
 	"trade_bot/internal/runner/sessions"
 	"trade_bot/pkg/logger"
 
@@ -36,7 +35,9 @@ type Router interface {
 	ApplySettings(ctx context.Context, user *models.UserSettings)
 	StatusForUser(ctx context.Context, userID int64) ([]models.OpenPosition, error)
 	GetSession(ctx context.Context, userID int64) (*sessions.UserSession, error)
-	StrategyRejects(reset bool) service.RejectSnapshot
+	StrategyRejects(reset bool) models.RejectSnapshot
+	AutoTuneNow(ctx context.Context) (models.TuneDecision, models.RuntimeTuning, time.Time, time.Time, bool, models.TuneMode)
+	ToggleTuneMode(ctx context.Context) models.TuneMode
 }
 
 func (t *Telegram) SetRouter(r Router) {

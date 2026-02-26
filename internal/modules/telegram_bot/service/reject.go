@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
-	"trade_bot/internal/modules/strategy/service"
+	"trade_bot/internal/models"
 
 	tgbot "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -21,7 +21,7 @@ func (t *Telegram) sendRejects(ctx context.Context, chatID int64, reset bool) {
 
 	// Router интерфейсный — вытаскиваем capability через type assert
 	type rejectsProvider interface {
-		StrategyRejects(reset bool) service.RejectSnapshot
+		StrategyRejects(reset bool) models.RejectSnapshot
 	}
 
 	rp, ok := any(t.router).(rejectsProvider)
@@ -58,7 +58,7 @@ func (t *Telegram) sendRejects(ctx context.Context, chatID int64, reset bool) {
 	}
 
 	type tuningProvider interface {
-		StrategyTuning() (service.RuntimeTuning, time.Time, time.Time, time.Time)
+		StrategyTuning() (models.RuntimeTuning, time.Time, time.Time, time.Time)
 	}
 	tp, ok := any(t.router).(tuningProvider)
 	if ok {

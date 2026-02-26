@@ -2,6 +2,24 @@ package models
 
 import "time"
 
+type V2State struct {
+	// LTF
+	Highs    []float64
+	Lows     []float64
+	WLTF     int
+	ReadyLTF bool
+
+	// HTF
+	EmaFast  emaState
+	EmaSlow  emaState
+	WHTF     int
+	ReadyHTF bool
+	Trend    Trend
+
+	// anti-spam: одна LTF свеча -> максимум 1 сигнал
+	LastSignalEnd time.Time
+}
+
 // OpenPosition — приведённый вид позиций под интерфейс бота
 // (значения мапятся из формата OKX /api/v5/account/positions).
 type OpenPosition struct {
