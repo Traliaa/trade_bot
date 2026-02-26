@@ -10,14 +10,21 @@ import (
 	"trade_bot/internal/modules/config"
 	okxws "trade_bot/internal/modules/okx_websocket/service"
 	strategy "trade_bot/internal/modules/strategy/service"
-	"trade_bot/internal/modules/telegram_bot/service"
 	"trade_bot/internal/modules/telegram_public/public"
+	"trade_bot/pkg/logger"
+
+	"go.uber.org/zap"
 )
 
+type PublicNotifier interface {
+	SendOrEdit(ctx context.Context, st public.Status) error
+	SendServiceText(ctx context.Context, text string) (messageID int, err error)
+}
+
 type Warmuper struct {
-	mx  *okxws.Client
-	hub *strategy.Hub
-	n   *service.Telegram
+	mx             *okxws.Client
+	hub            *strategy.Hub
+	publicNotifier PublicNotifier
 
 	cfg *config.Config
 
@@ -25,13 +32,13 @@ type Warmuper struct {
 	sem chan struct{}
 }
 
-func NewWarmuper(mx *okxws.Client, hub *strategy.Hub, n *service.Telegram, cfg *config.Config) *Warmuper {
+func NewWarmuper(mx *okxws.Client, hub *strategy.Hub, publicNotifier PublicNotifier, cfg *config.Config) *Warmuper {
 	return &Warmuper{
-		mx:  mx,
-		hub: hub,
-		n:   n,
-		cfg: cfg,
-		sem: make(chan struct{}, 8), // 8 параллельных символов
+		mx:             mx,
+		hub:            hub,
+		publicNotifier: publicNotifier,
+		cfg:            cfg,
+		sem:            make(chan struct{}, 8), // 8 параллельных символов
 	}
 }
 
@@ -43,7 +50,7 @@ func (w *Warmuper) Warmup(ctx context.Context, symbols []string) error {
 	total := len(symbols)
 
 	// 1) Старт: понятное “мы подготавливаемся”
-	w.n.SendService(ctx, public.Status{
+	_, err := w.publicNotifier.SendServiceText(ctx, public.Status{
 		State:       public.StatePreparing,
 		Exchange:    "OKX",
 		Instruments: total,
@@ -81,13 +88,16 @@ func (w *Warmuper) Warmup(ctx context.Context, symbols []string) error {
 					pct = 99
 				}
 
-				w.n.SendService(ctx, public.Status{
+				err = w.publicNotifier.SendOrEdit(ctx, public.Status{
 					State:       public.StatePreparing,
 					Exchange:    "OKX",
 					Instruments: total,
 					Progress:    pct,
 					UpdatedAt:   time.Now(),
-				}.RenderHTML())
+				})
+				if err != nil {
+					logger.Error("[Warmuper] warmup failed", zap.Error(err))
+				}
 			}
 		}
 	}()
@@ -167,12 +177,15 @@ func (w *Warmuper) Warmup(ctx context.Context, symbols []string) error {
 
 	if firstErr != nil {
 		// 2) Ошибка: понятное человеку сообщение
-		w.n.SendService(ctx, public.Status{
+		err = w.publicNotifier.SendOrEdit(ctx, public.Status{
 			State:       public.StateError,
 			Exchange:    "OKX",
 			Instruments: total,
 			UpdatedAt:   time.Now(),
-		}.RenderHTML())
+		})
+		if err != nil {
+			return err
+		}
 
 		// (Опционально) подробности об ошибке — лучше в dev-лог, а не в публичный канал:
 		// w.log.Error("warmup failed", zap.Error(firstErr))
@@ -181,13 +194,18 @@ func (w *Warmuper) Warmup(ctx context.Context, symbols []string) error {
 	}
 
 	// 3) Готово: финальный статус
-	w.n.SendService(ctx, public.Status{
+	_, err = w.publicNotifier.SendServiceText(ctx, public.Status{
 		State:       public.StateReady,
 		Exchange:    "OKX",
 		Instruments: total,
 		Progress:    100,
 		UpdatedAt:   time.Now(),
 	}.RenderHTML())
+	if err != nil {
+		return err
+	}
+
+	w.hub.SetWarmupDone()
 
 	return nil
 }

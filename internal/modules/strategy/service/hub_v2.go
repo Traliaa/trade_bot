@@ -265,3 +265,10 @@ func (h *Hub) MaybeAutoTune() {
 		before.CloseDnMax, after.CloseDnMax,
 	)
 }
+
+func (h *Hub) SetWarmupDone() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.warmupDone = true
+	log.Printf("[HUB] warmup marked as done")
+}

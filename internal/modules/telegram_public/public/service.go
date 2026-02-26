@@ -25,7 +25,7 @@ func NewService(n PublicNotifier, r Repo) *Service {
 	return &Service{
 		n:              n,
 		r:              r,
-		heartbeatEvery: 5 * time.Minute,
+		heartbeatEvery: 1 * time.Second,
 		stop:           make(chan struct{}),
 	}
 }
@@ -56,7 +56,7 @@ func (s *Service) Set(ctx context.Context, st Status) {
 	s.last = st
 	s.mu.Unlock()
 
-	if err := s.sendOrEdit(ctx, st); err != nil {
+	if err := s.SendOrEdit(ctx, st); err != nil {
 		logger.Error("public status send/edit failed", zap.Error(err))
 	}
 }
@@ -71,12 +71,12 @@ func (s *Service) Heartbeat(ctx context.Context) {
 	}
 
 	st.UpdatedAt = time.Now()
-	if err := s.sendOrEdit(ctx, st); err != nil {
+	if err := s.SendOrEdit(ctx, st); err != nil {
 		logger.Error("public status heartbeat failed", zap.Error(err))
 	}
 }
 
-func (s *Service) sendOrEdit(ctx context.Context, st Status) error {
+func (s *Service) SendOrEdit(ctx context.Context, st Status) error {
 	meta, ok, err := s.r.Get(ctx)
 	if err != nil {
 		return err
@@ -95,4 +95,7 @@ func (s *Service) sendOrEdit(ctx context.Context, st Status) error {
 
 	// иначе редактируем
 	return s.n.EditServiceText(ctx, meta.MessageID, text)
+}
+func (s *Service) SendServiceText(ctx context.Context, text string) (messageID int, err error) {
+	return s.n.SendServiceText(ctx, text)
 }
