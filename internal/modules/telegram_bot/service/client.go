@@ -37,7 +37,7 @@ type Router interface {
 	GetSession(ctx context.Context, userID int64) (*sessions.UserSession, error)
 	AutoTuneNow(ctx context.Context) (models.TuneDecision, models.RuntimeTuning, time.Time, time.Time, bool, models.TuneMode)
 	ToggleTuneMode(ctx context.Context) models.TuneMode
-
+	TuneMode(ctx context.Context) models.TuneMode
 	StrategyRejects(reset bool) models.RejectSnapshot
 	StrategyTuning() (models.RuntimeTuning, time.Time, time.Time)
 }

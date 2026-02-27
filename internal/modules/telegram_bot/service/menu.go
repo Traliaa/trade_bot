@@ -15,7 +15,7 @@ func (t *Telegram) buildSettingsMenu(ctx context.Context, chatID int64) (text st
 		return "", tgbotapi.InlineKeyboardMarkup{}, err
 	}
 
-	modeStr := models.TuneModeString(t.router.ToggleTuneMode(ctx))
+	modeStr := models.TuneModeString(t.router.TuneMode(ctx))
 
 	ts := user.User.Settings.TradingSettings
 	tr := user.User.Settings.TrailingConfig

@@ -87,3 +87,9 @@ func (r *Router) ToggleTuneMode(ctx context.Context) models.TuneMode {
 
 	return newMode
 }
+func (r *Router) TuneMode(ctx context.Context) models.TuneMode {
+	// если режим хранится в стратегии — просто toggle там
+	newMode := r.engine.TuneMode()
+
+	return newMode
+}
