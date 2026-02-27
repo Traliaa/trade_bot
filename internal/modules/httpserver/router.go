@@ -25,7 +25,7 @@ func RegisterHooks(p HookParams) {
 	var ln net.Listener
 
 	p.Lifecycle.Append(fx.Hook{
-		OnStart: func(ctx context.Context) error {
+		OnStart: func(_ context.Context) error {
 			log.Printf("httpserver: OnStart begin addr=%s", p.Server.Addr)
 
 			l, err := net.Listen("tcp", p.Server.Addr)
@@ -48,14 +48,14 @@ func RegisterHooks(p HookParams) {
 			return nil
 		},
 
-		OnStop: func(ctx context.Context) error {
-			log.Println("httpserver: OnStop")
-			_ = p.Server.Shutdown(ctx)
-			if ln != nil {
-				_ = ln.Close()
-			}
-			return nil
-		},
+		//OnStop: func(ctx context.Context) error {
+		//	log.Println("httpserver: OnStop")
+		//	_ = p.Server.Shutdown(ctx)
+		//	if ln != nil {
+		//		_ = ln.Close()
+		//	}
+		//	return nil
+		//},
 	})
 }
 
