@@ -232,14 +232,7 @@ func (e *Service) OnCandle(t models.CandleTick) (models.Signal, bool, bool) {
 		// === БАЗОВЫЕ ПРОВЕРКИ ===
 		if !haveCh {
 
-			e.rejects.Inc(models.RejectNoChannel)
-
-			// ✅ ВРЕМЕННЫЙ лог: видно, чем именно LTF является и как растёт буфер
-			log.Printf("[STRAT] no_channel inst=%s tfRaw=%q norm=%q highs=%d/%d",
-				t.InstID, t.TimeframeRaw, tf, len(st.Highs), e.cfg.Strategy.DonchianPeriod,
-			)
 			e.updateBuffer(st, t)
-			e.MaybeLogRejects()
 			return models.Signal{}, false, becameReady
 		}
 
