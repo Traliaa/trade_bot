@@ -5,7 +5,6 @@ import (
 	"trade_bot/internal/modules/api"
 	"trade_bot/internal/modules/bootstrap"
 	"trade_bot/internal/modules/config"
-	"trade_bot/internal/modules/health"
 	"trade_bot/internal/modules/httpserver"
 	"trade_bot/internal/modules/okx_websocket"
 	"trade_bot/internal/modules/postgres"
