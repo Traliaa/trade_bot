@@ -27,7 +27,8 @@ type Service struct {
 	mu sync.Mutex
 	st map[string]*models.V2State
 
-	rejects *models.RejectStats
+	rejects    *models.RejectStats
+	lastTickAt time.Time
 
 	lastSignalAt time.Time
 
@@ -59,6 +60,7 @@ func NewService(cfg *config.Config, out chan<- models.Signal, candleOut chan<- m
 
 // OnTick ...
 func (e *Service) OnTick(ctx context.Context, t okxws.OutTick) {
+	e.rejects.Touch(time.Now())
 	// 1) проброс свечей 1m наружу (не блокируем)
 	if helper.NormTF(t.Timeframe) == "1m" && e.candleOut != nil {
 		select {
@@ -141,6 +143,11 @@ func (e *Service) get(sym string) *models.V2State {
 //	sig, ok=true  -> есть сигнал
 //	becameReady=true -> по этому символу стратегия впервые "прогрелась" (LTF/HTF)
 func (e *Service) OnCandle(t models.CandleTick) (models.Signal, bool, bool) {
+
+	e.mu.Lock()
+	e.lastTickAt = time.Now()
+	e.mu.Unlock()
+
 	e.mu.Lock()
 	defer e.mu.Unlock()
 

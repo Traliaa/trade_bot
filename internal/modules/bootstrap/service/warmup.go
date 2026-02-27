@@ -131,12 +131,13 @@ func (w *Warmuper) Warmup(ctx context.Context, symbols []string) error {
 					InstID:    sym,
 					Timeframe: w.cfg.Strategy.HTF,
 					Candle: models.CandleTick{
-						Open:  c.Open,
-						High:  c.High,
-						Low:   c.Low,
-						Close: c.Close,
-						Start: c.Start,
-						End:   c.End,
+						Open:         c.Open,
+						High:         c.High,
+						Low:          c.Low,
+						Close:        c.Close,
+						Start:        c.Start,
+						End:          c.End,
+						TimeframeRaw: w.cfg.Strategy.HTF,
 					},
 				})
 			}
@@ -156,12 +157,13 @@ func (w *Warmuper) Warmup(ctx context.Context, symbols []string) error {
 					InstID:    sym,
 					Timeframe: w.cfg.Strategy.LTF,
 					Candle: models.CandleTick{
-						Open:  c.Open,
-						High:  c.High,
-						Low:   c.Low,
-						Close: c.Close,
-						Start: c.Start,
-						End:   c.End,
+						Open:         c.Open,
+						High:         c.High,
+						Low:          c.Low,
+						Close:        c.Close,
+						Start:        c.Start,
+						End:          c.End,
+						TimeframeRaw: w.cfg.Strategy.LTF,
 					},
 				})
 			}

@@ -106,3 +106,13 @@ func (s *RejectStats) Snapshot(reset bool) RejectSnapshot {
 
 	return out
 }
+func (s *RejectStats) Touch(now time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.from.IsZero() {
+		s.from = now
+	}
+	// даже без Inc() окно будет “течь”
+	s.to = now
+}

@@ -107,14 +107,15 @@ func (c *Client) runTimeframe(
 			}
 
 			candle := models.CandleTick{
-				Open:   tick.Open,
-				High:   tick.High,
-				Low:    tick.Low,
-				Close:  tick.Close,
-				Volume: tick.Volume,
-				Start:  tick.Start,
-				End:    tick.End,
-				InstID: tick.InstID,
+				Open:         tick.Open,
+				High:         tick.High,
+				Low:          tick.Low,
+				Close:        tick.Close,
+				Volume:       tick.Volume,
+				Start:        tick.Start,
+				End:          tick.End,
+				InstID:       tick.InstID,
+				TimeframeRaw: tick.TimeframeRaw,
 			}
 
 			select {

@@ -35,9 +35,11 @@ type Router interface {
 	ApplySettings(ctx context.Context, user *models.UserSettings)
 	StatusForUser(ctx context.Context, userID int64) ([]models.OpenPosition, error)
 	GetSession(ctx context.Context, userID int64) (*sessions.UserSession, error)
-	StrategyRejects(reset bool) models.RejectSnapshot
 	AutoTuneNow(ctx context.Context) (models.TuneDecision, models.RuntimeTuning, time.Time, time.Time, bool, models.TuneMode)
 	ToggleTuneMode(ctx context.Context) models.TuneMode
+
+	StrategyRejects(reset bool) models.RejectSnapshot
+	StrategyTuning() (models.RuntimeTuning, time.Time, time.Time)
 }
 
 func (t *Telegram) SetRouter(r Router) {
