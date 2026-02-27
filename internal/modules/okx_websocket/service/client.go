@@ -50,15 +50,8 @@ func NewClient(cfg *config.Config, n ServiceNotifier) *Client {
 	}
 }
 
-// OutTick — что отдаём наружу (стрим в StrategyHub).
-type OutTick struct {
-	InstID    string
-	Timeframe string
-	Candle    models.CandleTick // или твой CandleTick с OHLCV
-}
-
 // Start собирает топ-волатильные и стримит по нескольким таймфреймам.
-func (c *Client) Start(ctx context.Context, out chan<- OutTick) {
+func (c *Client) Start(ctx context.Context, out chan<- models.CandleTick) {
 	syms, err := c.TopVolatile(c.cfg.Strategy.WatchTopN)
 	if err != nil {
 		log.Printf("[MARKET] ошибка TopVolatile: %v", err)
@@ -91,7 +84,7 @@ func (c *Client) runTimeframe(
 	internalTF string, // "1h"
 	okxBar string, // "1H"
 	syms []string,
-	out chan<- OutTick,
+	out chan<- models.CandleTick,
 ) {
 	logger.Error(fmt.Sprintf("запускаем стрим %s (okx=%s)", internalTF, okxBar))
 
@@ -119,11 +112,7 @@ func (c *Client) runTimeframe(
 			}
 
 			select {
-			case out <- OutTick{
-				InstID:    tick.InstID,
-				Timeframe: internalTF, // наружу отдаём "1h", как ждёт engine
-				Candle:    candle,
-			}:
+			case out <- candle:
 			case <-ctx.Done():
 				return
 			}

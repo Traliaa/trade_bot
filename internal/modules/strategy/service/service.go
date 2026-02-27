@@ -8,10 +8,8 @@ import (
 	"sync/atomic"
 	"time"
 	"trade_bot/internal/helper"
-	"trade_bot/internal/modules/config"
-	okxws "trade_bot/internal/modules/okx_websocket/service"
-
 	"trade_bot/internal/models"
+	"trade_bot/internal/modules/config"
 )
 
 type Service struct {
@@ -59,22 +57,22 @@ func NewService(cfg *config.Config, out chan<- models.Signal, candleOut chan<- m
 }
 
 // OnTick ...
-func (e *Service) OnTick(ctx context.Context, t okxws.OutTick) {
+func (e *Service) OnTick(ctx context.Context, t models.CandleTick) {
 	e.rejects.Touch(time.Now())
 	// 1) проброс свечей 1m наружу (не блокируем)
-	if helper.NormTF(t.Timeframe) == "1m" && e.candleOut != nil {
+	if helper.NormTF(t.TimeframeRaw) == "1m" && e.candleOut != nil {
 		select {
-		case e.candleOut <- t.Candle:
+		case e.candleOut <- t:
 		default:
 		}
 	}
 
-	if helper.NormTF(t.Timeframe) == helper.NormTF(e.cfg.Strategy.LTF) {
+	if helper.NormTF(t.TimeframeRaw) == helper.NormTF(e.cfg.Strategy.LTF) {
 		_ = e.MaybeAutoTuneTick(time.Now())
 	}
 
 	// 2) стратегия
-	sig, ok, _ := e.OnCandle(t.Candle)
+	sig, ok, _ := e.OnCandle(t)
 
 	// 3) блок сигналов пока warmup не done
 	if !ok || !e.warmupDone.Load() || e.out == nil {
@@ -209,8 +207,6 @@ func (e *Service) OnCandle(t models.CandleTick) (models.Signal, bool, bool) {
 	// ===================== LTF ===============================
 	// =========================================================
 	case helper.NormTF(e.cfg.Strategy.LTF):
-		e.rejects.Inc(models.RejectInternal)
-		log.Printf("[STRAT] unknown tf raw=%q norm=%q inst=%s", t.TimeframeRaw, helper.NormTF(t.TimeframeRaw), t.InstID)
 		var (
 			dh, dl  float64
 			haveCh  bool
@@ -352,6 +348,12 @@ func (e *Service) OnCandle(t models.CandleTick) (models.Signal, bool, bool) {
 		return sig, true, becameReady
 
 	default:
+		e.rejects.Inc(models.RejectInternal)
+		log.Printf("[STRAT] unknown tf raw=%q norm=%q inst=%s wantLTF=%q wantHTF=%q",
+			t.TimeframeRaw, tf, t.InstID,
+			helper.NormTF(e.cfg.Strategy.LTF),
+			helper.NormTF(e.cfg.Strategy.HTF),
+		)
 		return models.Signal{}, false, false
 	}
 }

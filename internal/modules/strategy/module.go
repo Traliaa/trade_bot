@@ -8,7 +8,6 @@ import (
 	"go.uber.org/fx"
 
 	"trade_bot/internal/models"
-	okxws "trade_bot/internal/modules/okx_websocket/service"
 )
 
 func newSignalsChan() chan models.Signal {
@@ -16,25 +15,18 @@ func newSignalsChan() chan models.Signal {
 }
 func asSendOnlySignals(ch chan models.Signal) chan<- models.Signal { return ch }
 
-func newSignalsStopChan() chan models.CandleTick {
-	return make(chan models.CandleTick, 100000)
-}
 func asSendOnlyStopSignals(ch chan models.CandleTick) chan<- models.CandleTick { return ch }
 func Module() fx.Option {
 	return fx.Module("strategy",
 		fx.Provide(
 			newSignalsChan,    // chan models.Signal
 			asSendOnlySignals, // chan<- models.Signal
-			newSignalsStopChan,
 			asSendOnlyStopSignals,
 			service.NewService, // *service.Hub (получит V2Config, Notifier, chan<-Signal, Engine)
-			//fx.Annotate(
-			//	func(s *public.Service) service.ServiceNotifier { return s },
-			//	fx.As(new(service.ServiceNotifier)),
-			//),
+
 		),
 
-		fx.Invoke(func(lc fx.Lifecycle, s *service.Service, ticks <-chan okxws.OutTick) {
+		fx.Invoke(func(lc fx.Lifecycle, s *service.Service, ticks <-chan models.CandleTick) {
 			lc.Append(fx.Hook{
 				OnStart: func(ctx context.Context) error {
 					go func() {

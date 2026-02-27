@@ -128,18 +128,15 @@ func (w *Warmuper) Warmup(ctx context.Context, symbols []string) error {
 				return
 			}
 			for _, c := range htf {
-				w.hub.OnTick(ctx, okxws.OutTick{
-					InstID:    sym,
-					Timeframe: htfTF,
-					Candle: models.CandleTick{
-						Open:         c.Open,
-						High:         c.High,
-						Low:          c.Low,
-						Close:        c.Close,
-						Start:        c.Start,
-						End:          c.End,
-						TimeframeRaw: htfTF,
-					},
+				w.hub.OnTick(ctx, models.CandleTick{
+					Open:         c.Open,
+					High:         c.High,
+					Low:          c.Low,
+					Close:        c.Close,
+					Start:        c.Start,
+					End:          c.End,
+					TimeframeRaw: htfTF,
+					InstID:       sym,
 				})
 			}
 
@@ -154,18 +151,15 @@ func (w *Warmuper) Warmup(ctx context.Context, symbols []string) error {
 				return
 			}
 			for _, c := range ltf {
-				w.hub.OnTick(ctx, okxws.OutTick{
-					InstID:    sym,
-					Timeframe: ltfTF,
-					Candle: models.CandleTick{
-						Open:         c.Open,
-						High:         c.High,
-						Low:          c.Low,
-						Close:        c.Close,
-						Start:        c.Start,
-						End:          c.End,
-						TimeframeRaw: ltfTF,
-					},
+				w.hub.OnTick(ctx, models.CandleTick{
+					Open:         c.Open,
+					High:         c.High,
+					Low:          c.Low,
+					Close:        c.Close,
+					Start:        c.Start,
+					End:          c.End,
+					TimeframeRaw: ltfTF,
+					InstID:       sym,
 				})
 			}
 
