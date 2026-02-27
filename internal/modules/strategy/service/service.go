@@ -372,9 +372,9 @@ func (e *Service) MaybeAutoTuneTick(now time.Time) models.TuneDecision {
 		return models.TuneDecision{Changed: false, Why: models.TuneWhyCooldown}
 	}
 	e.lastTuneCheckAt = now
-	return e.MaybeAutoTuneAdaptive(now, e.tuneMode)
+	return e.MaybeAutoTuneAdaptive(now, e.tuneMode, false)
 }
-func (e *Service) MaybeAutoTuneAdaptive(now time.Time, mode models.TuneMode) models.TuneDecision {
+func (e *Service) MaybeAutoTuneAdaptive(now time.Time, mode models.TuneMode, force bool) models.TuneDecision {
 	if mode == models.TuneOff {
 		return models.TuneDecision{Changed: false, Why: models.TuneWhyOff}
 	}
@@ -403,8 +403,20 @@ func (e *Service) MaybeAutoTuneAdaptive(now time.Time, mode models.TuneMode) mod
 	if mode == models.TuneAuto {
 		noSignalFor = 30 * time.Minute
 	}
-	if now.Sub(e.lastSignalAt) < noSignalFor {
-		return models.TuneDecision{Changed: false, Why: models.TuneWhySignalsRecent}
+	if !force && !e.lastSignalAt.IsZero() && now.Sub(e.lastSignalAt) < noSignalFor {
+		cur, _, _ := e.CurrentTuning() // если CurrentTuning читает под lock’ами
+		return models.TuneDecision{
+			Changed: false,
+			Why:     models.TuneWhySignalsRecent,
+			Before:  cur, // чтобы UI мог показать “текущие пороги”
+			After:   cur, // можно так же
+			From:    now.Add(-noSignalFor),
+			To:      now,
+			Total:   0,
+			// Dominant/DomPct можно оставить нулями
+			// lastSig/lastTune ты и так показываешь отдельно — но можно тоже прокинуть если захочешь расширить модель
+
+		}
 	}
 
 	// 4) Берём снимок reject-окна
@@ -526,7 +538,7 @@ func (e *Service) MaybeAutoTuneAdaptive(now time.Time, mode models.TuneMode) mod
 
 func (e *Service) AutoTuneNow(mode models.TuneMode) models.TuneDecision {
 	now := time.Now()
-	dec := e.MaybeAutoTuneAdaptive(now, mode)
+	dec := e.MaybeAutoTuneAdaptive(now, mode, true)
 
 	if dec.Changed {
 		log.Printf(
