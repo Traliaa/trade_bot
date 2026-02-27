@@ -17,11 +17,14 @@ require (
 	gopkg.in/yaml.v2 v2.4.0
 )
 
-require github.com/pkg/errors v0.9.1
+require (
+	github.com/bytedance/gopkg v0.1.3
+	github.com/go-chi/chi/v5 v5.2.5
+	github.com/pkg/errors v0.9.1
+)
 
 require (
 	github.com/HdrHistogram/hdrhistogram-go v1.1.2 // indirect
-	github.com/bytedance/gopkg v0.1.3 // indirect
 	github.com/bytedance/sonic/loader v0.3.0 // indirect
 	github.com/cloudwego/base64x v0.1.6 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect

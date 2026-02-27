@@ -2,10 +2,11 @@ package main
 
 import (
 	"context"
-	"log"
+	"trade_bot/internal/modules/api"
 	"trade_bot/internal/modules/bootstrap"
 	"trade_bot/internal/modules/config"
 	"trade_bot/internal/modules/health"
+	"trade_bot/internal/modules/httpserver"
 	"trade_bot/internal/modules/okx_websocket"
 	"trade_bot/internal/modules/postgres"
 	"trade_bot/internal/modules/repository"
@@ -27,8 +28,6 @@ func main() {
 
 		postgres.Module(),
 		repository.Module(),
-
-		health.Module(),
 		config.Module(),
 
 		okx_websocket.Module(),
@@ -37,8 +36,8 @@ func main() {
 		runner.Module(),
 		telegram.Module(),
 		telegram_public.Module(),
+		api.Module(),
+		httpserver.Module(),
 	)
-	if err := app.Start(context.Background()); err != nil {
-		log.Fatal(err)
-	}
+	app.Run()
 }
