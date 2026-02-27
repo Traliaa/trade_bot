@@ -46,7 +46,11 @@ func (w *Warmuper) Warmup(ctx context.Context, symbols []string) error {
 	if len(symbols) == 0 {
 		return nil
 	}
+	ltfTF := w.hub.LTF()
+	htfTF := w.hub.HTF()
 
+	ltfNeed := w.hub.LTFNeed()
+	htfNeed := w.hub.HTFNeed()
 	total := len(symbols)
 
 	// 1) Старт: понятное “мы подготавливаемся”
@@ -102,9 +106,6 @@ func (w *Warmuper) Warmup(ctx context.Context, symbols []string) error {
 		}
 	}()
 
-	ltfNeed := w.cfg.Strategy.DonchianPeriod + 30
-	htfNeed := w.cfg.Strategy.HTFEmaSlow + 30
-
 	for _, sym := range symbols {
 		sym := sym
 		wg.Add(1)
@@ -117,7 +118,7 @@ func (w *Warmuper) Warmup(ctx context.Context, symbols []string) error {
 			defer func() { <-w.sem }()
 
 			// 1) HTF (внутри — как было, это не в паблик)
-			htf, err := w.mx.GetCandles(ctx, sym, w.cfg.Strategy.HTF, htfNeed)
+			htf, err := w.mx.GetCandles(ctx, sym, htfTF, htfNeed)
 			if err != nil {
 				mu.Lock()
 				if firstErr == nil {
@@ -129,7 +130,7 @@ func (w *Warmuper) Warmup(ctx context.Context, symbols []string) error {
 			for _, c := range htf {
 				w.hub.OnTick(ctx, okxws.OutTick{
 					InstID:    sym,
-					Timeframe: w.cfg.Strategy.HTF,
+					Timeframe: htfTF,
 					Candle: models.CandleTick{
 						Open:         c.Open,
 						High:         c.High,
@@ -137,13 +138,13 @@ func (w *Warmuper) Warmup(ctx context.Context, symbols []string) error {
 						Close:        c.Close,
 						Start:        c.Start,
 						End:          c.End,
-						TimeframeRaw: w.cfg.Strategy.HTF,
+						TimeframeRaw: htfTF,
 					},
 				})
 			}
 
 			// 2) LTF
-			ltf, err := w.mx.GetCandles(ctx, sym, w.cfg.Strategy.LTF, ltfNeed)
+			ltf, err := w.mx.GetCandles(ctx, sym, ltfTF, ltfNeed)
 			if err != nil {
 				mu.Lock()
 				if firstErr == nil {
@@ -155,7 +156,7 @@ func (w *Warmuper) Warmup(ctx context.Context, symbols []string) error {
 			for _, c := range ltf {
 				w.hub.OnTick(ctx, okxws.OutTick{
 					InstID:    sym,
-					Timeframe: w.cfg.Strategy.LTF,
+					Timeframe: ltfTF,
 					Candle: models.CandleTick{
 						Open:         c.Open,
 						High:         c.High,
@@ -163,7 +164,7 @@ func (w *Warmuper) Warmup(ctx context.Context, symbols []string) error {
 						Close:        c.Close,
 						Start:        c.Start,
 						End:          c.End,
-						TimeframeRaw: w.cfg.Strategy.LTF,
+						TimeframeRaw: ltfTF,
 					},
 				})
 			}

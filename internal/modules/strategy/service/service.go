@@ -209,7 +209,8 @@ func (e *Service) OnCandle(t models.CandleTick) (models.Signal, bool, bool) {
 	// ===================== LTF ===============================
 	// =========================================================
 	case helper.NormTF(e.cfg.Strategy.LTF):
-
+		e.rejects.Inc(models.RejectInternal)
+		log.Printf("[STRAT] unknown tf raw=%q norm=%q inst=%s", t.TimeframeRaw, helper.NormTF(t.TimeframeRaw), t.InstID)
 		var (
 			dh, dl  float64
 			haveCh  bool
@@ -238,7 +239,13 @@ func (e *Service) OnCandle(t models.CandleTick) (models.Signal, bool, bool) {
 
 		// === БАЗОВЫЕ ПРОВЕРКИ ===
 		if !haveCh {
+
 			e.rejects.Inc(models.RejectNoChannel)
+
+			// ✅ ВРЕМЕННЫЙ лог: видно, чем именно LTF является и как растёт буфер
+			log.Printf("[STRAT] no_channel inst=%s tfRaw=%q norm=%q highs=%d/%d",
+				t.InstID, t.TimeframeRaw, tf, len(st.Highs), e.cfg.Strategy.DonchianPeriod,
+			)
 			e.updateBuffer(st, t)
 			e.MaybeLogRejects()
 			return models.Signal{}, false, becameReady
@@ -576,3 +583,8 @@ func (e *Service) ToggleTuneMode() models.TuneMode {
 	}
 	return e.tuneMode
 }
+func (s *Service) LTF() string { return s.cfg.Strategy.LTF }
+func (s *Service) HTF() string { return s.cfg.Strategy.HTF }
+
+func (s *Service) LTFNeed() int { return s.cfg.Strategy.DonchianPeriod + 30 }
+func (s *Service) HTFNeed() int { return s.cfg.Strategy.HTFEmaSlow + 30 }
