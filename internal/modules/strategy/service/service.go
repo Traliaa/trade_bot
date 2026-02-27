@@ -65,6 +65,7 @@ func (e *Service) OnTick(ctx context.Context, t models.CandleTick) {
 		case e.candleOut <- t:
 		default:
 		}
+		return
 	}
 
 	if helper.NormTF(t.TimeframeRaw) == helper.NormTF(e.cfg.Strategy.LTF) {
@@ -141,14 +142,9 @@ func (e *Service) get(sym string) *models.V2State {
 //	sig, ok=true  -> есть сигнал
 //	becameReady=true -> по этому символу стратегия впервые "прогрелась" (LTF/HTF)
 func (e *Service) OnCandle(t models.CandleTick) (models.Signal, bool, bool) {
-
-	e.mu.Lock()
-	e.lastTickAt = time.Now()
-	e.mu.Unlock()
-
 	e.mu.Lock()
 	defer e.mu.Unlock()
-
+	e.lastTickAt = time.Now()
 	e.tuneMu.RLock()
 	minCh := e.tune.MinChannelPct
 	minBody := e.tune.MinBodyPct
