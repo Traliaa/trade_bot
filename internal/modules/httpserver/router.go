@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"time"
+	"trade_bot/internal/modules/bootstrap/lifecyclelog"
 	"trade_bot/internal/modules/config"
 	"trade_bot/internal/modules/httpserver/service"
 
@@ -71,7 +72,7 @@ func RunHTTP(lc fx.Lifecycle, cfg *config.Config, mux *chi.Mux) *http.Server {
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
-	lc.Append(fx.Hook{
+	lc.Append(lifecyclelog.WrapHook("servger http", fx.Hook{
 		OnStart: func(ctx context.Context) error {
 			ln, err := net.Listen("tcp", srv.Addr)
 			if err != nil {
@@ -84,7 +85,7 @@ func RunHTTP(lc fx.Lifecycle, cfg *config.Config, mux *chi.Mux) *http.Server {
 		OnStop: func(ctx context.Context) error {
 			return srv.Shutdown(ctx)
 		},
-	})
+	}))
 	return srv
 
 }

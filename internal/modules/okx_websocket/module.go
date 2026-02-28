@@ -3,6 +3,7 @@ package okx_websocket
 import (
 	"context"
 	"trade_bot/internal/models"
+	"trade_bot/internal/modules/bootstrap/lifecyclelog"
 	"trade_bot/internal/modules/okx_websocket/service"
 	telegram "trade_bot/internal/modules/telegram_bot/service"
 
@@ -28,12 +29,12 @@ func Module() fx.Option {
 			),
 		),
 		fx.Invoke(func(lc fx.Lifecycle, s *service.Client, out chan models.CandleTick) {
-			lc.Append(fx.Hook{
+			lc.Append(lifecyclelog.WrapHook("okx_websocket", fx.Hook{
 				OnStart: func(ctx context.Context) error {
 					go s.Start(ctx, out) // Start ждёт chan<- -> сюда подходит chan
 					return nil
 				},
-			})
+			}))
 		}),
 	)
 }

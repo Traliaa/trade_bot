@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"os"
+	"time"
 	"trade_bot/internal/modules/api"
 	"trade_bot/internal/modules/bootstrap"
 	"trade_bot/internal/modules/config"
@@ -15,6 +17,7 @@ import (
 	"trade_bot/internal/runner"
 
 	"go.uber.org/fx"
+	"go.uber.org/fx/fxevent"
 )
 
 func main() {
@@ -38,6 +41,11 @@ func main() {
 		telegram_public.Module(),
 		api.Module(),
 		httpserver.Module(),
+		fx.WithLogger(func() fxevent.Logger {
+			return &fxevent.ConsoleLogger{W: os.Stdout}
+		}),
+		fx.StartTimeout(60*time.Second),
+		fx.StopTimeout(30*time.Second),
 	)
 	app.Run()
 }

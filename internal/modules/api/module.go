@@ -1,8 +1,6 @@
 package api
 
 import (
-	"log"
-	"net/http"
 	"os"
 	"trade_bot/internal/modules/api/controller"
 	"trade_bot/internal/modules/api/middleware"
@@ -49,7 +47,6 @@ func provideJWTSecret() []byte {
 }
 
 func registerRoutes(p Params, tg *controller.TgSessionController, me *controller.MeController, jwtSecret []byte, health *controller.HealthController, trade *controller.TradeController) {
-	log.Printf("api.registerRoutes: router=%p\n", p.Router)
 	p.Router.Route("/api", func(r chi.Router) {
 		r.Post("/tg/session", tg.CreateSession)
 
@@ -74,10 +71,4 @@ func registerRoutes(p Params, tg *controller.TgSessionController, me *controller
 
 	})
 	p.Router.Get("/live", health.Live)
-	if routes, ok := any(p.Router).(chi.Routes); ok {
-		_ = chi.Walk(routes, func(method string, route string, handler http.Handler, middlewares ...func(http.Handler) http.Handler) error {
-			log.Printf("ROUTE %s %s", method, route)
-			return nil
-		})
-	}
 }

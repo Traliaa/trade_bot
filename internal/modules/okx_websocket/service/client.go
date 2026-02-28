@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"fmt"
 	"log"
 	"net/http"
 	"strings"
@@ -11,7 +10,6 @@ import (
 	"trade_bot/internal/models"
 	"trade_bot/internal/modules/config"
 	"trade_bot/internal/modules/telegram_public/public"
-	"trade_bot/pkg/logger"
 
 	"github.com/gorilla/websocket"
 )
@@ -86,8 +84,6 @@ func (c *Client) runTimeframe(
 	syms []string,
 	out chan<- models.CandleTick,
 ) {
-	logger.Error(fmt.Sprintf("запускаем стрим %s (okx=%s)", internalTF, okxBar))
-
 	ticks := c.StreamCandlesBatch(ctx, syms, okxBar) // <-- ВАЖНО: okxBar
 
 	for {

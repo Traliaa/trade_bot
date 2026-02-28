@@ -29,7 +29,7 @@ COPY --from=builder /go/bin/goose /usr/local/bin/goose
 COPY --from=builder /build/migrations ./migrations
 COPY --from=builder /build/configs ./configs
 
-EXPOSE 3000
+EXPOSE 8080
 
 # При запуске контейнера:
 # 1. прогоняем миграции

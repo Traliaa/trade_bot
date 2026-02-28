@@ -5,6 +5,7 @@ import (
 	"time"
 	"trade_bot/internal/helper"
 	"trade_bot/internal/models"
+	"trade_bot/internal/modules/bootstrap/lifecyclelog"
 	"trade_bot/internal/modules/repository/pg"
 	"trade_bot/internal/modules/telegram_bot/service"
 	"trade_bot/internal/runner/router"
@@ -39,7 +40,7 @@ func Module() fx.Option {
 			sigs chan models.Signal, // входящие сигналы
 			candles chan models.CandleTick, // канал для агрегации свечей
 		) {
-			lc.Append(fx.Hook{
+			lc.Append(lifecyclelog.WrapHook("runner", fx.Hook{
 				OnStart: func(_ context.Context) error {
 					runCtx, cancel := context.WithCancel(context.Background())
 
@@ -117,7 +118,7 @@ func Module() fx.Option {
 
 					return nil
 				},
-			})
+			}))
 		}),
 	)
 }

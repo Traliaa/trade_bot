@@ -2,12 +2,15 @@ package telegram
 
 import (
 	"context"
+	"fmt"
+	"trade_bot/internal/modules/bootstrap/lifecyclelog"
 	"trade_bot/internal/modules/telegram_public/public"
 	"trade_bot/internal/runner/router"
 
 	"trade_bot/internal/modules/telegram_bot/service"
 
 	"go.uber.org/fx"
+	"go.uber.org/zap"
 )
 
 func Module() fx.Option {
@@ -24,9 +27,13 @@ func Module() fx.Option {
 				t.SetRouter(r)
 			},
 			func(lc fx.Lifecycle, t *service.Telegram) {
-				lc.Append(fx.Hook{
+				lc.Append(lifecyclelog.WrapHook("telegram", fx.Hook{
 					OnStart: func(ctx context.Context) error {
-						t.Start(ctx)
+						go func() {
+							if err := t.Start(ctx); err != nil && ctx.Err() == nil {
+								fmt.Errorf("telegram run", zap.Error(err)) // или log.Printf
+							}
+						}()
 						return nil
 					},
 
@@ -34,7 +41,7 @@ func Module() fx.Option {
 						t.Stop()
 						return nil
 					},
-				})
+				}))
 			},
 		),
 	)
