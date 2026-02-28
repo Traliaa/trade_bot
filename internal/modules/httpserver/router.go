@@ -65,65 +65,28 @@ type ServerParams struct {
 	Handler   *chi.Mux
 }
 
-//
-//func RunHTTPServer(p ServerParams, cfg *config.Config) *http.Server {
-//	log.Printf("httpserver: handler=%p\n", p.Handler)
-//	srv := &http.Server{
-//		Addr:              fmt.Sprintf(":%d", cfg.Service.PublicPort),
-//		Handler:           p.Handler,
-//		ReadHeaderTimeout: 5 * time.Second,
-//	}
-//	return srv
-//}
-//
-//func Module() fx.Option {
-//	return fx.Options(
-//		fx.Provide(
-//			ProvideRouter,
-//			RunHTTPServer,
-//		),
-//
-//		fx.Invoke(func(lc fx.Lifecycle, srv *http.Server) {
-//			log.Println("httpserver: invoke hook install") // <-- добавь
-//			log.Printf("httpserver: listening on %s", srv.Addr)
-//
-//			lc.Append(fx.Hook{
-//				OnStart: func(ctx context.Context) error {
-//					go func() {
-//						if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-//							log.Printf("httpserver: listen error: %v", err)
-//						}
-//					}()
-//					return nil
-//				},
-//				OnStop: func(ctx context.Context) error {
-//					return srv.Shutdown(ctx)
-//				},
-//			})
-//		}),
-//	)
-//}
-
-func RunHTTP(lc fx.Lifecycle, cfg *config.Config, mux *chi.Mux) {
+func RunHTTP(lc fx.Lifecycle, cfg *config.Config, mux *chi.Mux) *http.Server {
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.Service.PublicPort),
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
-
 	lc.Append(fx.Hook{
 		OnStart: func(ctx context.Context) error {
-			ln, err := net.Listen("tcp", fmt.Sprintf(":%d", cfg.Service.PublicPort))
+			ln, err := net.Listen("tcp", srv.Addr)
 			if err != nil {
 				return err
 			}
-			go func() { _ = srv.Serve(ln) }()
+			fmt.Println("Starting HTTP server at", srv.Addr)
+			go srv.Serve(ln)
 			return nil
 		},
 		OnStop: func(ctx context.Context) error {
 			return srv.Shutdown(ctx)
 		},
 	})
+	return srv
+
 }
 
 func Module() fx.Option {
@@ -131,7 +94,8 @@ func Module() fx.Option {
 		fx.Provide(
 			service.NewState,
 			ProvideRouter,
+			RunHTTP,
 		),
-		fx.Invoke(RunHTTP),
+		fx.Invoke(func(*http.Server) {}),
 	)
 }

@@ -6,6 +6,7 @@ import (
 	"os"
 	"trade_bot/internal/modules/api/controller"
 	"trade_bot/internal/modules/api/middleware"
+	"trade_bot/internal/runner/router"
 
 	"go.uber.org/fx"
 
@@ -27,8 +28,13 @@ func Module() fx.Option {
 			controller.NewTgSessionController,
 			controller.NewMeController,
 			controller.NewHealthController,
+			controller.NewTradeController,
 		),
-		fx.Invoke(registerRoutes),
+		fx.Invoke(
+			func(t *controller.TradeController, r *router.Router) {
+				t.SetRouter(r)
+			},
+			registerRoutes),
 	)
 }
 
@@ -42,7 +48,7 @@ func provideJWTSecret() []byte {
 	return []byte(os.Getenv("JWT_SECRET"))
 }
 
-func registerRoutes(p Params, tg *controller.TgSessionController, me *controller.MeController, jwtSecret []byte, health *controller.HealthController) {
+func registerRoutes(p Params, tg *controller.TgSessionController, me *controller.MeController, jwtSecret []byte, health *controller.HealthController, trade *controller.TradeController) {
 	log.Printf("api.registerRoutes: router=%p\n", p.Router)
 	p.Router.Route("/api", func(r chi.Router) {
 		r.Post("/tg/session", tg.CreateSession)
@@ -51,6 +57,20 @@ func registerRoutes(p Params, tg *controller.TgSessionController, me *controller
 			pr.Use(middleware.Auth(jwtSecret))
 			pr.Get("/me", me.Me)
 		})
+
+		r.Route("/user/{id}", func(u chi.Router) {
+			u.Post("/disable", trade.DisableUser)
+			u.Post("/enable", trade.EnableUser)
+			u.Post("/settings", trade.ApplySettings)
+			u.Get("/status", trade.StatusForUser)
+			u.Get("/session", trade.GetSession)
+		})
+
+		r.Post("/tune/auto", trade.AutoTuneNow)
+		r.Post("/tune/toggle", trade.ToggleTuneMode)
+		r.Get("/tune/mode", trade.TuneMode)
+		r.Get("/tune/rejects", trade.StrategyRejects)
+		r.Get("/tune/runtime", trade.StrategyTuning)
 
 	})
 	p.Router.Get("/live", health.Live)
