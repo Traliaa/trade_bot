@@ -21,7 +21,7 @@ strategy:
   htf: "1h"
   donchian_period: 20
   min_channel_pct: 0.012
-  min_body_pct: 0.004
+  min_body_pct: 0.002
   breakout_pct: 0.0025
   htf_ema_fast: 50
   htf_ema_slow: 200
