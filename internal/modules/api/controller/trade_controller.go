@@ -50,8 +50,8 @@ type statusResponse struct {
 	Positions []models.OpenPosition `json:"positions"`
 }
 
-type sessionResponse struct {
-	Session *sessions.UserSession `json:"session"`
+type settingResponse struct {
+	Setting models.UserSettings `json:"setting"`
 }
 
 type autoTuneResponse struct {
@@ -105,7 +105,7 @@ func (c *TradeController) StatusForUser(w http.ResponseWriter, r *http.Request) 
 	writeJSON(w, statusResponse{Positions: positions})
 }
 
-func (c *TradeController) GetSession(w http.ResponseWriter, r *http.Request) {
+func (c *TradeController) GetSetting(w http.ResponseWriter, r *http.Request) {
 	userID, ok := mustUserID(w, r)
 	if !ok {
 		return
@@ -115,7 +115,7 @@ func (c *TradeController) GetSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	writeJSON(w, sessionResponse{Session: sess})
+	writeJSON(w, settingResponse{Setting: *sess.User})
 }
 
 func (c *TradeController) AutoTuneNow(w http.ResponseWriter, r *http.Request) {

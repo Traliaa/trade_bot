@@ -67,7 +67,7 @@ func registerRoutes(p Params, tg *controller.TgSessionController, me *controller
 			u.Post("/enable", trade.EnableUser)
 			u.Post("/settings", trade.ApplySettings)
 			u.Get("/status", trade.StatusForUser)
-			u.Get("/session", trade.GetSession)
+			u.Get("/settings", trade.GetSetting)
 		})
 
 		r.Post("/tune/auto", trade.AutoTuneNow)
