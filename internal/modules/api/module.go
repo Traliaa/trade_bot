@@ -47,14 +47,14 @@ func provideJWTSecret() []byte {
 }
 
 func registerRoutes(p Params, tg *controller.TgSessionController, me *controller.MeController, jwtSecret []byte, health *controller.HealthController, trade *controller.TradeController) {
-	// ✅ CORS - самый верхний middleware
-	p.Router.Use(middleware.CORS(middleware.CORSConfig{
-		AllowedOrigins: []string{
-			"http://localhost:5173",
-			"https://trade.bot.etk3.xyz",
-		},
-	}))
+
 	p.Router.Route("/api", func(r chi.Router) {
+		r.Use(middleware.CORS(middleware.CORSConfig{
+			AllowedOrigins: []string{
+				"http://localhost:5173",
+				"https://trade.bot.etk3.xyz",
+			},
+		}))
 		r.Post("/tg/session", tg.CreateSession)
 
 		r.Group(func(pr chi.Router) {
