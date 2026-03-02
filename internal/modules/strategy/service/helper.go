@@ -55,33 +55,34 @@ func isWeakClose(r models.RejectReason) bool {
 
 // dominantReason выбирает доминирующий “душитель” по снапшоту.
 // weak_close_up + weak_close_down агрегируются в одну причину (маркер RejectWeakCloseUp).
-func dominantReason(s models.RejectSnapshot) (reason models.RejectReason, pct float64, total uint64) {
-	total = s.Total
+func dominantReason(snap models.RejectSnapshot) (models.RejectReason, float64, uint64) {
+	total := snap.Total
 	if total == 0 {
 		return "", 0, 0
 	}
 
-	var weakClose uint64
-	var top models.RejectReason
-	var topCnt uint64
-
-	for r, c := range s.By {
-		if isWeakClose(r) {
-			weakClose += c
-			continue
-		}
-		if c > topCnt {
-			topCnt = c
-			top = r
+	// 1) обычная доминанта среди raw- причин
+	var bestR models.RejectReason
+	var bestC uint64
+	for r, c := range snap.By {
+		if c > bestC {
+			bestC = c
+			bestR = r
 		}
 	}
 
-	if weakClose > topCnt {
-		topCnt = weakClose
-		top = models.RejectWeakCloseUp // маркер aggregated weak_close
+	// 2) aggregated weak_close = up + down
+	weakClose := snap.By[models.RejectWeakCloseUp] + snap.By[models.RejectWeakCloseDown]
+	if weakClose > bestC {
+		bestC = weakClose
+		bestR = models.RejectWeakClose
 	}
 
-	return top, float64(topCnt) / float64(total), total
+	if bestC == 0 {
+		return "", 0, total
+	}
+
+	return bestR, float64(bestC) / float64(total), total
 }
 
 // label для красивых логов/админки

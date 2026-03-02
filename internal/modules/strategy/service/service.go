@@ -441,7 +441,11 @@ func (e *Service) MaybeAutoTuneAdaptive(now time.Time, mode models.TuneMode, for
 
 	// 5) Доминирующая причина
 	dom, domPct, total := dominantReason(snap)
-	if dom == "" || domPct < 0.50 {
+	domMin := 0.50
+	if mode == models.TuneAuto {
+		domMin = 0.45
+	}
+	if dom == "" || domPct < domMin {
 		return models.TuneDecision{
 			Changed:  false,
 			Why:      models.TuneWhyNoDominant,
@@ -484,7 +488,7 @@ func (e *Service) MaybeAutoTuneAdaptive(now time.Time, mode models.TuneMode, for
 	after := e.tune
 
 	switch dom {
-	case models.RejectWeakCloseUp: // aggregated weak_close
+	case models.RejectWeakClose: // aggregated weak_close (up+down)
 		after.CloseUpMin = clamp(after.CloseUpMin-stepClose, minCloseUp, maxCloseUp)
 		after.CloseDnMax = clamp(after.CloseDnMax+stepClose, minCloseDn, maxCloseDn)
 

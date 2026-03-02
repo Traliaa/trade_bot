@@ -21,6 +21,7 @@ const (
 	RejectZeroRange     RejectReason = "zero_range"
 	RejectCooldown      RejectReason = "cooldown"
 	RejectInternal      RejectReason = "internal"
+	RejectWeakClose     RejectReason = "weak_close" // weak_close_up + weak_close_down (aggregated)
 )
 
 type RejectTopItem struct {
