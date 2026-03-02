@@ -20,6 +20,9 @@ RUN go install github.com/pressly/goose/v3/cmd/goose@latest
 FROM golang:1.25 AS runtime
 WORKDIR /app
 
+RUN apk add --no-cache tzdata
+ENV TZ=Europe/Moscow
+
 # Копируем бота
 COPY --from=builder /build/bot .
 # Копируем goose

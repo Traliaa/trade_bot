@@ -105,7 +105,7 @@ func (s Status) RenderHTML() string {
 	}
 
 	if !s.UpdatedAt.IsZero() {
-		b.WriteString(fmt.Sprintf("\n⏱ Обновлено: %s", s.UpdatedAt.Add(time.Hour*3).Format("15:04:05")))
+		b.WriteString(fmt.Sprintf("\n⏱ Обновлено: %s", s.UpdatedAt.Format("15:04:05")))
 	}
 
 	return b.String()
