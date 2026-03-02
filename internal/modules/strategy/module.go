@@ -27,22 +27,18 @@ func Module() fx.Option {
 		),
 
 		fx.Invoke(func(lc fx.Lifecycle, s *service.Service, ticks <-chan models.CandleTick) {
-			var cancel context.CancelFunc
+			var (
+				runCtx context.Context
+				cancel context.CancelFunc
+			)
 
 			lc.Append(fx.Hook{
 				OnStart: func(ctx context.Context) error {
-					// ВАЖНО: ctx тут — контекст запуска Fx, его нельзя использовать для долгоживущих горутин.
-					runCtx, c := context.WithCancel(context.Background())
-					cancel = c
+					runCtx, cancel = context.WithCancel(context.Background())
 
 					go func() {
 						log.Printf("[STRAT] hub loop started")
-						defer func() {
-							if r := recover(); r != nil {
-								log.Printf("[STRAT] hub panic: %v", r)
-							}
-							log.Printf("[STRAT] hub loop stopped err=%v", runCtx.Err())
-						}()
+						defer log.Printf("[STRAT] hub loop stopped")
 
 						for {
 							select {
@@ -53,6 +49,7 @@ func Module() fx.Option {
 									log.Printf("[STRAT] ticks channel closed")
 									return
 								}
+								// важно: не передавать ctx OnStart
 								s.OnTick(runCtx, t)
 							}
 						}
