@@ -379,22 +379,27 @@ func (e *Service) MaybeAutoTuneAdaptive(now time.Time, mode models.TuneMode, for
 		return models.TuneDecision{Changed: false, Why: models.TuneWhyOff}
 	}
 
-	if !e.IsWarmupDone() {
+	// ✅ warmup — только для auto/safe, manual(force) пропускает
+	if !force && !e.IsWarmupDone() {
 		return models.TuneDecision{Changed: false, Why: models.TuneWhyWarmup}
 	}
 
-	// 1) Если сигналов ещё не было — просто инициализируем точку отсчёта
+	// ✅ если сигналов ещё не было:
+	// auto: как раньше (инициализировали и вышли)
+	// manual: инициализировали и продолжаем тюн
 	if e.lastSignalAt.IsZero() {
 		e.lastSignalAt = now
-		return models.TuneDecision{Changed: false, Why: models.TuneWhySignalsRecent}
+		if !force {
+			return models.TuneDecision{Changed: false, Why: models.TuneWhySignalsRecent}
+		}
 	}
 
-	// 2) Cooldown между тюнами
+	// ✅ cooldown — тоже политика (иначе manual “не работает” после недавнего тюна)
 	cooldown := 30 * time.Minute
 	if mode == models.TuneSafe {
 		cooldown = 45 * time.Minute
 	}
-	if !e.lastTuneAt.IsZero() && now.Sub(e.lastTuneAt) < cooldown {
+	if !force && !e.lastTuneAt.IsZero() && now.Sub(e.lastTuneAt) < cooldown {
 		return models.TuneDecision{Changed: false, Why: models.TuneWhyCooldown}
 	}
 
