@@ -49,8 +49,8 @@ func NewService(cfg *config.Config, out chan<- models.Signal, candleOut chan<- m
 			MinChannelPct: cfg.Strategy.MinChannelPct,
 			MinBodyPct:    cfg.Strategy.MinBodyPct,
 			BreakoutPct:   cfg.Strategy.BreakoutPct,
-			CloseUpMin:    0.80,
-			CloseDnMax:    0.20,
+			CloseUpMin:    0.75,
+			CloseDnMax:    0.25,
 		},
 		tuneMode: models.TuneMode(cfg.Strategy.TuneMode),
 	}
@@ -372,9 +372,13 @@ func (e *Service) MaybeAutoTuneTick(now time.Time) models.TuneDecision {
 		return models.TuneDecision{Changed: false, Why: models.TuneWhyCooldown}
 	}
 	e.lastTuneCheckAt = now
-	return e.MaybeAutoTuneAdaptive(now, e.tuneMode, false)
+	return e.MaybeAutoTuneAdaptive(now, false)
 }
-func (e *Service) MaybeAutoTuneAdaptive(now time.Time, mode models.TuneMode, force bool) models.TuneDecision {
+func (e *Service) MaybeAutoTuneAdaptive(now time.Time, force bool) models.TuneDecision {
+	e.tuneMu.RLock()
+	mode := e.tuneMode
+	defer e.tuneMu.RUnlock()
+
 	if mode == models.TuneOff {
 		return models.TuneDecision{Changed: false, Why: models.TuneWhyOff}
 	}
@@ -545,9 +549,9 @@ func (e *Service) MaybeAutoTuneAdaptive(now time.Time, mode models.TuneMode, for
 	return dec
 }
 
-func (e *Service) AutoTuneNow(mode models.TuneMode) models.TuneDecision {
+func (e *Service) AutoTuneNow() models.TuneDecision {
 	now := time.Now()
-	dec := e.MaybeAutoTuneAdaptive(now, mode, true)
+	dec := e.MaybeAutoTuneAdaptive(now, true)
 
 	if dec.Changed {
 		log.Printf(

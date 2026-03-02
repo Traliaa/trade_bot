@@ -72,8 +72,8 @@ func (r *Router) OnSignal(ctx context.Context, sig models.Signal) {
 func (r *Router) AutoTuneNow(ctx context.Context) (models.TuneDecision, models.RuntimeTuning, time.Time, time.Time, bool, models.TuneMode) {
 	eng := r.engine // твоя стратегия
 
-	mode := r.engine.TuneMode()  // или eng.TuneMode()
-	dec := eng.AutoTuneNow(mode) // смотри примечание ниже
+	mode := r.engine.TuneMode() // или eng.TuneMode()
+	dec := eng.AutoTuneNow()    // смотри примечание ниже
 
 	cur, lastSignalAt, lastTuneAt := eng.CurrentTuning()
 	warmupDone := eng.IsWarmupDone()
