@@ -375,9 +375,9 @@ func (e *Service) MaybeAutoTuneTick(now time.Time) models.TuneDecision {
 	return e.MaybeAutoTuneAdaptive(now, false)
 }
 func (e *Service) MaybeAutoTuneAdaptive(now time.Time, force bool) models.TuneDecision {
-	e.tuneMu.RLock()
+	e.tuneModeMu.RLock()
 	mode := e.tuneMode
-	defer e.tuneMu.RUnlock()
+	e.tuneModeMu.RUnlock()
 
 	if mode == models.TuneOff {
 		return models.TuneDecision{Changed: false, Why: models.TuneWhyOff}
