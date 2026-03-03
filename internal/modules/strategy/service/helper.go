@@ -40,6 +40,7 @@ func clamp(v, lo, hi float64) float64 {
 func isWeakClose(r models.RejectReason) bool {
 	return r == models.RejectWeakCloseUp || r == models.RejectWeakCloseDown
 }
+func itoa(i int) string { return strconv.Itoa(i) }
 
 // dominantReason выбирает доминирующий “душитель” по снапшоту.
 // weak_close_up + weak_close_down агрегируются в одну причину (маркер RejectWeakCloseUp).

@@ -2,8 +2,8 @@ package service
 
 import (
 	"context"
-	"log"
 	"math"
+	"math/rand"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -11,6 +11,8 @@ import (
 	"trade_bot/internal/helper"
 	"trade_bot/internal/models"
 	"trade_bot/internal/modules/config"
+
+	"go.uber.org/zap"
 )
 
 type Service struct {
@@ -42,7 +44,7 @@ type Service struct {
 }
 
 func NewService(cfg *config.Config, out chan<- models.Signal, candleOut chan<- models.CandleTick) *Service {
-	return &Service{
+	s := &Service{
 		cfg:       cfg,
 		out:       out,
 		candleOut: candleOut,
@@ -57,6 +59,17 @@ func NewService(cfg *config.Config, out chan<- models.Signal, candleOut chan<- m
 		},
 		tuneMode: models.TuneMode(cfg.Strategy.TuneMode),
 	}
+
+	// полезные поля один раз
+	if s.Logger != nil {
+		s.Logger = s.Logger.With(
+			zap.String("strategy_ltf", helper.NormTF(cfg.Strategy.LTF)),
+			zap.String("strategy_htf", helper.NormTF(cfg.Strategy.HTF)),
+			zap.Int("donchian_period", cfg.Strategy.DonchianPeriod),
+		)
+	}
+
+	return s
 }
 
 // Start ...
@@ -70,39 +83,69 @@ func (s *Service) Start(ctx context.Context, ticks <-chan models.CandleTick) err
 		started()
 		defer stopped()
 
-		s.Logger.Debug("Цикл запуска начат")
-		defer s.Logger.Debug("Цикл запуска остановлен")
+		s.Logger.Info("strategy loop started")
+		defer s.Logger.Info("strategy loop stopped", zap.Error(context.Cause(ctx)))
 
 		for {
 			select {
 			case <-ctx.Done():
 				return
+
 			case t, ok := <-ticks:
 				if !ok {
-					log.Printf("[STRAT] ticks channel closed")
+					s.Logger.Warn("ticks channel closed")
 					return
 				}
+
+				// sample-log что тик реально дошел до стратегии
+				if rand.Intn(2000) == 0 {
+					s.Logger.Debug("tick recv (sample)",
+						zap.String("instId", t.InstID),
+						zap.String("tf", helper.NormTF(t.TimeframeRaw)),
+						zap.Time("start", t.Start),
+						zap.Float64("close", t.Close),
+					)
+				}
+
 				s.OnTick(ctx, t)
 			}
 		}
-
 	}()
+
 	return nil
 }
 
 // OnTick ...
 func (e *Service) OnTick(ctx context.Context, t models.CandleTick) {
 	e.rejects.Touch(time.Now())
+
+	tf := helper.NormTF(t.TimeframeRaw)
+
 	// 1) проброс свечей 1m наружу (не блокируем)
-	if helper.NormTF(t.TimeframeRaw) == "1m" && e.candleOut != nil {
+	if tf == "1m" && e.candleOut != nil {
 		select {
 		case e.candleOut <- t:
+			// sample, иначе спам
+			if rand.Intn(2000) == 0 {
+				e.Logger.Debug("candle forwarded (sample)",
+					zap.String("instId", t.InstID),
+					zap.Int("out_len", len(e.candleOut)), // если это chan<- нельзя len; см. ниже
+					zap.Time("start", t.Start),
+					zap.Float64("close", t.Close),
+				)
+			}
 		default:
+			// важно знать, что теряем 1m для трейла
+			e.Logger.Warn("candleOut full, drop candle",
+				zap.String("instId", t.InstID),
+				zap.Time("start", t.Start),
+				zap.Float64("close", t.Close),
+			)
 		}
 		return
 	}
 
-	if helper.NormTF(t.TimeframeRaw) == helper.NormTF(e.cfg.Strategy.LTF) {
+	if tf == helper.NormTF(e.cfg.Strategy.LTF) {
 		_ = e.MaybeAutoTuneTick(time.Now())
 	}
 
@@ -117,42 +160,59 @@ func (e *Service) OnTick(ctx context.Context, t models.CandleTick) {
 	// 4) сигнал наружу (не блокируем)
 	select {
 	case e.out <- sig:
+		// sample
+		if rand.Intn(200) == 0 {
+			e.Logger.Info("signal sent (sample)",
+				zap.String("instId", sig.InstID),
+				zap.String("side", string(sig.Side)),
+				zap.Float64("price", sig.Price),
+				zap.String("tf", sig.TF),
+			)
+		}
 	default:
+		e.Logger.Warn("out channel full, drop signal",
+			zap.String("instId", sig.InstID),
+			zap.String("side", string(sig.Side)),
+			zap.Float64("price", sig.Price),
+			zap.String("tf", sig.TF),
+		)
 	}
 }
 
 func (e *Service) SetWarmupDone() {
 	e.warmupDone.Store(true)
-	log.Printf("[STRAT] warmup marked as done")
+	e.Logger.Info("warmup marked as done")
 }
 
 func (e *Service) IsWarmupDone() bool { return e.warmupDone.Load() }
 
 func (e *Service) MaybeLogRejects() {
-	// не чаще раза в минуту
 	if !e.rejects.LastRejectLog.IsZero() && time.Since(e.rejects.LastRejectLog) < time.Minute {
 		return
 	}
 
 	snap := e.rejects.Snapshot(false)
+	e.rejects.LastRejectLog = time.Now()
+
 	if snap.Total == 0 {
-		e.rejects.LastRejectLog = time.Now()
 		return
 	}
 
-	// логируем топ-3
 	n := 3
 	if len(snap.Top) < n {
 		n = len(snap.Top)
 	}
 
-	msg := ""
+	fields := make([]zap.Field, 0, 2+n*2)
+	fields = append(fields, zap.Uint64("total", snap.Total))
 	for i := 0; i < n; i++ {
-		msg += string(snap.Top[i].Reason) + "=" + itoaU64(snap.Top[i].Count) + " "
+		fields = append(fields,
+			zap.String("r"+itoa(i+1), string(snap.Top[i].Reason)),
+			zap.Uint64("c"+itoa(i+1), snap.Top[i].Count),
+		)
 	}
 
-	log.Printf("[STRAT] rejects: total=%d top=%s", snap.Total, msg)
-	e.rejects.LastRejectLog = time.Now()
+	e.Logger.Info("rejects snapshot", fields...)
 }
 
 func (e *Service) get(sym string) *models.V2State {
@@ -372,10 +432,12 @@ func (e *Service) OnCandle(t models.CandleTick) (models.Signal, bool, bool) {
 
 	default:
 		e.rejects.Inc(models.RejectInternal)
-		log.Printf("[STRAT] unknown tf raw=%q norm=%q inst=%s wantLTF=%q wantHTF=%q",
-			t.TimeframeRaw, tf, t.InstID,
-			helper.NormTF(e.cfg.Strategy.LTF),
-			helper.NormTF(e.cfg.Strategy.HTF),
+		e.Logger.Warn("unknown timeframe",
+			zap.String("raw", t.TimeframeRaw),
+			zap.String("norm", tf),
+			zap.String("instId", t.InstID),
+			zap.String("want_ltf", helper.NormTF(e.cfg.Strategy.LTF)),
+			zap.String("want_htf", helper.NormTF(e.cfg.Strategy.HTF)),
 		)
 		return models.Signal{}, false, false
 	}
@@ -588,20 +650,34 @@ func (e *Service) AutoTuneNow() models.TuneDecision {
 	dec := e.MaybeAutoTuneAdaptive(now, true)
 
 	if dec.Changed {
-		log.Printf(
-			"[TUNE] changed dom=%s pct=%.0f%% total=%d | breakout %.4f->%.4f ch %.4f->%.4f body %.4f->%.4f closeUp %.2f->%.2f closeDn %.2f->%.2f",
-			tuneReasonLabel(dec.Dominant), dec.DomPct*100, dec.Total,
-			dec.Before.BreakoutPct, dec.After.BreakoutPct,
-			dec.Before.MinChannelPct, dec.After.MinChannelPct,
-			dec.Before.MinBodyPct, dec.After.MinBodyPct,
-			dec.Before.CloseUpMin, dec.After.CloseUpMin,
-			dec.Before.CloseDnMax, dec.After.CloseDnMax,
+		e.Logger.Info("tune changed",
+			zap.String("dom", tuneReasonLabel(dec.Dominant)),
+			zap.Float64("dom_pct", dec.DomPct),
+			zap.Uint64("total", dec.Total),
+
+			zap.Float64("breakout_before", dec.Before.BreakoutPct),
+			zap.Float64("breakout_after", dec.After.BreakoutPct),
+
+			zap.Float64("ch_before", dec.Before.MinChannelPct),
+			zap.Float64("ch_after", dec.After.MinChannelPct),
+
+			zap.Float64("body_before", dec.Before.MinBodyPct),
+			zap.Float64("body_after", dec.After.MinBodyPct),
+
+			zap.Float64("closeUp_before", dec.Before.CloseUpMin),
+			zap.Float64("closeUp_after", dec.After.CloseUpMin),
+
+			zap.Float64("closeDn_before", dec.Before.CloseDnMax),
+			zap.Float64("closeDn_after", dec.After.CloseDnMax),
 		)
 	} else {
-		log.Printf(
-			"[TUNE] skipped why=%s dom=%s pct=%.0f%% total=%d window=%s..%s",
-			dec.Why, tuneReasonLabel(dec.Dominant), dec.DomPct*100, dec.Total,
-			dec.From.Format("15:04:05"), dec.To.Format("15:04:05"),
+		e.Logger.Info("tune skipped",
+			zap.String("why", string(dec.Why)),
+			zap.String("dom", tuneReasonLabel(dec.Dominant)),
+			zap.Float64("dom_pct", dec.DomPct),
+			zap.Uint64("total", dec.Total),
+			zap.Time("from", dec.From),
+			zap.Time("to", dec.To),
 		)
 	}
 
