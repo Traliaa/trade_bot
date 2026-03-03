@@ -29,10 +29,13 @@ type Warmuper struct {
 	cfg *config.Config
 
 	// ограничитель параллелизма, чтобы не словить rate limit
-	sem chan struct{}
+	sem     chan struct{}
+	started atomic.Bool
+	done    atomic.Bool
 }
 
 func NewWarmuper(mx *okxws.Client, hub *strategy.Service, publicNotifier PublicNotifier, cfg *config.Config) *Warmuper {
+
 	return &Warmuper{
 		mx:             mx,
 		hub:            hub,
@@ -43,6 +46,21 @@ func NewWarmuper(mx *okxws.Client, hub *strategy.Service, publicNotifier PublicN
 }
 
 func (w *Warmuper) Warmup(ctx context.Context, symbols []string) error {
+	if w.done.Load() {
+		logger.Info("[Warmuper] skip: already done")
+		return nil
+	}
+	if !w.started.CompareAndSwap(false, true) {
+		logger.Info("[Warmuper] skip: already running")
+		return nil
+	}
+	defer func() {
+		// если упали с ошибкой — разрешим повтор
+		if !w.done.Load() {
+			w.started.Store(false)
+		}
+	}()
+
 	if len(symbols) == 0 {
 		return nil
 	}
@@ -203,6 +221,7 @@ func (w *Warmuper) Warmup(ctx context.Context, symbols []string) error {
 	}
 
 	w.hub.SetWarmupDone()
+	w.done.Store(true)
 
 	return nil
 }

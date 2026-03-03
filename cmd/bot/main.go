@@ -15,12 +15,18 @@ import (
 	telegram "trade_bot/internal/modules/telegram_bot"
 	"trade_bot/internal/modules/telegram_public"
 	"trade_bot/internal/runner"
+	"trade_bot/pkg/logger"
 
 	"go.uber.org/fx"
 	"go.uber.org/fx/fxevent"
+	"go.uber.org/zap"
 )
 
 func main() {
+	var processID = time.Now().UnixNano()
+
+	// в NewWarmuper / Warmup / SetWarmupDone / AutoTuneNow:
+	logger.Info("[BOOT] process", zap.Int64("pid", processID))
 	app := fx.New(
 		fx.Provide(
 			func() context.Context {
