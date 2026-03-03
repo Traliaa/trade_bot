@@ -11,11 +11,11 @@ import (
 )
 
 // Проверка: доступны ли свечи для инструмента
-func (c *Client) HasCandles(instID, tf string) bool {
+func (s *Service) HasCandles(instID, tf string) bool {
 	url := fmt.Sprintf("https://www.okx.com/api/v5/market/candles?instId=%s&bar=%s", instID, tf)
 
 	req, _ := http.NewRequest("GET", url, nil)
-	resp, err := c.http.Do(req)
+	resp, err := s.http.Do(req)
 	if err != nil {
 		return false
 	}
@@ -41,9 +41,9 @@ func (c *Client) HasCandles(instID, tf string) bool {
 	return true
 }
 
-func (c *Client) TopVolatile(n int) ([]string, error) {
+func (s *Service) TopVolatile(n int) ([]string, error) {
 	// все swap-инструменты
-	tickers, err := c.fetchSwapTickers()
+	tickers, err := s.fetchSwapTickers()
 	if err != nil || len(tickers) == 0 {
 		return nil, err
 	}
@@ -101,9 +101,9 @@ type okxTickerResp struct {
 	Data []okxTicker `json:"data"`
 }
 
-func (c *Client) fetchSwapTickers() ([]okxTicker, error) {
+func (s *Service) fetchSwapTickers() ([]okxTicker, error) {
 	req, _ := http.NewRequest("GET", "https://www.okx.com/api/v5/market/tickers?instType=SWAP", nil)
-	resp, err := c.http.Do(req)
+	resp, err := s.http.Do(req)
 	if err != nil {
 		return nil, err
 	}

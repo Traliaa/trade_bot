@@ -22,7 +22,7 @@ type PublicNotifier interface {
 }
 
 type Warmuper struct {
-	mx             *okxws.Client
+	mx             *okxws.Service
 	hub            *strategy.Service
 	publicNotifier PublicNotifier
 
@@ -34,7 +34,7 @@ type Warmuper struct {
 	done    atomic.Bool
 }
 
-func NewWarmuper(mx *okxws.Client, hub *strategy.Service, publicNotifier PublicNotifier, cfg *config.Config) *Warmuper {
+func NewWarmuper(mx *okxws.Service, hub *strategy.Service, publicNotifier PublicNotifier, cfg *config.Config) *Warmuper {
 
 	return &Warmuper{
 		mx:             mx,

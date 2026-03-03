@@ -5,12 +5,11 @@ import (
 	"fmt"
 	"sync"
 	"time"
+	"trade_bot/internal/models"
 	"trade_bot/internal/modules/config"
 	"trade_bot/internal/modules/repository/pg"
+	"trade_bot/internal/modules/runner/sessions"
 	"trade_bot/internal/modules/strategy/service"
-	"trade_bot/internal/runner/sessions"
-
-	"trade_bot/internal/models"
 
 	tgbot "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )

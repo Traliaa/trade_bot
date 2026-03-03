@@ -3,6 +3,7 @@ package bootstrap
 import (
 	"context"
 	"log"
+
 	bootstrap "trade_bot/internal/modules/bootstrap/service"
 	"trade_bot/internal/modules/config"
 	"trade_bot/internal/modules/telegram_public/public"
@@ -13,6 +14,7 @@ import (
 func Module() fx.Option {
 	return fx.Module("bootstrap",
 		fx.Provide(
+
 			bootstrap.NewWatchlist, // -> bootstrap.Watchlist
 			bootstrap.NewWarmuper,  // -> bootstrap.Warmuper
 			fx.Annotate(

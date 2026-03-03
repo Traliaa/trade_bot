@@ -6,9 +6,9 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+	"trade_bot/internal/modules/runner/sessions"
 
 	"trade_bot/internal/models"
-	"trade_bot/internal/runner/sessions"
 
 	"github.com/go-chi/chi/v5"
 )

@@ -2,13 +2,13 @@ package api
 
 import (
 	"os"
+
 	"trade_bot/internal/modules/api/controller"
 	"trade_bot/internal/modules/api/middleware"
-	"trade_bot/internal/runner/router"
-
-	"go.uber.org/fx"
+	"trade_bot/internal/modules/runner/router"
 
 	"github.com/go-chi/chi/v5"
+	"go.uber.org/fx"
 )
 
 type Params struct {
@@ -18,8 +18,9 @@ type Params struct {
 }
 
 func Module() fx.Option {
-	return fx.Options(
+	return fx.Module("api",
 		fx.Provide(
+
 			provideBotToken,
 			provideJWTSecret,
 

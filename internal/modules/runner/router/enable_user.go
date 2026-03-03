@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 	"trade_bot/internal/models"
-	"trade_bot/internal/runner/sessions"
+	"trade_bot/internal/modules/runner/sessions"
 )
 
 func (r *Router) EnableUser(ctx context.Context, user *models.UserSettings) {

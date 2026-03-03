@@ -3,11 +3,11 @@ package telegram
 import (
 	"context"
 	"fmt"
-	"trade_bot/internal/modules/bootstrap/lifecyclelog"
-	"trade_bot/internal/modules/telegram_public/public"
-	"trade_bot/internal/runner/router"
 
+	"trade_bot/internal/modules/bootstrap/lifecyclelog"
+	"trade_bot/internal/modules/runner/router"
 	"trade_bot/internal/modules/telegram_bot/service"
+	"trade_bot/internal/modules/telegram_public/public"
 
 	"go.uber.org/fx"
 	"go.uber.org/zap"
@@ -16,6 +16,7 @@ import (
 func Module() fx.Option {
 	return fx.Module("telegram",
 		fx.Provide(
+
 			service.NewTelegram,
 			fx.Annotate(
 				func(t *service.Telegram) public.PublicNotifier { return t },

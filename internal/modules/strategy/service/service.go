@@ -7,12 +7,15 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"trade_bot/internal/base"
 	"trade_bot/internal/helper"
 	"trade_bot/internal/models"
 	"trade_bot/internal/modules/config"
 )
 
 type Service struct {
+	base.Base
+
 	cfg *config.Config
 
 	// выходы (бывшие hub.out / hub.candleOut)
@@ -54,6 +57,37 @@ func NewService(cfg *config.Config, out chan<- models.Signal, candleOut chan<- m
 		},
 		tuneMode: models.TuneMode(cfg.Strategy.TuneMode),
 	}
+}
+
+// Start ...
+func (s *Service) Start(ctx context.Context, ticks <-chan models.CandleTick) error {
+	ctx, shouldStart, started, stopped := s.StartInit(ctx)
+	if !shouldStart {
+		return nil
+	}
+
+	go func() {
+		started()
+		defer stopped()
+
+		s.Logger.Debug("Цикл запуска начат")
+		defer s.Logger.Debug("Цикл запуска остановлен")
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case t, ok := <-ticks:
+				if !ok {
+					log.Printf("[STRAT] ticks channel closed")
+					return
+				}
+				s.OnTick(ctx, t)
+			}
+		}
+
+	}()
+	return nil
 }
 
 // OnTick ...

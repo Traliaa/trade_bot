@@ -4,9 +4,9 @@ import (
 	okx_websocket "trade_bot/internal/modules/okx_websocket/service"
 )
 
-type OkxWatchlist struct{ mx *okx_websocket.Client }
+type OkxWatchlist struct{ mx *okx_websocket.Service }
 
-func NewWatchlist(mx *okx_websocket.Client) *OkxWatchlist {
+func NewWatchlist(mx *okx_websocket.Service) *OkxWatchlist {
 	return &OkxWatchlist{mx: mx}
 }
 

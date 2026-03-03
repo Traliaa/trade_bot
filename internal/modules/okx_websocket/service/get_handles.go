@@ -13,7 +13,7 @@ import (
 )
 
 // CandleRow: OKX data row: [ts, o, h, l, c, vol, volCcy, volCcyQuote, confirm]
-func (c *Client) GetCandles(ctx context.Context, instID, bar string, limit int) ([]models.CandleTick, error) {
+func (s *Service) GetCandles(ctx context.Context, instID, bar string, limit int) ([]models.CandleTick, error) {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	if limit <= 0 {
@@ -33,7 +33,7 @@ func (c *Client) GetCandles(ctx context.Context, instID, bar string, limit int) 
 	if err != nil {
 		return nil, err
 	}
-	resp, err := c.http.Do(req)
+	resp, err := s.http.Do(req)
 	if err != nil {
 		return nil, err
 	}

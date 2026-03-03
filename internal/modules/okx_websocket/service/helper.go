@@ -65,3 +65,42 @@ func okxBar(tf string) (string, error) {
 	}
 	return "", fmt.Errorf("unsupported timeframe for OKX bar: %q", tf)
 }
+func uniqTimeframes(tfs ...string) []string {
+	m := make(map[string]struct{}, len(tfs))
+	out := make([]string, 0, len(tfs))
+	for _, tf := range tfs {
+		tf = strings.TrimSpace(tf)
+		if tf == "" {
+			continue
+		}
+		if _, ok := m[tf]; ok {
+			continue
+		}
+		m[tf] = struct{}{}
+		out = append(out, tf)
+	}
+	return out
+}
+
+func toOKXBar(tf string) string {
+	switch tf {
+	case "1m", "3m", "5m", "15m", "30m":
+		return tf
+	case "1h":
+		return "1H"
+	case "2h":
+		return "2H"
+	case "4h":
+		return "4H"
+	case "6h":
+		return "6H"
+	case "12h":
+		return "12H"
+	case "1d":
+		return "1D"
+	case "1w":
+		return "1W"
+	default:
+		return tf // fallback, но лучше логнуть
+	}
+}

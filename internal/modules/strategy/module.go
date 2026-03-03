@@ -2,10 +2,12 @@ package strategy
 
 import (
 	"context"
-	"log"
+	"trade_bot/internal/base"
+
 	"trade_bot/internal/modules/strategy/service"
 
 	"go.uber.org/fx"
+	"go.uber.org/zap"
 
 	"trade_bot/internal/models"
 )
@@ -19,6 +21,7 @@ func asSendOnlyStopSignals(ch chan models.CandleTick) chan<- models.CandleTick {
 func Module() fx.Option {
 	return fx.Module("strategy",
 		fx.Provide(
+
 			newSignalsChan,    // chan models.Signal
 			asSendOnlySignals, // chan<- models.Signal
 			asSendOnlyStopSignals,
@@ -26,41 +29,14 @@ func Module() fx.Option {
 
 		),
 
-		fx.Invoke(func(lc fx.Lifecycle, s *service.Service, ticks <-chan models.CandleTick) {
-			var (
-				runCtx context.Context
-				cancel context.CancelFunc
-			)
-
+		fx.Invoke(func(lc fx.Lifecycle, root *zap.Logger, s *service.Service, ticks <-chan models.CandleTick) {
+			s.Base = base.New("okx_websocket", root, true)
 			lc.Append(fx.Hook{
-				OnStart: func(ctx context.Context) error {
-					runCtx, cancel = context.WithCancel(context.Background())
-
-					go func() {
-						log.Printf("[STRAT] hub loop started")
-						defer log.Printf("[STRAT] hub loop stopped")
-
-						for {
-							select {
-							case <-runCtx.Done():
-								return
-							case t, ok := <-ticks:
-								if !ok {
-									log.Printf("[STRAT] ticks channel closed")
-									return
-								}
-								// важно: не передавать ctx OnStart
-								s.OnTick(runCtx, t)
-							}
-						}
-					}()
-
-					return nil
+				OnStart: func(_ context.Context) error {
+					return s.Start(context.Background(), ticks)
 				},
-				OnStop: func(ctx context.Context) error {
-					if cancel != nil {
-						cancel()
-					}
+				OnStop: func(_ context.Context) error {
+					s.Stop()
 					return nil
 				},
 			})

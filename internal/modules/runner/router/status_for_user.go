@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"trade_bot/internal/models"
-	"trade_bot/internal/runner/sessions"
+	"trade_bot/internal/modules/runner/sessions"
 )
 
 // StatusForUser возвращает список открытых позиций с OKX для данного пользователя.

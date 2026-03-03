@@ -2,12 +2,13 @@ package okx_websocket
 
 import (
 	"context"
+	"trade_bot/internal/base"
 	"trade_bot/internal/models"
-	"trade_bot/internal/modules/bootstrap/lifecyclelog"
 	"trade_bot/internal/modules/okx_websocket/service"
 	telegram "trade_bot/internal/modules/telegram_bot/service"
 
 	"go.uber.org/fx"
+	"go.uber.org/zap"
 )
 
 func newOutTickChan() chan models.CandleTick {
@@ -20,21 +21,29 @@ func asRecvOnly(ch chan models.CandleTick) <-chan models.CandleTick { return ch 
 func Module() fx.Option {
 	return fx.Module("okx_websocket",
 		fx.Provide(
-			service.NewClient,
-			newOutTickChan, // chan service.OutTick
-			asRecvOnly,     // <-chan service.OutTick
 			fx.Annotate(
 				func(s *telegram.Telegram) service.ServiceNotifier { return s },
 				fx.As(new(service.ServiceNotifier)),
 			),
+			service.NewModuleConfig,
+			service.NewService,
+
+			newOutTickChan, // chan service.OutTick
+			asRecvOnly,     // <-chan service.OutTick
+
 		),
-		fx.Invoke(func(lc fx.Lifecycle, s *service.Client, out chan models.CandleTick) {
-			lc.Append(lifecyclelog.WrapHook("okx_websocket", fx.Hook{
-				OnStart: func(ctx context.Context) error {
-					go s.Start(ctx, out) // Start ждёт chan<- -> сюда подходит chan
+		fx.Invoke(func(lc fx.Lifecycle, s *service.Service, root *zap.Logger, out chan models.CandleTick) {
+			s.Base = base.New("okx_websocket", root, true)
+
+			lc.Append(fx.Hook{
+				OnStart: func(_ context.Context) error {
+					return s.Start(context.Background(), out)
+				},
+				OnStop: func(_ context.Context) error {
+					s.Stop()
 					return nil
 				},
-			}))
+			})
 		}),
 	)
 }

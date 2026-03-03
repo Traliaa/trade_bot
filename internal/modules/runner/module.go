@@ -4,11 +4,12 @@ import (
 	"context"
 	"time"
 	"trade_bot/internal/helper"
+
 	"trade_bot/internal/models"
 	"trade_bot/internal/modules/bootstrap/lifecyclelog"
 	"trade_bot/internal/modules/repository/pg"
+	router2 "trade_bot/internal/modules/runner/router"
 	"trade_bot/internal/modules/telegram_bot/service"
-	"trade_bot/internal/runner/router"
 
 	"go.uber.org/fx"
 )
@@ -16,15 +17,16 @@ import (
 func Module() fx.Option {
 	return fx.Module("runner",
 		fx.Provide(
-			router.NewRouter, // *Router
+
+			router2.NewRouter, // *Router
 			fx.Annotate(
-				func(s *service.Telegram) router.TelegramNotifier { return s },
-				fx.As(new(router.TelegramNotifier)),
+				func(s *service.Telegram) router2.TelegramNotifier { return s },
+				fx.As(new(router2.TelegramNotifier)),
 			),
 		),
 
 		// ✅ Восстановление активных пользователей при старте сервиса
-		fx.Invoke(func(lc fx.Lifecycle, r *router.Router, repo *pg.User, tg *service.Telegram) {
+		fx.Invoke(func(lc fx.Lifecycle, r *router2.Router, repo *pg.User, tg *service.Telegram) {
 			lc.Append(fx.Hook{
 				OnStart: func(ctx context.Context) error {
 					r.RestoreEnabled(ctx)
@@ -36,7 +38,7 @@ func Module() fx.Option {
 		// ✅ Основной раннер сигналов/свечей
 		fx.Invoke(func(
 			lc fx.Lifecycle,
-			r *router.Router,
+			r *router2.Router,
 			sigs chan models.Signal, // входящие сигналы
 			candles chan models.CandleTick, // канал для агрегации свечей
 		) {
@@ -66,7 +68,7 @@ func Module() fx.Option {
 						}
 					}()
 
-					agg := router.NewCandleAgg()
+					agg := router2.NewCandleAgg()
 
 					// #1 reader
 					go func() {

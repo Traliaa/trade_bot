@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"os"
 	"time"
 	"trade_bot/internal/modules/api"
 	"trade_bot/internal/modules/bootstrap"
@@ -11,14 +10,14 @@ import (
 	"trade_bot/internal/modules/okx_websocket"
 	"trade_bot/internal/modules/postgres"
 	"trade_bot/internal/modules/repository"
+	"trade_bot/internal/modules/runner"
 	"trade_bot/internal/modules/strategy"
 	telegram "trade_bot/internal/modules/telegram_bot"
 	"trade_bot/internal/modules/telegram_public"
-	"trade_bot/internal/runner"
+
 	"trade_bot/pkg/logger"
 
 	"go.uber.org/fx"
-	"go.uber.org/fx/fxevent"
 	"go.uber.org/zap"
 )
 
@@ -33,7 +32,10 @@ func main() {
 				return context.Background()
 			},
 		),
-
+		fx.Provide(func() (*zap.Logger, error) {
+			return zap.NewProduction()
+			// или zap.NewDevelopment()
+		}),
 		postgres.Module(),
 		repository.Module(),
 		config.Module(),
@@ -47,11 +49,6 @@ func main() {
 		telegram_public.Module(),
 		api.Module(),
 		httpserver.Module(),
-		fx.WithLogger(func() fxevent.Logger {
-			return &fxevent.ConsoleLogger{W: os.Stdout}
-		}),
-		fx.StartTimeout(60*time.Second),
-		fx.StopTimeout(30*time.Second),
 	)
 	app.Run()
 }

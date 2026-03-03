@@ -2,7 +2,7 @@ package router
 
 import (
 	"context"
-	"trade_bot/internal/runner/sessions"
+	"trade_bot/internal/modules/runner/sessions"
 )
 
 func (r *Router) GetSession(ctx context.Context, userID int64) (*sessions.UserSession, error) {
