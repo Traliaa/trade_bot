@@ -23,15 +23,10 @@ func (s *StartStop) StopInit() (bool, <-chan struct{}, func(didStop bool)) {
 		s.mu.Unlock()
 		return false, nil, func(_ bool) {}
 	}
-	cancel := s.cancelFunc
-	stopped := s.stopped
-	s.mu.Unlock()
 
-	if cancel != nil {
-		cancel(ErrStop)
-	}
+	s.cancelFunc(ErrStop)
 
-	return true, stopped, func(didStop bool) {
+	return true, s.stopped, func(didStop bool) {
 		defer s.mu.Unlock()
 		if didStop {
 			s.isRunning = false
