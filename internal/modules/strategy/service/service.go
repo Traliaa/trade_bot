@@ -54,8 +54,8 @@ func NewService(cfg *config.Config, out chan<- models.Signal, candleOut chan<- m
 			MinChannelPct: cfg.Strategy.MinChannelPct,
 			MinBodyPct:    cfg.Strategy.MinBodyPct,
 			BreakoutPct:   cfg.Strategy.BreakoutPct,
-			CloseUpMin:    0.75,
-			CloseDnMax:    0.25,
+			CloseUpMin:    0.70,
+			CloseDnMax:    0.30,
 		},
 		tuneMode: models.TuneMode(cfg.Strategy.TuneMode),
 	}
@@ -426,7 +426,9 @@ func (e *Service) OnCandle(t models.CandleTick) (models.Signal, bool, bool) {
 		e.updateBuffer(st, t)
 
 		e.MaybeLogRejects()
+		e.tuneMu.Lock()
 		e.lastSignalAt = time.Now()
+		e.tuneMu.Unlock()
 
 		return sig, true, becameReady
 
@@ -479,22 +481,33 @@ func (e *Service) MaybeAutoTuneAdaptive(now time.Time, force bool) models.TuneDe
 		return models.TuneDecision{Changed: false, Why: models.TuneWhyOff}
 	}
 
-	// ✅ warmup — только для auto/safe, manual(force) пропускает
+	// warmup — только для auto/safe, manual(force) пропускает
 	if !force && !e.IsWarmupDone() {
 		return models.TuneDecision{Changed: false, Why: models.TuneWhyWarmup}
 	}
 
-	// ✅ если сигналов ещё не было:
-	// auto: как раньше (инициализировали и вышли)
-	// manual: инициализировали и продолжаем тюн
-	if e.lastSignalAt.IsZero() {
-		e.lastSignalAt = now
-		if !force {
-			return models.TuneDecision{Changed: false, Why: models.TuneWhySignalsRecent}
+	// ❗️если сигналов ещё не было — auto/safe не тюним вообще
+	// (и главное: не подменяем lastSignalAt)
+	if !force {
+		e.tuneMu.RLock()
+		hasSignal := !e.lastSignalAt.IsZero()
+		e.tuneMu.RUnlock()
+
+		if !hasSignal {
+			cur, _, _ := e.CurrentTuning()
+			return models.TuneDecision{
+				Changed: false,
+				Why:     models.TuneWhyNoSignalsYet,
+				Before:  cur,
+				After:   cur,
+				Total:   0,
+				From:    now,
+				To:      now,
+			}
 		}
 	}
 
-	// ✅ cooldown — тоже политика (иначе manual “не работает” после недавнего тюна)
+	// cooldown между тюнами (manual пропускает)
 	cooldown := 30 * time.Minute
 	if mode == models.TuneSafe {
 		cooldown = 45 * time.Minute
@@ -503,31 +516,34 @@ func (e *Service) MaybeAutoTuneAdaptive(now time.Time, force bool) models.TuneDe
 		return models.TuneDecision{Changed: false, Why: models.TuneWhyCooldown}
 	}
 
-	// 3) Если сигнал был недавно — не тюним
+	// если сигнал был недавно — не тюним (manual пропускает)
 	noSignalFor := 60 * time.Minute
 	if mode == models.TuneAuto {
 		noSignalFor = 30 * time.Minute
 	}
-	if !force && !e.lastSignalAt.IsZero() && now.Sub(e.lastSignalAt) < noSignalFor {
-		cur, _, _ := e.CurrentTuning() // если CurrentTuning читает под lock’ами
-		return models.TuneDecision{
-			Changed: false,
-			Why:     models.TuneWhySignalsRecent,
-			Before:  cur, // чтобы UI мог показать “текущие пороги”
-			After:   cur, // можно так же
-			From:    now.Add(-noSignalFor),
-			To:      now,
-			Total:   0,
-			// Dominant/DomPct можно оставить нулями
-			// lastSig/lastTune ты и так показываешь отдельно — но можно тоже прокинуть если захочешь расширить модель
 
+	if !force {
+		e.tuneMu.RLock()
+		lastSig := e.lastSignalAt
+		e.tuneMu.RUnlock()
+
+		if !lastSig.IsZero() && now.Sub(lastSig) < noSignalFor {
+			cur, _, _ := e.CurrentTuning()
+			return models.TuneDecision{
+				Changed: false,
+				Why:     models.TuneWhySignalsRecent,
+				Before:  cur,
+				After:   cur,
+				From:    now.Add(-noSignalFor),
+				To:      now,
+				Total:   0,
+			}
 		}
 	}
 
 	// 4) Берём снимок reject-окна
 	snap := e.rejects.Snapshot(false)
 
-	// Чтобы не тюнить по шуму — минимальный объём отклонений
 	minRejects := uint64(30)
 	if mode == models.TuneAuto {
 		minRejects = 20
@@ -565,22 +581,17 @@ func (e *Service) MaybeAutoTuneAdaptive(now time.Time, force bool) models.TuneDe
 		mulSoft = 0.80
 	}
 
-	// Полы/потолки (важно, чтобы тюн не уходил в абсурд)
 	const (
 		minCloseUp = 0.65
 		maxCloseUp = 0.90
-
 		minCloseDn = 0.10
 		maxCloseDn = 0.35
-
-		minBody = 0.0010
-		maxBody = 0.0200
-
-		minCh = 0.0010
-		maxCh = 0.0500
-
-		minBo = 0.0008
-		maxBo = 0.0200
+		minBody    = 0.0010
+		maxBody    = 0.0200
+		minCh      = 0.0010
+		maxCh      = 0.0500
+		minBo      = 0.0008
+		maxBo      = 0.0200
 	)
 
 	e.tuneMu.Lock()
@@ -588,19 +599,15 @@ func (e *Service) MaybeAutoTuneAdaptive(now time.Time, force bool) models.TuneDe
 	after := e.tune
 
 	switch dom {
-	case models.RejectWeakClose: // aggregated weak_close (up+down)
+	case models.RejectWeakClose:
 		after.CloseUpMin = clamp(after.CloseUpMin-stepClose, minCloseUp, maxCloseUp)
 		after.CloseDnMax = clamp(after.CloseDnMax+stepClose, minCloseDn, maxCloseDn)
-
 	case models.RejectSmallBody:
 		after.MinBodyPct = clamp(after.MinBodyPct*mulSoft, minBody, maxBody)
-
 	case models.RejectSmallChannel:
 		after.MinChannelPct = clamp(after.MinChannelPct*mulSoft, minCh, maxCh)
-
 	case models.RejectNoBreakout:
 		after.BreakoutPct = clamp(after.BreakoutPct*mulSoft, minBo, maxBo)
-
 	default:
 		e.tuneMu.Unlock()
 		return models.TuneDecision{
@@ -618,8 +625,7 @@ func (e *Service) MaybeAutoTuneAdaptive(now time.Time, force bool) models.TuneDe
 	if changed {
 		e.tune = after
 		e.lastTuneAt = now
-		// “сдвигаем” точку, чтобы не тюнить каждую минуту после истечения noSignalFor
-		e.lastSignalAt = now
+		// ❌ lastSignalAt НЕ трогаем
 	}
 	e.tuneMu.Unlock()
 
@@ -639,9 +645,7 @@ func (e *Service) MaybeAutoTuneAdaptive(now time.Time, force bool) models.TuneDe
 		return dec
 	}
 
-	// 7) Сбросить окно rejects после успешного тюна
 	_ = e.rejects.Snapshot(true)
-
 	return dec
 }
 

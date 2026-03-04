@@ -29,6 +29,7 @@ const (
 	TuneWhyNotEnoughData TuneWhy = "not_enough_rejects"
 	TuneWhyNoDominant    TuneWhy = "no_dominant_reason"
 	TuneWhyUnknown       TuneWhy = "unknown"
+	TuneWhyNoSignalsYet  TuneWhy = "no_signals_yet"
 )
 
 type TuneDecision struct {

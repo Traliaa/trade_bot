@@ -30,7 +30,7 @@ func Module() fx.Option {
 		),
 
 		fx.Invoke(func(lc fx.Lifecycle, root *zap.Logger, s *service.Service, ticks <-chan models.CandleTick) {
-			s.Base = base.New("okx_websocket", root, true)
+			s.Base = base.New("strategy", root, true)
 			lc.Append(fx.Hook{
 				OnStart: func(_ context.Context) error {
 					return s.Start(context.Background(), ticks)
