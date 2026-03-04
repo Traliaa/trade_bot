@@ -30,11 +30,13 @@ type RejectTopItem struct {
 }
 
 type RejectSnapshot struct {
-	From  time.Time
-	To    time.Time
-	Total uint64
-	Top   []RejectTopItem // отсортировано по убыванию
-	By    map[RejectReason]uint64
+	From         time.Time
+	To           time.Time
+	Total        uint64
+	Top          []RejectTopItem // отсортировано по убыванию
+	By           map[RejectReason]uint64
+	AvgCloseUp   float64
+	AvgCloseDown float64
 }
 
 type RejectStats struct {
@@ -44,6 +46,11 @@ type RejectStats struct {
 	total         uint64
 	by            map[RejectReason]uint64
 	LastRejectLog time.Time
+	// 🔥 debug close
+	SumCloseUp   float64
+	CntCloseUp   uint64
+	SumCloseDown float64
+	CntCloseDown uint64
 }
 
 func NewRejectStats() *RejectStats {
@@ -69,7 +76,6 @@ func (s *RejectStats) Inc(r RejectReason) {
 	s.by[r]++
 }
 
-// Snapshot возвращает снимок. Если reset=true — обнуляет счётчики и начинает новый период.
 // Snapshot возвращает снимок. Если reset=true — обнуляет счётчики и начинает новый период.
 func (s *RejectStats) Snapshot(reset bool) RejectSnapshot {
 	s.mu.Lock()
@@ -117,12 +123,24 @@ func (s *RejectStats) Snapshot(reset bool) RejectSnapshot {
 		top = top[:10]
 	}
 
+	avgUp := 0.0
+	if s.CntCloseUp > 0 {
+		avgUp = s.SumCloseUp / float64(s.CntCloseUp)
+	}
+
+	avgDown := 0.0
+	if s.CntCloseDown > 0 {
+		avgDown = s.SumCloseDown / float64(s.CntCloseDown)
+	}
+
 	out := RejectSnapshot{
-		From:  s.from,
-		To:    s.to,
-		Total: s.total,
-		Top:   top,
-		By:    byCopy,
+		From:         s.from,
+		To:           s.to,
+		Total:        s.total,
+		Top:          top,
+		By:           byCopy,
+		AvgCloseUp:   avgUp,
+		AvgCloseDown: avgDown,
 	}
 
 	if reset {
@@ -131,6 +149,10 @@ func (s *RejectStats) Snapshot(reset bool) RejectSnapshot {
 		s.to = now
 		s.total = 0
 		s.by = make(map[RejectReason]uint64)
+		s.SumCloseUp = 0
+		s.CntCloseUp = 0
+		s.SumCloseDown = 0
+		s.CntCloseDown = 0
 	}
 
 	return out
@@ -144,4 +166,26 @@ func (s *RejectStats) Touch(now time.Time) {
 	}
 	// даже без Inc() окно будет “течь”
 	s.to = now
+}
+func (s *RejectStats) IncWeakClose(r RejectReason, closePos float64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	now := time.Now()
+	if s.from.IsZero() {
+		s.from = now
+	}
+	s.to = now
+
+	s.total++
+	s.by[r]++
+
+	switch r {
+	case RejectWeakCloseUp:
+		s.SumCloseUp += closePos
+		s.CntCloseUp++
+	case RejectWeakCloseDown:
+		s.SumCloseDown += closePos
+		s.CntCloseDown++
+	}
 }

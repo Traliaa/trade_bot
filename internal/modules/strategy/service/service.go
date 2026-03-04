@@ -385,19 +385,18 @@ func (e *Service) OnCandle(t models.CandleTick) (models.Signal, bool, bool) {
 		closePos := (t.Close - t.Low) / rng
 
 		if st.Trend == models.TrendUp && closePos < closeUp {
-			e.rejects.Inc(models.RejectWeakCloseUp)
+			e.rejects.IncWeakClose(models.RejectWeakCloseUp, closePos)
 			e.updateBuffer(st, t)
 			e.MaybeLogRejects()
 			return models.Signal{}, false, becameReady
 		}
 
 		if st.Trend == models.TrendDown && closePos > closeDn {
-			e.rejects.Inc(models.RejectWeakCloseDown)
+			e.rejects.IncWeakClose(models.RejectWeakCloseDown, closePos)
 			e.updateBuffer(st, t)
 			e.MaybeLogRejects()
 			return models.Signal{}, false, becameReady
 		}
-
 		var side models.Side
 
 		if st.Trend == models.TrendUp && brokeUpByBody && upBoPct >= bo {
@@ -429,7 +428,13 @@ func (e *Service) OnCandle(t models.CandleTick) (models.Signal, bool, bool) {
 		e.tuneMu.Lock()
 		e.lastSignalAt = time.Now()
 		e.tuneMu.Unlock()
-
+		e.Logger.Warn("signal",
+			zap.String("raw", t.TimeframeRaw),
+			zap.String("norm", tf),
+			zap.String("instId", t.InstID),
+			zap.String("want_ltf", helper.NormTF(e.cfg.Strategy.LTF)),
+			zap.String("want_htf", helper.NormTF(e.cfg.Strategy.HTF)),
+		)
 		return sig, true, becameReady
 
 	default:

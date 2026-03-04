@@ -58,7 +58,19 @@ func (t *Telegram) sendRejects(ctx context.Context, chatID int64, reset bool) {
 	b.WriteString(fmt.Sprintf("• MinBodyPct: <code>%.4f</code>\n", tu.MinBodyPct))
 	b.WriteString(fmt.Sprintf("• MinChannelPct: <code>%.4f</code>\n", tu.MinChannelPct))
 	b.WriteString(fmt.Sprintf("• BreakoutPct: <code>%.4f</code>\n", tu.BreakoutPct))
+	if snap.AvgCloseUp > 0 {
+		b.WriteString(fmt.Sprintf(
+			"Avg weak_close_up closePos: <code>%.3f</code> (порог %.2f)\n",
+			snap.AvgCloseUp, tu.CloseUpMin,
+		))
+	}
 
+	if snap.AvgCloseDown > 0 {
+		b.WriteString(fmt.Sprintf(
+			"Avg weak_close_down closePos: <code>%.3f</code> (порог %.2f)\n",
+			snap.AvgCloseDown, tu.CloseDnMax,
+		))
+	}
 	if !lastSig.IsZero() {
 		b.WriteString(fmt.Sprintf("Последний сигнал: <code>%s</code>\n", lastSig.Format("15:04:05")))
 	} else {
