@@ -160,15 +160,13 @@ func (e *Service) OnTick(ctx context.Context, t models.CandleTick) {
 	// 4) сигнал наружу (не блокируем)
 	select {
 	case e.out <- sig:
-		// sample
-		if rand.Intn(200) == 0 {
-			e.Logger.Info("signal sent (sample)",
-				zap.String("instId", sig.InstID),
-				zap.String("side", string(sig.Side)),
-				zap.Float64("price", sig.Price),
-				zap.String("tf", sig.TF),
-			)
-		}
+		e.Logger.Info("signal sent (sample)",
+			zap.String("instId", sig.InstID),
+			zap.String("side", string(sig.Side)),
+			zap.Float64("price", sig.Price),
+			zap.String("tf", sig.TF),
+		)
+
 	default:
 		e.Logger.Warn("out channel full, drop signal",
 			zap.String("instId", sig.InstID),
@@ -428,13 +426,6 @@ func (e *Service) OnCandle(t models.CandleTick) (models.Signal, bool, bool) {
 		e.tuneMu.Lock()
 		e.lastSignalAt = time.Now()
 		e.tuneMu.Unlock()
-		e.Logger.Warn("signal",
-			zap.String("raw", t.TimeframeRaw),
-			zap.String("norm", tf),
-			zap.String("instId", t.InstID),
-			zap.String("want_ltf", helper.NormTF(e.cfg.Strategy.LTF)),
-			zap.String("want_htf", helper.NormTF(e.cfg.Strategy.HTF)),
-		)
 		return sig, true, becameReady
 
 	default:
