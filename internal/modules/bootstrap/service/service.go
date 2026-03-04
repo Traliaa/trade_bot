@@ -6,22 +6,30 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"trade_bot/internal/base"
 	"trade_bot/internal/models"
 	"trade_bot/internal/modules/config"
 	okxws "trade_bot/internal/modules/okx_websocket/service"
 	strategy "trade_bot/internal/modules/strategy/service"
 	"trade_bot/internal/modules/telegram_public/public"
-	"trade_bot/pkg/logger"
 
+	"go.uber.org/fx"
 	"go.uber.org/zap"
 )
+
+// Params - parameters.
+type Params struct {
+	fx.In
+	Config *ModuleConfig
+}
 
 type PublicNotifier interface {
 	SendOrEdit(ctx context.Context, st public.Status) error
 	SendServiceText(ctx context.Context, text string) (messageID int, err error)
 }
 
-type Warmuper struct {
+type Service struct {
+	base.Base
 	mx             *okxws.Service
 	hub            *strategy.Service
 	publicNotifier PublicNotifier
@@ -34,45 +42,98 @@ type Warmuper struct {
 	done    atomic.Bool
 }
 
-func NewWarmuper(mx *okxws.Service, hub *strategy.Service, publicNotifier PublicNotifier, cfg *config.Config) *Warmuper {
+func NewService(params Params, mx *okxws.Service, hub *strategy.Service, publicNotifier PublicNotifier) *Service {
 
-	return &Warmuper{
+	return &Service{
 		mx:             mx,
 		hub:            hub,
 		publicNotifier: publicNotifier,
-		cfg:            cfg,
+		cfg:            params.Config.cfg,
 		sem:            make(chan struct{}, 8), // 8 параллельных символов
 	}
 }
 
-func (w *Warmuper) Warmup(ctx context.Context, symbols []string) error {
-	if w.done.Load() {
-		logger.Info("[Warmuper] skip: already done")
+func (s *Service) Start(ctx context.Context) error {
+	ctx, shouldStart, started, stopped := s.StartInit(ctx)
+	if !shouldStart {
 		return nil
 	}
-	if !w.started.CompareAndSwap(false, true) {
-		logger.Info("[Warmuper] skip: already running")
+
+	go func() {
+		started()
+		defer stopped()
+
+		s.Logger.Info("strategy loop started")
+		defer s.Logger.Info("strategy loop stopped", zap.Error(context.Cause(ctx)))
+
+		// ✅ если уже прогреты — не делаем ничего
+		if s.hub.IsWarmupDone() {
+			s.Logger.Info("[BOOT] warmup already done, skip")
+			return
+		}
+
+		// ✅ ждём пока Symbols заполнится до WatchTopN
+		if err := s.waitUntilSymbolsReady(ctx, 250*time.Millisecond); err != nil {
+			s.Logger.Error("[BOOT] wait symbols failed", zap.Error(err))
+			return
+		}
+
+		if err := s.Warmup(ctx, s.cfg.Strategy.Symbols); err != nil {
+			s.Logger.Info("[BOOT] warmup error: %v", zap.Error(err))
+			return
+		}
+		s.Logger.Info("[BOOT] warmup done: %d symbols", zap.Strings("sym", s.cfg.Strategy.Symbols))
+
+	}()
+
+	return nil
+}
+
+func (s *Service) waitUntilSymbolsReady(ctx context.Context, poll time.Duration) error {
+	t := time.NewTicker(poll)
+	defer t.Stop()
+
+	for {
+		if len(s.cfg.Strategy.Symbols) >= s.cfg.Strategy.WatchTopN && s.cfg.Strategy.WatchTopN > 0 {
+			return nil
+		}
+
+		select {
+		case <-ctx.Done():
+			return context.Cause(ctx)
+		case <-t.C:
+		}
+	}
+}
+
+func (s *Service) Warmup(ctx context.Context, symbols []string) error {
+	if s.done.Load() {
+		s.Logger.Info("skip: already done")
+		return nil
+	}
+	if !s.started.CompareAndSwap(false, true) {
+		s.Logger.Info("skip: already running")
 		return nil
 	}
 	defer func() {
 		// если упали с ошибкой — разрешим повтор
-		if !w.done.Load() {
-			w.started.Store(false)
+		if !s.done.Load() {
+			s.started.Store(false)
 		}
 	}()
 
 	if len(symbols) == 0 {
 		return nil
 	}
-	ltfTF := w.hub.LTF()
-	htfTF := w.hub.HTF()
+	ltfTF := s.hub.LTF()
+	htfTF := s.hub.HTF()
 
-	ltfNeed := w.hub.LTFNeed()
-	htfNeed := w.hub.HTFNeed()
+	ltfNeed := s.hub.LTFNeed()
+	htfNeed := s.hub.HTFNeed()
 	total := len(symbols)
 
 	// 1) Старт: понятное “мы подготавливаемся”
-	_, err := w.publicNotifier.SendServiceText(ctx, public.Status{
+	_, err := s.publicNotifier.SendServiceText(ctx, public.Status{
 		State:       public.StatePreparing,
 		Exchange:    "OKX",
 		Instruments: total,
@@ -110,7 +171,7 @@ func (w *Warmuper) Warmup(ctx context.Context, symbols []string) error {
 					pct = 99
 				}
 
-				err = w.publicNotifier.SendOrEdit(ctx, public.Status{
+				err = s.publicNotifier.SendOrEdit(ctx, public.Status{
 					State:       public.StatePreparing,
 					Exchange:    "OKX",
 					Instruments: total,
@@ -118,7 +179,7 @@ func (w *Warmuper) Warmup(ctx context.Context, symbols []string) error {
 					UpdatedAt:   time.Now(),
 				})
 				if err != nil {
-					logger.Error("[Warmuper] warmup failed", zap.Error(err))
+					s.Logger.Error("warmup failed", zap.Error(err))
 				}
 			}
 		}
@@ -132,21 +193,21 @@ func (w *Warmuper) Warmup(ctx context.Context, symbols []string) error {
 			defer wg.Done()
 
 			// ограничитель параллелизма
-			w.sem <- struct{}{}
-			defer func() { <-w.sem }()
+			s.sem <- struct{}{}
+			defer func() { <-s.sem }()
 
 			// 1) HTF (внутри — как было, это не в паблик)
-			htf, err := w.mx.GetCandles(ctx, sym, htfTF, htfNeed)
+			htf, err := s.mx.GetCandles(ctx, sym, htfTF, htfNeed)
 			if err != nil {
 				mu.Lock()
 				if firstErr == nil {
-					firstErr = fmt.Errorf("прогрев HTF %s: %w", sym, err)
+					firstErr = fmt.Errorf("прогрев HTF %s: %s", sym, err)
 				}
 				mu.Unlock()
 				return
 			}
 			for _, c := range htf {
-				w.hub.OnTick(ctx, models.CandleTick{
+				s.hub.OnTick(ctx, models.CandleTick{
 					Open:         c.Open,
 					High:         c.High,
 					Low:          c.Low,
@@ -159,17 +220,17 @@ func (w *Warmuper) Warmup(ctx context.Context, symbols []string) error {
 			}
 
 			// 2) LTF
-			ltf, err := w.mx.GetCandles(ctx, sym, ltfTF, ltfNeed)
+			ltf, err := s.mx.GetCandles(ctx, sym, ltfTF, ltfNeed)
 			if err != nil {
 				mu.Lock()
 				if firstErr == nil {
-					firstErr = fmt.Errorf("прогрев LTF %s: %w", sym, err)
+					firstErr = fmt.Errorf("прогрев LTF %s: %s", sym, err)
 				}
 				mu.Unlock()
 				return
 			}
 			for _, c := range ltf {
-				w.hub.OnTick(ctx, models.CandleTick{
+				s.hub.OnTick(ctx, models.CandleTick{
 					Open:         c.Open,
 					High:         c.High,
 					Low:          c.Low,
@@ -192,7 +253,7 @@ func (w *Warmuper) Warmup(ctx context.Context, symbols []string) error {
 
 	if firstErr != nil {
 		// 2) Ошибка: понятное человеку сообщение
-		err = w.publicNotifier.SendOrEdit(ctx, public.Status{
+		err = s.publicNotifier.SendOrEdit(ctx, public.Status{
 			State:       public.StateError,
 			Exchange:    "OKX",
 			Instruments: total,
@@ -203,13 +264,13 @@ func (w *Warmuper) Warmup(ctx context.Context, symbols []string) error {
 		}
 
 		// (Опционально) подробности об ошибке — лучше в dev-лог, а не в публичный канал:
-		// w.log.Error("warmup failed", zap.Error(firstErr))
+		// s.log.Error("warmup failed", zap.Error(firstErr))
 
 		return firstErr
 	}
 
 	// 3) Готово: финальный статус
-	err = w.publicNotifier.SendOrEdit(ctx, public.Status{
+	err = s.publicNotifier.SendOrEdit(ctx, public.Status{
 		State:       public.StateReady,
 		Exchange:    "OKX",
 		Instruments: total,
@@ -220,8 +281,8 @@ func (w *Warmuper) Warmup(ctx context.Context, symbols []string) error {
 		return err
 	}
 
-	w.hub.SetWarmupDone()
-	w.done.Store(true)
+	s.hub.SetWarmupDone()
+	s.done.Store(true)
 
 	return nil
 }

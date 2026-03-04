@@ -71,6 +71,8 @@ type StrategyConfig struct {
 
 	WatchTopN int `yaml:"watch_top_n"`
 
+	Symbols []string `yaml:"symbols"`
+
 	TuneMode int `yaml:"tune_mode"`
 }
 

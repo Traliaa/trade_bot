@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"trade_bot/internal/models"
 
 	tgbot "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 )
@@ -36,12 +37,17 @@ func (t *Telegram) sendRejects(ctx context.Context, chatID int64, reset bool) {
 	} else {
 		b.WriteString("<b>Топ причин:</b>\n")
 		for i, it := range snap.Top {
-			b.WriteString(fmt.Sprintf("%d) <code>%s</code> — %d\n", i+1, it.Reason, it.Count))
+			reason := string(it.Reason)
+			// чуть более читаемый label для агрегата
+			if it.Reason == models.RejectWeakClose {
+				reason = "weak_close (up+down)"
+			}
+			b.WriteString(fmt.Sprintf("%d) <code>%s</code> — %d\n", i+1, reason, it.Count))
 		}
 	}
 
 	if reset {
-		b.WriteString("\n✅ Счётчики сброшены.")
+		b.WriteString("\n✅ Счётчики сброшены.\n")
 	}
 
 	tu, lastSig, lastTune := t.router.StrategyTuning()
@@ -52,6 +58,7 @@ func (t *Telegram) sendRejects(ctx context.Context, chatID int64, reset bool) {
 	b.WriteString(fmt.Sprintf("• MinBodyPct: <code>%.4f</code>\n", tu.MinBodyPct))
 	b.WriteString(fmt.Sprintf("• MinChannelPct: <code>%.4f</code>\n", tu.MinChannelPct))
 	b.WriteString(fmt.Sprintf("• BreakoutPct: <code>%.4f</code>\n", tu.BreakoutPct))
+
 	if !lastSig.IsZero() {
 		b.WriteString(fmt.Sprintf("Последний сигнал: <code>%s</code>\n", lastSig.Format("15:04:05")))
 	} else {

@@ -70,23 +70,51 @@ func (s *RejectStats) Inc(r RejectReason) {
 }
 
 // Snapshot возвращает снимок. Если reset=true — обнуляет счётчики и начинает новый период.
+// Snapshot возвращает снимок. Если reset=true — обнуляет счётчики и начинает новый период.
 func (s *RejectStats) Snapshot(reset bool) RejectSnapshot {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// top
-	top := make([]RejectTopItem, 0, len(s.by))
-	for r, c := range s.by {
-		top = append(top, RejectTopItem{Reason: r, Count: c})
-	}
-	sort.Slice(top, func(i, j int) bool { return top[i].Count > top[j].Count })
-	if len(top) > 10 {
-		top = top[:10]
-	}
+	// 1) копия map (и сразу же соберём агрегат weak_close)
+	byCopy := make(map[RejectReason]uint64, len(s.by)+1)
 
-	byCopy := make(map[RejectReason]uint64, len(s.by))
+	var weakUp, weakDn uint64
 	for r, c := range s.by {
 		byCopy[r] = c
+		if r == RejectWeakCloseUp {
+			weakUp = c
+		}
+		if r == RejectWeakCloseDown {
+			weakDn = c
+		}
+	}
+
+	weakTotal := weakUp + weakDn
+	if weakTotal > 0 {
+		// добавляем агрегат
+		byCopy[RejectWeakClose] = weakTotal
+
+		// (опционально, но я бы так и сделал)
+		// чтобы в UI и в любом месте не всплывали up/down отдельно:
+		delete(byCopy, RejectWeakCloseUp)
+		delete(byCopy, RejectWeakCloseDown)
+	}
+
+	// 2) top из byCopy (уже “нормализованного”)
+	top := make([]RejectTopItem, 0, len(byCopy))
+	for r, c := range byCopy {
+		top = append(top, RejectTopItem{Reason: r, Count: c})
+	}
+
+	sort.Slice(top, func(i, j int) bool {
+		if top[i].Count == top[j].Count {
+			return top[i].Reason < top[j].Reason // стабильность для одинаковых значений
+		}
+		return top[i].Count > top[j].Count
+	})
+
+	if len(top) > 10 {
+		top = top[:10]
 	}
 
 	out := RejectSnapshot{

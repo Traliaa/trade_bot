@@ -73,12 +73,14 @@ func (s *Service) Start(ctx context.Context, out chan<- models.CandleTick) error
 		s.Logger.Debug("Цикл запуска начат")
 		defer s.Logger.Debug("Цикл запуска остановлен")
 
-		syms, err := s.TopVolatile(s.cfg.Strategy.WatchTopN)
+		var err error
+
+		s.cfg.Strategy.Symbols, err = s.TopVolatile(s.cfg.Strategy.WatchTopN)
 		if err != nil {
 			s.Logger.Info("[MARKET] ошибка TopVolatile: %v", zap.Error(err))
 			return
 		}
-		if len(syms) == 0 {
+		if len(s.cfg.Strategy.Symbols) == 0 {
 			s.Logger.Info("[MARKET] пустой список волатильных инструментов")
 			return
 		}
@@ -88,12 +90,12 @@ func (s *Service) Start(ctx context.Context, out chan<- models.CandleTick) error
 		_, _ = s.ServiceNotifier.SendServiceText(ctx, public.Status{
 			State:       public.StateConnecting,
 			Exchange:    "OKX",
-			Instruments: len(syms),
+			Instruments: len(s.cfg.Strategy.Symbols),
 			UpdatedAt:   time.Now(),
 		}.RenderHTML())
 
 		for _, tf := range timeframes {
-			go s.runTimeframe(ctx, toOKXBar(tf), syms, out)
+			go s.runTimeframe(ctx, toOKXBar(tf), s.cfg.Strategy.Symbols, out)
 		}
 	}()
 	return nil
