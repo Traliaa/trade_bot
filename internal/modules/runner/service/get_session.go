@@ -1,11 +1,11 @@
-package router
+package service
 
 import (
 	"context"
 	"trade_bot/internal/modules/runner/sessions"
 )
 
-func (r *Router) GetSession(ctx context.Context, userID int64) (*sessions.UserSession, error) {
+func (r *Service) GetSession(ctx context.Context, userID int64) (*sessions.UserSession, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	s, ok := r.users[userID]

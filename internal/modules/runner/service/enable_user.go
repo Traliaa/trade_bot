@@ -1,4 +1,4 @@
-package router
+package service
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 	"trade_bot/internal/modules/runner/sessions"
 )
 
-func (r *Router) EnableUser(ctx context.Context, user *models.UserSettings) {
+func (r *Service) EnableUser(ctx context.Context, user *models.UserSettings) {
 	if user == nil {
 		return
 	}

@@ -5,7 +5,7 @@ import (
 
 	"trade_bot/internal/modules/api/controller"
 	"trade_bot/internal/modules/api/middleware"
-	"trade_bot/internal/modules/runner/router"
+	"trade_bot/internal/modules/runner/service"
 
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/fx"
@@ -30,7 +30,7 @@ func Module() fx.Option {
 			controller.NewTradeController,
 		),
 		fx.Invoke(
-			func(t *controller.TradeController, r *router.Router) {
+			func(t *controller.TradeController, r *service.Service) {
 				t.SetRouter(r)
 			},
 			registerRoutes),

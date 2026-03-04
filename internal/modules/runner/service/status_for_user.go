@@ -1,4 +1,4 @@
-package router
+package service
 
 import (
 	"context"
@@ -8,7 +8,7 @@ import (
 )
 
 // StatusForUser возвращает список открытых позиций с OKX для данного пользователя.
-func (r *Router) StatusForUser(ctx context.Context, userID int64) ([]models.OpenPosition, error) {
+func (r *Service) StatusForUser(ctx context.Context, userID int64) ([]models.OpenPosition, error) {
 	r.mu.RLock()
 	sess := r.users[userID]
 	r.mu.RUnlock()

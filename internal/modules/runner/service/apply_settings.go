@@ -1,4 +1,4 @@
-package router
+package service
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	"trade_bot/pkg/logger"
 )
 
-func (r *Router) ApplySettings(ctx context.Context, user *models.UserSettings) {
+func (r *Service) ApplySettings(ctx context.Context, user *models.UserSettings) {
 	if user == nil {
 		return
 	}

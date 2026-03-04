@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"trade_bot/internal/modules/bootstrap/lifecyclelog"
-	"trade_bot/internal/modules/runner/router"
+	runner "trade_bot/internal/modules/runner/service"
 	"trade_bot/internal/modules/telegram_bot/service"
 	"trade_bot/internal/modules/telegram_public/public"
 
@@ -24,7 +24,7 @@ func Module() fx.Option {
 			),
 		),
 		fx.Invoke(
-			func(t *service.Telegram, r *router.Router) {
+			func(t *service.Telegram, r *runner.Service) {
 				t.SetRouter(r)
 			},
 			func(lc fx.Lifecycle, t *service.Telegram) {

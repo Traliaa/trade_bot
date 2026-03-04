@@ -1,4 +1,4 @@
-package router
+package service
 
 import (
 	"context"
@@ -41,7 +41,7 @@ func (a *candleAgg) Drain() []models.CandleTick {
 
 var sem = make(chan struct{}, 4) // максимум 4 HTTP одновременно
 
-func (r *Router) OnCandleClose(ctx context.Context, ct models.CandleTick) {
+func (r *Service) OnCandleClose(ctx context.Context, ct models.CandleTick) {
 	if helper.NormTF(ct.TimeframeRaw) != "1m" {
 		return
 	}

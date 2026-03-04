@@ -1,8 +1,8 @@
-package router
+package service
 
 import "context"
 
-func (r *Router) DisableUser(ctx context.Context, userID int64) {
+func (r *Service) DisableUser(ctx context.Context, userID int64) {
 	r.mu.Lock()
 	sess, ok := r.users[userID]
 	if !ok {

@@ -1,11 +1,11 @@
-package router
+package service
 
 import (
 	"context"
 	"log"
 )
 
-func (r *Router) RestoreEnabled(ctx context.Context) {
+func (r *Service) RestoreEnabled(ctx context.Context) {
 	// тут у тебя логика загрузки пользователей, у которых бот был включён
 	users, err := r.Repository.ListEnabled(ctx) // пример
 	if err != nil {
