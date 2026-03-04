@@ -559,7 +559,7 @@ func (e *Service) MaybeAutoTuneAdaptive(now time.Time, force bool) models.TuneDe
 	dom, domPct, total := dominantReason(snap)
 	domMin := 0.50
 	if mode == models.TuneAuto {
-		domMin = 0.45
+		domMin = 0.30
 	}
 	if dom == "" || domPct < domMin {
 		return models.TuneDecision{
