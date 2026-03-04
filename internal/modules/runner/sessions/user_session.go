@@ -46,8 +46,6 @@ type UserSession struct {
 	okxMu sync.RWMutex
 	Okx   *okx_client.Client
 
-	Queue chan models.Signal
-
 	msgMu     sync.Mutex
 	LastMsgAt map[string]time.Time // key -> time
 }

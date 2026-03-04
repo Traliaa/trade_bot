@@ -10,9 +10,9 @@ import (
 	"trade_bot/internal/models"
 )
 
-// calcTradeParams считает SL, TP, размер позиции и сопутствующие параметры
+// CalcTradeParams считает SL, TP, размер позиции и сопутствующие параметры
 // по текущим настройкам стратегии.
-func (s *UserSession) calcTradeParams(
+func (s *UserSession) CalcTradeParams(
 	ctx context.Context,
 	symbol string,
 	side string,

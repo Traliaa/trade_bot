@@ -110,21 +110,98 @@ func (s *Service) Start(ctx context.Context, sigs chan models.Signal, candles ch
 	return nil
 }
 
-func (r *Service) OnSignal(ctx context.Context, sig models.Signal) {
+func (s *Service) OnSignal(ctx context.Context, sig models.Signal) {
 
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	r.Logger.Debug("okx ws publish candle",
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	s.Logger.Info("signal",
 		zap.String("instId", sig.InstID),
 		zap.String("tf", sig.TF),
+		zap.String("side", string(sig.Side)),
+		zap.Float64("price", sig.Price),
 	)
 
-	for _, sess := range r.users {
-		select {
-		case sess.Queue <- sig:
-		default:
-			// очередь забита — можно логнуть / дропнуть
+	for _, sess := range s.users {
+
+		// 1️⃣ лимит по открытым позициям
+		if sess.User.Settings.TradingSettings.MaxOpenPositions > 0 {
+			if len(sess.Positions) >= sess.User.Settings.TradingSettings.MaxOpenPositions {
+
+				sess.Notifier.SendF(ctx, sess.User.TelegramID,
+					"⚠️ [%s] Лимит открытых позиций (%d) достигнут, сигнал пропущен",
+					sig.InstID, sess.User.Settings.TradingSettings.MaxOpenPositions,
+				)
+				continue
+			}
 		}
+
+		// 2️⃣ расчёт параметров сделки
+		params, err := sess.CalcTradeParams(ctx, sig.InstID, string(sig.Side), sig.Price)
+		if err != nil {
+			sess.Notifier.SendF(ctx, sess.User.TelegramID,
+				"❗️ [%s] Ошибка расчёта параметров сделки: %v",
+				sig.InstID, err,
+			)
+			continue
+		}
+
+		// 3️⃣ открытие позиции
+		res, err := sess.OpenPositionWithTpSl(ctx, sig, params)
+		if err != nil {
+			sess.Notifier.SendF(ctx, sess.User.TelegramID,
+				"❗️ [%s] Ошибка открытия ордера: %v",
+				sig.InstID, err,
+			)
+			continue
+		}
+
+		// 4️⃣ ✅ УВЕДОМЛЕНИЕ ОБ УСПЕШНОМ ОТКРЫТИИ
+		sess.Notifier.SendF(ctx, sess.User.TelegramID,
+			"🚀 <b>Позиция открыта</b>\n\n"+
+				"Инструмент: <b>%s</b>\n"+
+				"Сторона: <b>%s</b>\n"+
+				"Цена входа: <code>%.6f</code>\n"+
+				"Размер: <code>%.4f</code>\n"+
+				"SL: <code>%.6f</code>\n"+
+				"TP: <code>%.6f</code>\n"+
+				"TF: <code>%s</code>\n"+
+				"Стратегия: <code>%s</code>",
+			sig.InstID,
+			sig.Side,
+			res.Entry,
+			params.Size,
+			params.SL,
+			params.TP,
+			sig.TF,
+			sig.Strategy,
+		)
+
+		// 5️⃣ сохраняем трейл-состояние
+		if res.SLAlgoID == "" {
+			continue
+		}
+
+		key := sig.InstID + ":" + res.PosSide
+
+		sess.PosMu.Lock()
+		if sess.Positions == nil {
+			sess.Positions = make(map[string]*models.PositionTrailState)
+		}
+		sess.Positions[key] = &models.PositionTrailState{
+			InstID:   sig.InstID,
+			PosSide:  res.PosSide,
+			Entry:    res.Entry,
+			SL:       params.SL,
+			TP:       params.TP,
+			RiskDist: params.RiskDist,
+			TickSz:   params.TickSize,
+			AlgoID:   res.SLAlgoID,
+			Size:     params.Size,
+			MFE:      res.Entry,
+			OpenedAt: time.Now(),
+		}
+		sess.PosMu.Unlock()
 	}
 }
 
