@@ -157,6 +157,9 @@ func (e *Service) OnTick(ctx context.Context, t models.CandleTick) {
 		return
 	}
 
+	e.tuneMu.Lock()
+	e.lastSignalAt = time.Now()
+	e.tuneMu.Unlock()
 	// 4) сигнал наружу (не блокируем)
 	select {
 	case e.out <- sig:
@@ -423,9 +426,7 @@ func (e *Service) OnCandle(t models.CandleTick) (models.Signal, bool, bool) {
 		e.updateBuffer(st, t)
 
 		e.MaybeLogRejects()
-		e.tuneMu.Lock()
-		e.lastSignalAt = time.Now()
-		e.tuneMu.Unlock()
+
 		return sig, true, becameReady
 
 	default:

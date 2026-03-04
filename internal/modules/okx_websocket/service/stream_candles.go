@@ -45,14 +45,14 @@ func (s *Service) StreamCandlesBatch(ctx context.Context, instIDs []string, time
 	go func() {
 		defer close(out)
 
-		log := s.Logger.With(
-			zap.String("stream", "candles_batch"),
-			zap.String("timeframe", timeframe),
-			zap.Int("symbols", len(instIDs)),
-		)
+		//log := s.Logger.With(
+		//	zap.String("stream", "candles_batch"),
+		//	zap.String("timeframe", timeframe),
+		//	zap.Int("symbols", len(instIDs)),
+		//)
 
 		if len(instIDs) == 0 {
-			log.Debug("skip: empty instIDs")
+			s.Logger.Debug("skip: empty instIDs")
 			return
 		}
 
@@ -60,13 +60,6 @@ func (s *Service) StreamCandlesBatch(ctx context.Context, instIDs []string, time
 		channel := "candle" + okxBar
 		tfDur := timeframeToDuration(timeframe)
 		url := "wss://ws.okx.com:8443/ws/v5/business"
-
-		log = log.With(
-			zap.String("okx_channel", channel),
-			zap.String("okx_bar", okxBar),
-			zap.Duration("tf_dur", tfDur),
-			zap.String("url", url),
-		)
 
 		args := make([]map[string]string, 0, len(instIDs))
 		for _, id := range instIDs {
@@ -89,22 +82,22 @@ func (s *Service) StreamCandlesBatch(ctx context.Context, instIDs []string, time
 		statsT := time.NewTicker(10 * time.Second)
 		defer statsT.Stop()
 
-		log.Info("ws batch stream starting")
+		s.Logger.Info("ws batch stream starting")
 
 		for {
 			select {
 			case <-ctx.Done():
-				log.Info("context done, stop stream", zap.Error(context.Cause(ctx)))
+				s.Logger.Info("context done, stop stream", zap.Error(context.Cause(ctx)))
 				return
 			default:
 			}
 
 			reconnects++
-			log.Info("ws connect", zap.Int("attempt", reconnects))
+			s.Logger.Info("ws connect", zap.Int("attempt", reconnects))
 
 			conn, _, err := s.wsDialer.Dial(url, nil)
 			if err != nil {
-				log.Warn("ws dial error", zap.Error(err))
+				s.Logger.Warn("ws dial error", zap.Error(err))
 				time.Sleep(time.Second)
 				continue
 			}
@@ -115,13 +108,13 @@ func (s *Service) StreamCandlesBatch(ctx context.Context, instIDs []string, time
 			// subscribe
 			sub := map[string]any{"op": "subscribe", "args": args}
 			if err := conn.WriteJSON(sub); err != nil {
-				log.Warn("ws subscribe write error", zap.Error(err))
+				s.Logger.Warn("ws subscribe write error", zap.Error(err))
 				cancel()
 				_ = conn.Close()
 				time.Sleep(time.Second)
 				continue
 			}
-			log.Info("ws subscribed")
+			s.Logger.Info("ws subscribed")
 
 			// ping loop (stops on cancel)
 			pingDone := make(chan struct{})
@@ -139,7 +132,7 @@ func (s *Service) StreamCandlesBatch(ctx context.Context, instIDs []string, time
 						_ = conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 						if err := conn.WriteMessage(websocket.TextMessage, []byte("ping")); err != nil {
 							// let read loop fail -> reconnect
-							log.Warn("ws ping failed", zap.Error(err))
+							s.Logger.Warn("ws ping failed", zap.Error(err))
 							return
 						}
 					}
@@ -157,13 +150,13 @@ func (s *Service) StreamCandlesBatch(ctx context.Context, instIDs []string, time
 					case <-connCtx.Done():
 						return nil
 					case <-statsT.C:
-						log.Info("ws stats",
-							zap.Int("recv_frames", recvFrames),
-							zap.Int("recv_candles", recvCandles),
-							zap.Int("sent_candles", sentCandles),
-							zap.Int("drop_candles", dropCandles),
-							zap.Int("reconnects", reconnects),
-						)
+						//s.Logger.Info("ws stats",
+						//	zap.Int("recv_frames", recvFrames),
+						//	zap.Int("recv_candles", recvCandles),
+						//	zap.Int("sent_candles", sentCandles),
+						//	zap.Int("drop_candles", dropCandles),
+						//	zap.Int("reconnects", reconnects),
+						//)
 					default:
 					}
 
@@ -183,7 +176,7 @@ func (s *Service) StreamCandlesBatch(ctx context.Context, instIDs []string, time
 					_ = json.Unmarshal(msg, &meta)
 
 					if meta.Event == "error" {
-						log.Warn("okx event=error",
+						s.Logger.Warn("okx event=error",
 							zap.String("code", meta.Code),
 							zap.String("msg", meta.Msg),
 						)
@@ -203,7 +196,7 @@ func (s *Service) StreamCandlesBatch(ctx context.Context, instIDs []string, time
 						Data [][]string `json:"data"`
 					}
 					if err := json.Unmarshal(msg, &frame); err != nil {
-						log.Debug("frame unmarshal failed", zap.Error(err))
+						s.Logger.Debug("frame unmarshal failed", zap.Error(err))
 						continue
 					}
 					if frame.Arg.Channel != channel || len(frame.Data) == 0 {
@@ -261,7 +254,7 @@ func (s *Service) StreamCandlesBatch(ctx context.Context, instIDs []string, time
 
 						// ✅ что получили из OKX (sampling, иначе слишком много)
 						if sampleN > 0 && rand.Intn(sampleN) == 0 {
-							log.Debug("okx candle recv (sample)",
+							s.Logger.Debug("okx candle recv (sample)",
 								zap.String("instId", tick.InstID),
 								zap.Int64("ts_ms", tsMs),
 								zap.Float64("close", tick.Close),
@@ -276,7 +269,7 @@ func (s *Service) StreamCandlesBatch(ctx context.Context, instIDs []string, time
 						default:
 							// канал переполнен — важно увидеть это, иначе “теряются свечи”
 							dropCandles++
-							log.Warn("out channel full, drop candle",
+							s.Logger.Warn("out channel full, drop candle",
 								zap.String("instId", tick.InstID),
 								zap.Int("out_cap", cap(out)),
 								zap.Int("out_len", len(out)),
@@ -293,12 +286,12 @@ func (s *Service) StreamCandlesBatch(ctx context.Context, instIDs []string, time
 			<-pingDone
 
 			if readErr != nil && ctx.Err() == nil {
-				log.Warn("ws read loop error, reconnect", zap.Error(readErr))
+				s.Logger.Warn("ws read loop error, reconnect", zap.Error(readErr))
 				time.Sleep(time.Second)
 				continue
 			}
 
-			log.Info("ws stream finished")
+			s.Logger.Info("ws stream finished")
 			return
 		}
 	}()
