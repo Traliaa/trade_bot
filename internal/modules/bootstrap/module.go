@@ -2,7 +2,6 @@ package bootstrap
 
 import (
 	"context"
-	"log"
 	"trade_bot/internal/base"
 
 	"trade_bot/internal/modules/bootstrap/service"
