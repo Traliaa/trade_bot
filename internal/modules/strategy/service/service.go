@@ -54,8 +54,8 @@ func NewService(cfg *config.Config, out chan<- models.Signal, candleOut chan<- m
 			MinChannelPct: cfg.Strategy.MinChannelPct,
 			MinBodyPct:    cfg.Strategy.MinBodyPct,
 			BreakoutPct:   cfg.Strategy.BreakoutPct,
-			CloseUpMin:    0.80,
-			CloseDnMax:    0.20,
+			CloseUpMin:    0.70,
+			CloseDnMax:    0.30,
 		},
 		tuneMode: models.TuneMode(cfg.Strategy.TuneMode),
 	}
