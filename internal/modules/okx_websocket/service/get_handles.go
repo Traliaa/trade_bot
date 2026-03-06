@@ -33,7 +33,7 @@ func (s *Service) GetCandles(ctx context.Context, instID, bar string, limit int)
 	if err != nil {
 		return nil, err
 	}
-	resp, err := s.http.Do(req)
+	resp, err := s.client.Do(req)
 	if err != nil {
 		return nil, err
 	}

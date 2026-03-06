@@ -12,7 +12,6 @@ type ModuleConfig struct {
 
 // NewModuleConfig ...
 func NewModuleConfig(cfg *config.Config) *ModuleConfig {
-
 	return &ModuleConfig{
 		IsStartNow: true,
 		cfg:        cfg,

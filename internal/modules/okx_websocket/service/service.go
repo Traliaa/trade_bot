@@ -29,8 +29,9 @@ type ServiceNotifier interface {
 // Service ...
 type Service struct {
 	base.Base
+	endpoint        string
 	ServiceNotifier ServiceNotifier
-	http            *http.Client
+	client          http.Client
 	wsDialer        *websocket.Dialer
 
 	mu    sync.RWMutex
@@ -46,6 +47,7 @@ type Service struct {
 // NewService ...
 func NewService(params Params, n ServiceNotifier) *Service {
 	return &Service{
+		endpoint:  "https://www.okx.com/api/v5/market",
 		cfg:       params.Config.cfg,
 		apiKey:    params.Config.cfg.OKXWS.APIKey,
 		apiSecret: params.Config.cfg.OKXWS.APISecret,
@@ -53,7 +55,7 @@ func NewService(params Params, n ServiceNotifier) *Service {
 
 		ServiceNotifier: n,
 		wsDialer:        &websocket.Dialer{},
-		http:            &http.Client{Timeout: 10 * time.Second},
+		client:          http.Client{Timeout: 10 * time.Second},
 		subs:            make(map[string]map[chan models.CandleTick]struct{}),
 		watch:           nil,
 	}
@@ -75,9 +77,9 @@ func (s *Service) Start(ctx context.Context, out chan<- models.CandleTick) error
 
 		var err error
 
-		s.cfg.Strategy.Symbols, err = s.TopVolatile(s.cfg.Strategy.WatchTopN)
+		s.cfg.Strategy.Symbols, err = s.SelectUniverse(s.cfg.Strategy.WatchTopN, models.UniverseConservative)
 		if err != nil {
-			s.Logger.Info("[MARKET] ошибка TopVolatile: %v", zap.Error(err))
+			s.Logger.Info("[MARKET] ошибка SelectUniverse: %v", zap.Error(err))
 			return
 		}
 		if len(s.cfg.Strategy.Symbols) == 0 {

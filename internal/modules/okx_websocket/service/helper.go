@@ -104,3 +104,86 @@ func toOKXBar(tf string) string {
 		return tf // fallback, но лучше логнуть
 	}
 }
+
+func isNonCryptoUnderlying(instID string) bool {
+	base := strings.TrimSuffix(instID, "-USDT-SWAP")
+
+	switch base {
+	case "AAPL", "AMZN", "MSFT", "META", "INTC", "TSLA", "PLTR", "QQQ", "SPY", "HOOD", "MSTR", "CRCL":
+		return true
+	case "XAG", "XAU", "XPT", "XPD", "XCU":
+		return true
+	default:
+		return false
+	}
+}
+func isTradeableUSDTSwap(instID string) bool {
+	if !strings.HasSuffix(instID, "-USDT-SWAP") {
+		return false
+	}
+	if strings.Contains(instID, "_UM") {
+		return false
+	}
+	if isNonCryptoUnderlying(instID) {
+		return false
+	}
+	return true
+}
+func coreSymbols() []string {
+	return []string{
+		"BTC-USDT-SWAP",
+		"ETH-USDT-SWAP",
+		"SOL-USDT-SWAP",
+		"BNB-USDT-SWAP",
+		"XRP-USDT-SWAP",
+		"DOGE-USDT-SWAP",
+		"LINK-USDT-SWAP",
+		"AVAX-USDT-SWAP",
+		"ADA-USDT-SWAP",
+		"DOT-USDT-SWAP",
+		"LTC-USDT-SWAP",
+		"BCH-USDT-SWAP",
+		"SUI-USDT-SWAP",
+		"APT-USDT-SWAP",
+		"FIL-USDT-SWAP",
+		"INJ-USDT-SWAP",
+		"AAVE-USDT-SWAP",
+		"ICP-USDT-SWAP",
+		"ARB-USDT-SWAP",
+		"UNI-USDT-SWAP",
+	}
+}
+func mergeUniqueSymbols(groups ...[]string) []string {
+	seen := make(map[string]struct{}, 128)
+
+	totalCap := 0
+	for _, g := range groups {
+		totalCap += len(g)
+	}
+
+	out := make([]string, 0, totalCap)
+
+	for _, g := range groups {
+		for _, sym := range g {
+			if sym == "" {
+				continue
+			}
+			if _, ok := seen[sym]; ok {
+				continue
+			}
+			seen[sym] = struct{}{}
+			out = append(out, sym)
+		}
+	}
+
+	return out
+}
+func firstN(xs []string, n int) []string {
+	if n > len(xs) {
+		n = len(xs)
+	}
+	if n < 0 {
+		n = 0
+	}
+	return xs[:n]
+}
