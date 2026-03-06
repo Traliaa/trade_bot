@@ -193,6 +193,7 @@ func (s *Service) SelectUniverse(dynamicN int, mode models.UniverseMode) ([]stri
 	}
 
 	final := mergeUniqueSymbols(core, dyn)
+	s.cfg.Strategy.WatchTopN = len(final)
 
 	s.Logger.Info("universe selected",
 		zap.String("mode", string(mode)),

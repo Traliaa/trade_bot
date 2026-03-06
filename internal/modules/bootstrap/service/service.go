@@ -88,15 +88,25 @@ func (s *Service) Start(ctx context.Context) error {
 
 	return nil
 }
-
 func (s *Service) waitUntilSymbolsReady(ctx context.Context, poll time.Duration) error {
+	if s.cfg.Strategy.WatchTopN <= 0 {
+		s.Logger.Info("waitUntilSymbolsReady skipped: WatchTopN <= 0")
+		return nil
+	}
+
 	t := time.NewTicker(poll)
 	defer t.Stop()
 
 	for {
-		if len(s.cfg.Strategy.Symbols) >= s.cfg.Strategy.WatchTopN && s.cfg.Strategy.WatchTopN > 0 {
+		n := len(s.cfg.Strategy.Symbols)
+		target := s.cfg.Strategy.WatchTopN
+
+		if n >= target {
+			s.Logger.Info("symbols ready", zap.Int("have", n), zap.Int("need", target))
 			return nil
 		}
+
+		s.Logger.Info("waiting symbols", zap.Int("have", n), zap.Int("need", target))
 
 		select {
 		case <-ctx.Done():
