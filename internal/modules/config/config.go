@@ -136,7 +136,7 @@ func NewConfig() (*Config, error) {
 	cfg.Strategy.HTF = "1h"
 	cfg.Strategy.DonchianPeriod = 20
 	cfg.Strategy.MinChannelPct = 0.0026
-	cfg.Strategy.MinBodyPct = 0.002
+	cfg.Strategy.MinBodyPct = 0.0015
 	cfg.Strategy.BreakoutPct = 0.002
 	cfg.Strategy.HTFEmaFast = 50
 	cfg.Strategy.HTFEmaSlow = 200
