@@ -29,7 +29,7 @@ strategy:
   min_warmup_htf: 200
   expected_symbols: 100
   progress_every: 2m
-  watch_top_n: 100
+  watch_top_n: 200
 
 user_defaults:
   default_leverage: 15
