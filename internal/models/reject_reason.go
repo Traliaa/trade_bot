@@ -9,20 +9,25 @@ import (
 type RejectReason string
 
 const (
-	RejectInvalidPrice   RejectReason = "invalid_price"
-	RejectNoChannel      RejectReason = "no_channel"
-	RejectNotReady       RejectReason = "not_ready"
-	RejectNoTrend        RejectReason = "no_trend"
-	RejectSmallChannel   RejectReason = "small_channel"
-	RejectSmallBody      RejectReason = "small_body"
-	RejectWeakCloseUp    RejectReason = "weak_close_up"
-	RejectWeakCloseDown  RejectReason = "weak_close_down"
-	RejectNoBreakout     RejectReason = "no_breakout"
-	RejectZeroRange      RejectReason = "zero_range"
-	RejectCooldown       RejectReason = "cooldown"
-	RejectInternal       RejectReason = "internal"
-	RejectWeakClose      RejectReason = "weak_close" // weak_close_up + weak_close_down (aggregated)
-	RejectPendingExpired RejectReason = "pending_expired"
+	RejectInvalidPrice  RejectReason = "invalid_price"
+	RejectNotReady      RejectReason = "not_ready"
+	RejectNoTrend       RejectReason = "no_trend"
+	RejectSmallChannel  RejectReason = "small_channel"
+	RejectSmallBody     RejectReason = "small_body"
+	RejectZeroRange     RejectReason = "zero_range"
+	RejectNoBreakout    RejectReason = "no_breakout"
+	RejectWeakClose     RejectReason = "weak_close"
+	RejectWeakCloseUp   RejectReason = "weak_close_up"
+	RejectWeakCloseDown RejectReason = "weak_close_down"
+	RejectInternal      RejectReason = "internal"
+
+	RejectPendingCooldown         RejectReason = "pending_cooldown"
+	RejectPendingAdverseMove      RejectReason = "pending_adverse_move"
+	RejectPendingExpiredNoTouch   RejectReason = "pending_expired_no_touch"
+	RejectPendingExpiredNoConfirm RejectReason = "pending_expired_no_confirm"
+	RejectPendingShallowRetest    RejectReason = "pending_shallow_retest"
+	RejectBreakoutTooLong         RejectReason = "breakout_too_long"
+	RejectPendingBadConfirmCandle RejectReason = "pending_bad_confirm_candle"
 )
 
 type RejectTopItem struct {
@@ -31,133 +36,128 @@ type RejectTopItem struct {
 }
 
 type RejectSnapshot struct {
-	From         time.Time
-	To           time.Time
-	Total        uint64
-	Top          []RejectTopItem // отсортировано по убыванию
-	By           map[RejectReason]uint64
+	From time.Time
+	To   time.Time
+
+	Total  uint64
+	Top    []RejectTopItem
+	Counts map[RejectReason]uint64
+
 	AvgCloseUp   float64
 	AvgCloseDown float64
 }
-
 type RejectStats struct {
-	mu            sync.Mutex
-	from          time.Time
-	to            time.Time
-	total         uint64
-	by            map[RejectReason]uint64
-	LastRejectLog time.Time
-	// 🔥 debug close
-	SumCloseUp   float64
-	CntCloseUp   uint64
-	SumCloseDown float64
-	CntCloseDown uint64
+	mu sync.Mutex
+
+	from time.Time
+	to   time.Time
+
+	counts map[RejectReason]uint64
+	total  uint64
+
+	weakCloseUpSum   float64
+	weakCloseUpCount uint64
+
+	weakCloseDnSum   float64
+	weakCloseDnCount uint64
 }
 
 func NewRejectStats() *RejectStats {
 	now := time.Now()
 	return &RejectStats{
-		from: now,
-		to:   now,
-		by:   make(map[RejectReason]uint64),
+		from:   now,
+		to:     now,
+		counts: make(map[RejectReason]uint64),
 	}
 }
 
-func (s *RejectStats) Inc(r RejectReason) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (r *RejectStats) Inc(reason RejectReason) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
 	now := time.Now()
-	if s.from.IsZero() {
-		s.from = now
+	if r.total == 0 && r.from.IsZero() {
+		r.from = now
 	}
-	s.to = now
-
-	s.total++
-	s.by[r]++
+	r.to = now
+	r.counts[reason]++
+	r.total++
 }
 
-// Snapshot возвращает снимок. Если reset=true — обнуляет счётчики и начинает новый период.
-func (s *RejectStats) Snapshot(reset bool) RejectSnapshot {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (r *RejectStats) IncWeakClose(reason RejectReason, closePos float64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
-	// 1) копия map (и сразу же соберём агрегат weak_close)
-	byCopy := make(map[RejectReason]uint64, len(s.by)+1)
+	now := time.Now()
+	if r.total == 0 && r.from.IsZero() {
+		r.from = now
+	}
+	r.to = now
 
-	var weakUp, weakDn uint64
-	for r, c := range s.by {
-		byCopy[r] = c
-		if r == RejectWeakCloseUp {
-			weakUp = c
-		}
-		if r == RejectWeakCloseDown {
-			weakDn = c
-		}
+	r.counts[reason]++
+	r.counts[RejectWeakClose]++
+	r.total++
+
+	switch reason {
+	case RejectWeakCloseUp:
+		r.weakCloseUpSum += closePos
+		r.weakCloseUpCount++
+	case RejectWeakCloseDown:
+		r.weakCloseDnSum += closePos
+		r.weakCloseDnCount++
+	}
+}
+
+func (r *RejectStats) Snapshot(reset bool) RejectSnapshot {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	now := time.Now()
+
+	snap := RejectSnapshot{
+		From:   r.from,
+		To:     r.to,
+		Total:  r.total,
+		Counts: make(map[RejectReason]uint64, len(r.counts)),
 	}
 
-	weakTotal := weakUp + weakDn
-	if weakTotal > 0 {
-		// добавляем агрегат
-		byCopy[RejectWeakClose] = weakTotal
-
-		// (опционально, но я бы так и сделал)
-		// чтобы в UI и в любом месте не всплывали up/down отдельно:
-		delete(byCopy, RejectWeakCloseUp)
-		delete(byCopy, RejectWeakCloseDown)
+	for k, v := range r.counts {
+		snap.Counts[k] = v
+		snap.Top = append(snap.Top, RejectTopItem{
+			Reason: k,
+			Count:  v,
+		})
 	}
 
-	// 2) top из byCopy (уже “нормализованного”)
-	top := make([]RejectTopItem, 0, len(byCopy))
-	for r, c := range byCopy {
-		top = append(top, RejectTopItem{Reason: r, Count: c})
-	}
-
-	sort.Slice(top, func(i, j int) bool {
-		if top[i].Count == top[j].Count {
-			return top[i].Reason < top[j].Reason // стабильность для одинаковых значений
+	sort.Slice(snap.Top, func(i, j int) bool {
+		if snap.Top[i].Count == snap.Top[j].Count {
+			return snap.Top[i].Reason < snap.Top[j].Reason
 		}
-		return top[i].Count > top[j].Count
+		return snap.Top[i].Count > snap.Top[j].Count
 	})
 
-	if len(top) > 10 {
-		top = top[:10]
+	if r.weakCloseUpCount > 0 {
+		snap.AvgCloseUp = r.weakCloseUpSum / float64(r.weakCloseUpCount)
 	}
-
-	avgUp := 0.0
-	if s.CntCloseUp > 0 {
-		avgUp = s.SumCloseUp / float64(s.CntCloseUp)
-	}
-
-	avgDown := 0.0
-	if s.CntCloseDown > 0 {
-		avgDown = s.SumCloseDown / float64(s.CntCloseDown)
-	}
-
-	out := RejectSnapshot{
-		From:         s.from,
-		To:           s.to,
-		Total:        s.total,
-		Top:          top,
-		By:           byCopy,
-		AvgCloseUp:   avgUp,
-		AvgCloseDown: avgDown,
+	if r.weakCloseDnCount > 0 {
+		snap.AvgCloseDown = r.weakCloseDnSum / float64(r.weakCloseDnCount)
 	}
 
 	if reset {
-		now := time.Now()
-		s.from = now
-		s.to = now
-		s.total = 0
-		s.by = make(map[RejectReason]uint64)
-		s.SumCloseUp = 0
-		s.CntCloseUp = 0
-		s.SumCloseDown = 0
-		s.CntCloseDown = 0
+		r.from = now
+		r.to = now
+		r.total = 0
+		r.counts = make(map[RejectReason]uint64)
+
+		r.weakCloseUpSum = 0
+		r.weakCloseUpCount = 0
+		r.weakCloseDnSum = 0
+		r.weakCloseDnCount = 0
 	}
 
-	return out
+	return snap
 }
+
 func (s *RejectStats) Touch(now time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -167,26 +167,4 @@ func (s *RejectStats) Touch(now time.Time) {
 	}
 	// даже без Inc() окно будет “течь”
 	s.to = now
-}
-func (s *RejectStats) IncWeakClose(r RejectReason, closePos float64) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	now := time.Now()
-	if s.from.IsZero() {
-		s.from = now
-	}
-	s.to = now
-
-	s.total++
-	s.by[r]++
-
-	switch r {
-	case RejectWeakCloseUp:
-		s.SumCloseUp += closePos
-		s.CntCloseUp++
-	case RejectWeakCloseDown:
-		s.SumCloseDown += closePos
-		s.CntCloseDown++
-	}
 }

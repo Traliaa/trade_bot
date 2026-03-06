@@ -73,7 +73,12 @@ type StrategyConfig struct {
 
 	Symbols []string `yaml:"symbols"`
 
-	TuneMode int `yaml:"tune_mode"`
+	TuneMode            int     `yaml:"tune_mode"`
+	MinRetestDepthPct   float64 `yaml:"min_retest_depth_pct"`
+	MaxBreakoutBodyPct  float64 `yaml:"max_breakout_body_pct"`
+	MaxBreakoutRangePct float64 `yaml:"max_breakout_range_pct"`
+	MinConfirmBodyFrac  float64 `yaml:"min_confirm_body_frac"`
+	MaxConfirmWickFrac  float64 `yaml:"max_confirm_wick_frac"`
 }
 
 type UserDefaultsConfig struct {
@@ -141,6 +146,11 @@ func NewConfig() (*Config, error) {
 	cfg.Strategy.ProgressEvery = 2 * time.Minute
 	cfg.Strategy.WatchTopN = 100
 	cfg.Strategy.TuneMode = 2
+	cfg.Strategy.MinRetestDepthPct = 0.001
+	cfg.Strategy.MaxBreakoutBodyPct = 0.012  // 1.2%
+	cfg.Strategy.MaxBreakoutRangePct = 0.018 // 1.8%
+	cfg.Strategy.MinConfirmBodyFrac = 0.25   // 1.2%
+	cfg.Strategy.MaxConfirmWickFrac = 0.35   // 1.8%
 
 	// User defaults (только стартовые)
 	cfg.UserDefaults.DefaultLeverage = 15

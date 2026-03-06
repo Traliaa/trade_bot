@@ -1,6 +1,7 @@
 package service
 
 import (
+	"math"
 	"strconv"
 	"time"
 	"trade_bot/internal/helper"
@@ -55,7 +56,7 @@ func dominantReason(snap models.RejectSnapshot) (models.RejectReason, float64, u
 	// 1) обычная доминанта среди raw- причин
 	var bestR models.RejectReason
 	var bestC uint64
-	for r, c := range snap.By {
+	for r, c := range snap.Counts {
 		if c > bestC {
 			bestC = c
 			bestR = r
@@ -63,7 +64,7 @@ func dominantReason(snap models.RejectSnapshot) (models.RejectReason, float64, u
 	}
 
 	// 2) aggregated weak_close = up + down
-	weakClose := snap.By[models.RejectWeakCloseUp] + snap.By[models.RejectWeakCloseDown]
+	weakClose := snap.Counts[models.RejectWeakCloseUp] + snap.Counts[models.RejectWeakCloseDown]
 	if weakClose > bestC {
 		bestC = weakClose
 		bestR = models.RejectWeakClose
@@ -146,4 +147,40 @@ func adversePct(side models.Side, level, price float64) float64 {
 }
 func isCooldownActive(until time.Time) bool {
 	return !until.IsZero() && time.Now().Before(until)
+}
+func isBreakoutStretched(bodyPct, rangePct, maxBodyPct, maxRangePct float64) bool {
+	if maxBodyPct > 0 && bodyPct > maxBodyPct {
+		return true
+	}
+	if maxRangePct > 0 && rangePct > maxRangePct {
+		return true
+	}
+	return false
+}
+func isBadConfirmCandle(
+	side models.Side,
+	open, high, low, close float64,
+	minBodyFrac, maxOppWickFrac float64,
+) bool {
+	rng := high - low
+	if rng <= 0 {
+		return true
+	}
+
+	body := math.Abs(close-open) / rng
+	if body < minBodyFrac {
+		return true
+	}
+
+	upperWick := (high - math.Max(open, close)) / rng
+	lowerWick := (math.Min(open, close) - low) / rng
+
+	switch side {
+	case models.SideBuy:
+		return upperWick > maxOppWickFrac
+	case models.SideSell:
+		return lowerWick > maxOppWickFrac
+	default:
+		return true
+	}
 }

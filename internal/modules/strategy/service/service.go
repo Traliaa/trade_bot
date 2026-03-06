@@ -33,8 +33,8 @@ type Service struct {
 	rejects    *models.RejectStats
 	lastTickAt time.Time
 
-	lastSignalAt time.Time
-
+	lastSignalAt    time.Time
+	LastRejectLog   time.Time
 	tuneMu          sync.RWMutex
 	tune            models.RuntimeTuning
 	tuneModeMu      sync.RWMutex
@@ -188,12 +188,12 @@ func (e *Service) SetWarmupDone() {
 func (e *Service) IsWarmupDone() bool { return e.warmupDone.Load() }
 
 func (e *Service) MaybeLogRejects() {
-	if !e.rejects.LastRejectLog.IsZero() && time.Since(e.rejects.LastRejectLog) < time.Minute {
+	if !e.LastRejectLog.IsZero() && time.Since(e.LastRejectLog) < time.Minute {
 		return
 	}
 
 	snap := e.rejects.Snapshot(false)
-	e.rejects.LastRejectLog = time.Now()
+	e.LastRejectLog = time.Now()
 
 	if snap.Total == 0 {
 		return
@@ -240,7 +240,8 @@ func (e *Service) OnCandle(t models.CandleTick) (models.Signal, bool) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	e.lastTickAt = time.Now()
+	now := time.Now()
+	e.lastTickAt = now
 
 	e.tuneMu.RLock()
 	minCh := e.tune.MinChannelPct
@@ -249,6 +250,30 @@ func (e *Service) OnCandle(t models.CandleTick) (models.Signal, bool) {
 	closeUp := e.tune.CloseUpMin
 	closeDn := e.tune.CloseDnMax
 	e.tuneMu.RUnlock()
+
+	minRetestDepth := e.cfg.Strategy.MinRetestDepthPct
+	if minRetestDepth <= 0 {
+		minRetestDepth = 0.001
+	}
+
+	maxBreakBody := e.cfg.Strategy.MaxBreakoutBodyPct
+	if maxBreakBody <= 0 {
+		maxBreakBody = 0.012
+	}
+
+	maxBreakRange := e.cfg.Strategy.MaxBreakoutRangePct
+	if maxBreakRange <= 0 {
+		maxBreakRange = 0.018
+	}
+	minConfirmBodyFrac := e.cfg.Strategy.MinConfirmBodyFrac
+	if minConfirmBodyFrac <= 0 {
+		minConfirmBodyFrac = 0.25
+	}
+
+	maxConfirmWickFrac := e.cfg.Strategy.MaxConfirmWickFrac
+	if maxConfirmWickFrac <= 0 {
+		maxConfirmWickFrac = 0.35
+	}
 
 	tf := helper.NormTF(t.TimeframeRaw)
 	st := e.get(t.InstID)
@@ -302,6 +327,9 @@ func (e *Service) OnCandle(t models.CandleTick) (models.Signal, bool) {
 			chPct   float64
 			bodyPct float64
 		)
+
+		ltfTF := helper.NormTF(e.cfg.Strategy.LTF)
+		ltfDur := tfDuration(ltfTF)
 
 		// ---- канал ДО добавления текущей свечи ----
 		if len(st.Highs) >= e.cfg.Strategy.DonchianPeriod {
@@ -366,28 +394,43 @@ func (e *Service) OnCandle(t models.CandleTick) (models.Signal, bool) {
 			e.MaybeLogRejects()
 			return models.Signal{}, false
 		}
+
 		closePos := (t.Close - t.Low) / rng
+		breakRangePct := rng / t.Close
 
 		// =========================================================
 		// ================= PENDING: RETEST ========================
 		// =========================================================
 		if st.Pending.Active {
-			ltfDur := tfDuration(helper.NormTF(e.cfg.Strategy.LTF))
+			// pending истёк
+			if now.After(st.Pending.ExpireAt) {
+				switch {
+				case !st.Pending.Touched:
+					e.rejects.Inc(models.RejectPendingExpiredNoTouch)
+				case st.Pending.Touched && !st.Pending.DeepRetestSeen:
+					e.rejects.Inc(models.RejectPendingShallowRetest)
+				case st.Pending.DeepRetestSeen && !st.Pending.Confirmed:
+					e.rejects.Inc(models.RejectPendingExpiredNoConfirm)
+				}
 
-			// истёк
-			if time.Now().After(st.Pending.ExpireAt) {
-				st.Pending.Active = false
-				st.CooldownUntil = time.Now().Add(pendingCooldownBars * ltfDur)
+				st.Pending = models.PendingEntry{}
+				st.CooldownUntil = now.Add(pendingCooldownBars * ltfDur)
+
 				e.updateBuffer(st, t)
+				e.MaybeLogRejects()
 				return models.Signal{}, false
 			}
 
 			// adverse move: ушли слишком далеко против
 			adv := adversePct(st.Pending.Side, st.Pending.Level, t.Close)
 			if adv >= pendingMaxAdversePct {
-				st.Pending.Active = false
-				st.CooldownUntil = time.Now().Add(pendingCooldownBars * ltfDur)
+				e.rejects.Inc(models.RejectPendingAdverseMove)
+
+				st.Pending = models.PendingEntry{}
+				st.CooldownUntil = now.Add(pendingCooldownBars * ltfDur)
+
 				e.updateBuffer(st, t)
+				e.MaybeLogRejects()
 				return models.Signal{}, false
 			}
 
@@ -406,52 +449,96 @@ func (e *Service) OnCandle(t models.CandleTick) (models.Signal, bool) {
 				touched = t.High >= level
 			}
 
-			confirmed := false
-			if st.Pending.Side == models.SideBuy {
-				confirmed = touched && t.Close > level
-			} else {
-				confirmed = touched && t.Close < level
+			if touched {
+				st.Pending.Touched = true
 			}
 
-			// strong close уже на подтверждающей свече
+			if !touched {
+				e.updateBuffer(st, t)
+				return models.Signal{}, false
+			}
+
+			// ---- глубина ретеста ----
+			var retestDepthPct float64
+			if st.Pending.Side == models.SideBuy {
+				retestDepthPct = (level - t.Low) / level
+			} else {
+				retestDepthPct = (t.High - level) / level
+			}
+
+			if retestDepthPct >= minRetestDepth {
+				st.Pending.DeepRetestSeen = true
+			}
+
+			if !st.Pending.DeepRetestSeen {
+				e.updateBuffer(st, t)
+				return models.Signal{}, false
+			}
+
+			confirmed := false
+			if st.Pending.Side == models.SideBuy {
+				confirmed = t.Close > level
+			} else {
+				confirmed = t.Close < level
+			}
+
 			if confirmed {
-				if st.Pending.Side == models.SideBuy && closePos < closeUp {
-					e.rejects.IncWeakClose(models.RejectWeakCloseUp, closePos)
-					confirmed = false
-				}
-				if st.Pending.Side == models.SideSell && closePos > closeDn {
-					e.rejects.IncWeakClose(models.RejectWeakCloseDown, closePos)
-					confirmed = false
-				}
+				st.Pending.Confirmed = true
 			}
 
 			if !confirmed {
 				e.updateBuffer(st, t)
 				return models.Signal{}, false
+			} // ---- форма confirm-свечи ----
+			if isBadConfirmCandle(
+				st.Pending.Side,
+				t.Open, t.High, t.Low, t.Close,
+				minConfirmBodyFrac,
+				maxConfirmWickFrac,
+			) {
+				e.rejects.Inc(models.RejectPendingBadConfirmCandle)
+				e.updateBuffer(st, t)
+				e.MaybeLogRejects()
+				return models.Signal{}, false
+			}
+
+			// ---- strong close уже на подтверждающей свече ----
+			if st.Pending.Side == models.SideBuy && closePos < closeUp {
+				e.rejects.IncWeakClose(models.RejectWeakCloseUp, closePos)
+				e.updateBuffer(st, t)
+				e.MaybeLogRejects()
+				return models.Signal{}, false
+			}
+
+			if st.Pending.Side == models.SideSell && closePos > closeDn {
+				e.rejects.IncWeakClose(models.RejectWeakCloseDown, closePos)
+				e.updateBuffer(st, t)
+				e.MaybeLogRejects()
+				return models.Signal{}, false
 			}
 
 			// ✅ реальный сигнал
 			side := st.Pending.Side
-			st.Pending.Active = false
+			st.Pending = models.PendingEntry{}
 			st.CooldownUntil = time.Time{}
 			st.LastSignalEnd = t.End
 
 			sig := models.Signal{
 				InstID:    t.InstID,
-				TF:        helper.NormTF(e.cfg.Strategy.LTF),
+				TF:        ltfTF,
 				Side:      side,
 				Price:     t.Close,
 				Strategy:  "donchian_v2_htf_retest",
-				CreatedAt: time.Now(),
+				CreatedAt: now,
 			}
 
 			e.updateBuffer(st, t)
-			e.MaybeLogRejects()
 
 			e.tuneMu.Lock()
-			e.lastSignalAt = time.Now()
+			e.lastSignalAt = now
 			e.tuneMu.Unlock()
 
+			e.MaybeLogRejects()
 			return sig, true
 		}
 
@@ -471,41 +558,53 @@ func (e *Service) OnCandle(t models.CandleTick) (models.Signal, bool) {
 
 		// cooldown после отменённого pending
 		if isCooldownActive(st.CooldownUntil) {
+			e.rejects.Inc(models.RejectPendingCooldown)
 			e.updateBuffer(st, t)
+			e.MaybeLogRejects()
 			return models.Signal{}, false
 		}
-
-		// анти-повтор: если уже ждём pending — не перетираем
-		if st.Pending.Active {
-			e.updateBuffer(st, t)
-			return models.Signal{}, false
-		}
-
-		ltfDur := tfDuration(helper.NormTF(e.cfg.Strategy.LTF))
 
 		if st.Trend == models.TrendUp && brokeUpByBody && upBoPct >= bo {
+			if isBreakoutStretched(bodyPct, breakRangePct, maxBreakBody, maxBreakRange) {
+				e.rejects.Inc(models.RejectBreakoutTooLong)
+				e.updateBuffer(st, t)
+				e.MaybeLogRejects()
+				return models.Signal{}, false
+			}
+
 			st.Pending = models.PendingEntry{
 				Active:         true,
 				Side:           models.SideBuy,
 				Level:          dh,
-				Created:        time.Now(),
-				ExpireAt:       time.Now().Add(3 * ltfDur),
+				Created:        now,
+				ExpireAt:       now.Add(3 * ltfDur),
 				BreakCandleEnd: t.End,
 				BreakClosePos:  closePos,
+				BreakBodyPct:   bodyPct,
+				BreakRangePct:  breakRangePct,
 			}
 			e.updateBuffer(st, t)
 			return models.Signal{}, false
 		}
 
 		if st.Trend == models.TrendDown && brokeDnByBody && dnBoPct >= bo {
+			if isBreakoutStretched(bodyPct, breakRangePct, maxBreakBody, maxBreakRange) {
+				e.rejects.Inc(models.RejectBreakoutTooLong)
+				e.updateBuffer(st, t)
+				e.MaybeLogRejects()
+				return models.Signal{}, false
+			}
+
 			st.Pending = models.PendingEntry{
 				Active:         true,
 				Side:           models.SideSell,
 				Level:          dl,
-				Created:        time.Now(),
-				ExpireAt:       time.Now().Add(3 * ltfDur),
+				Created:        now,
+				ExpireAt:       now.Add(3 * ltfDur),
 				BreakCandleEnd: t.End,
 				BreakClosePos:  closePos,
+				BreakBodyPct:   bodyPct,
+				BreakRangePct:  breakRangePct,
 			}
 			e.updateBuffer(st, t)
 			return models.Signal{}, false
