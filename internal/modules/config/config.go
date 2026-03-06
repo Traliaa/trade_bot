@@ -144,7 +144,7 @@ func NewConfig() (*Config, error) {
 	cfg.Strategy.MinWarmupHTF = 200
 	cfg.Strategy.ExpectedSymbols = 100
 	cfg.Strategy.ProgressEvery = 2 * time.Minute
-	cfg.Strategy.WatchTopN = 100
+	cfg.Strategy.WatchTopN = 200
 	cfg.Strategy.TuneMode = 2
 	cfg.Strategy.MinRetestDepthPct = 0.001
 	cfg.Strategy.MaxBreakoutBodyPct = 0.012  // 1.2%
