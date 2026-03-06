@@ -54,8 +54,8 @@ func NewService(cfg *config.Config, out chan<- models.Signal, candleOut chan<- m
 			MinChannelPct: cfg.Strategy.MinChannelPct,
 			MinBodyPct:    cfg.Strategy.MinBodyPct,
 			BreakoutPct:   cfg.Strategy.BreakoutPct,
-			CloseUpMin:    0.70,
-			CloseDnMax:    0.30,
+			CloseUpMin:    0.80,
+			CloseDnMax:    0.20,
 		},
 		tuneMode: models.TuneMode(cfg.Strategy.TuneMode),
 	}
@@ -150,7 +150,7 @@ func (e *Service) OnTick(ctx context.Context, t models.CandleTick) {
 	}
 
 	// 2) стратегия
-	sig, ok, _ := e.OnCandle(t)
+	sig, ok := e.OnCandle(t)
 
 	// 3) блок сигналов пока warmup не done
 	if !ok || !e.warmupDone.Load() || e.out == nil {
@@ -236,10 +236,12 @@ func (e *Service) get(sym string) *models.V2State {
 //
 //	sig, ok=true  -> есть сигнал
 //	becameReady=true -> по этому символу стратегия впервые "прогрелась" (LTF/HTF)
-func (e *Service) OnCandle(t models.CandleTick) (models.Signal, bool, bool) {
+func (e *Service) OnCandle(t models.CandleTick) (models.Signal, bool) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+
 	e.lastTickAt = time.Now()
+
 	e.tuneMu.RLock()
 	minCh := e.tune.MinChannelPct
 	minBody := e.tune.MinBodyPct
@@ -251,13 +253,11 @@ func (e *Service) OnCandle(t models.CandleTick) (models.Signal, bool, bool) {
 	tf := helper.NormTF(t.TimeframeRaw)
 	st := e.get(t.InstID)
 
-	becameReady := false
-
 	// ---- защита от мусора ----
 	if t.Close <= 0 || t.High <= 0 || t.Low <= 0 {
 		e.rejects.Inc(models.RejectInvalidPrice)
 		e.MaybeLogRejects()
-		return models.Signal{}, false, false
+		return models.Signal{}, false
 	}
 
 	switch tf {
@@ -266,7 +266,6 @@ func (e *Service) OnCandle(t models.CandleTick) (models.Signal, bool, bool) {
 	// ===================== HTF ===============================
 	// =========================================================
 	case helper.NormTF(e.cfg.Strategy.HTF):
-
 		st.EmaFast.Update(t.Close)
 		st.EmaSlow.Update(t.Close)
 		st.WHTF++
@@ -276,23 +275,22 @@ func (e *Service) OnCandle(t models.CandleTick) (models.Signal, bool, bool) {
 
 			if !st.ReadyHTF {
 				st.ReadyHTF = true
-				becameReady = true
 			}
 
 			f := st.EmaFast.Value()
-			s := st.EmaSlow.Value()
+			sv := st.EmaSlow.Value()
 
 			switch {
-			case f > s:
+			case f > sv:
 				st.Trend = models.TrendUp
-			case f < s:
+			case f < sv:
 				st.Trend = models.TrendDown
 			default:
 				st.Trend = models.TrendNone
 			}
 		}
 
-		return models.Signal{}, false, becameReady
+		return models.Signal{}, false
 
 	// =========================================================
 	// ===================== LTF ===============================
@@ -319,30 +317,27 @@ func (e *Service) OnCandle(t models.CandleTick) (models.Signal, bool, bool) {
 		if st.WLTF >= e.cfg.Strategy.MinWarmupLTF &&
 			len(st.Highs) >= e.cfg.Strategy.DonchianPeriod &&
 			!st.ReadyLTF {
-
 			st.ReadyLTF = true
-			becameReady = true
 		}
 
-		// === БАЗОВЫЕ ПРОВЕРКИ ===
+		// === базовые проверки ===
 		if !haveCh {
-
 			e.updateBuffer(st, t)
-			return models.Signal{}, false, becameReady
+			return models.Signal{}, false
 		}
 
 		if !st.ReadyLTF || !st.ReadyHTF {
 			e.rejects.Inc(models.RejectNotReady)
 			e.updateBuffer(st, t)
 			e.MaybeLogRejects()
-			return models.Signal{}, false, becameReady
+			return models.Signal{}, false
 		}
 
 		if st.Trend == models.TrendNone {
 			e.rejects.Inc(models.RejectNoTrend)
 			e.updateBuffer(st, t)
 			e.MaybeLogRejects()
-			return models.Signal{}, false, becameReady
+			return models.Signal{}, false
 		}
 
 		// ---- ширина канала ----
@@ -351,7 +346,7 @@ func (e *Service) OnCandle(t models.CandleTick) (models.Signal, bool, bool) {
 			e.rejects.Inc(models.RejectSmallChannel)
 			e.updateBuffer(st, t)
 			e.MaybeLogRejects()
-			return models.Signal{}, false, becameReady
+			return models.Signal{}, false
 		}
 
 		// ---- тело свечи ----
@@ -360,10 +355,109 @@ func (e *Service) OnCandle(t models.CandleTick) (models.Signal, bool, bool) {
 			e.rejects.Inc(models.RejectSmallBody)
 			e.updateBuffer(st, t)
 			e.MaybeLogRejects()
-			return models.Signal{}, false, becameReady
+			return models.Signal{}, false
 		}
 
-		// ---- breakout ----
+		// ---- диапазон / позиция закрытия ----
+		rng := t.High - t.Low
+		if rng <= 0 {
+			e.rejects.Inc(models.RejectZeroRange)
+			e.updateBuffer(st, t)
+			e.MaybeLogRejects()
+			return models.Signal{}, false
+		}
+		closePos := (t.Close - t.Low) / rng
+
+		// =========================================================
+		// ================= PENDING: RETEST ========================
+		// =========================================================
+		if st.Pending.Active {
+			ltfDur := tfDuration(helper.NormTF(e.cfg.Strategy.LTF))
+
+			// истёк
+			if time.Now().After(st.Pending.ExpireAt) {
+				st.Pending.Active = false
+				st.CooldownUntil = time.Now().Add(pendingCooldownBars * ltfDur)
+				e.updateBuffer(st, t)
+				return models.Signal{}, false
+			}
+
+			// adverse move: ушли слишком далеко против
+			adv := adversePct(st.Pending.Side, st.Pending.Level, t.Close)
+			if adv >= pendingMaxAdversePct {
+				st.Pending.Active = false
+				st.CooldownUntil = time.Now().Add(pendingCooldownBars * ltfDur)
+				e.updateBuffer(st, t)
+				return models.Signal{}, false
+			}
+
+			// на той же свече пробоя не подтверждаем
+			if !st.Pending.BreakCandleEnd.IsZero() && t.End.Equal(st.Pending.BreakCandleEnd) {
+				e.updateBuffer(st, t)
+				return models.Signal{}, false
+			}
+
+			level := st.Pending.Level
+
+			touched := false
+			if st.Pending.Side == models.SideBuy {
+				touched = t.Low <= level
+			} else {
+				touched = t.High >= level
+			}
+
+			confirmed := false
+			if st.Pending.Side == models.SideBuy {
+				confirmed = touched && t.Close > level
+			} else {
+				confirmed = touched && t.Close < level
+			}
+
+			// strong close уже на подтверждающей свече
+			if confirmed {
+				if st.Pending.Side == models.SideBuy && closePos < closeUp {
+					e.rejects.IncWeakClose(models.RejectWeakCloseUp, closePos)
+					confirmed = false
+				}
+				if st.Pending.Side == models.SideSell && closePos > closeDn {
+					e.rejects.IncWeakClose(models.RejectWeakCloseDown, closePos)
+					confirmed = false
+				}
+			}
+
+			if !confirmed {
+				e.updateBuffer(st, t)
+				return models.Signal{}, false
+			}
+
+			// ✅ реальный сигнал
+			side := st.Pending.Side
+			st.Pending.Active = false
+			st.CooldownUntil = time.Time{}
+			st.LastSignalEnd = t.End
+
+			sig := models.Signal{
+				InstID:    t.InstID,
+				TF:        helper.NormTF(e.cfg.Strategy.LTF),
+				Side:      side,
+				Price:     t.Close,
+				Strategy:  "donchian_v2_htf_retest",
+				CreatedAt: time.Now(),
+			}
+
+			e.updateBuffer(st, t)
+			e.MaybeLogRejects()
+
+			e.tuneMu.Lock()
+			e.lastSignalAt = time.Now()
+			e.tuneMu.Unlock()
+
+			return sig, true
+		}
+
+		// =========================================================
+		// ================= BREAKOUT -> PENDING ===================
+		// =========================================================
 
 		if bo <= 0 {
 			bo = 0.002
@@ -375,73 +469,68 @@ func (e *Service) OnCandle(t models.CandleTick) (models.Signal, bool, bool) {
 		brokeUpByBody := t.Open <= dh && t.Close > dh
 		brokeDnByBody := t.Open >= dl && t.Close < dl
 
-		rng := t.High - t.Low
-		if rng <= 0 {
-			e.rejects.Inc(models.RejectZeroRange)
+		// cooldown после отменённого pending
+		if isCooldownActive(st.CooldownUntil) {
 			e.updateBuffer(st, t)
-			e.MaybeLogRejects()
-			return models.Signal{}, false, becameReady
+			return models.Signal{}, false
 		}
 
-		closePos := (t.Close - t.Low) / rng
-
-		if st.Trend == models.TrendUp && closePos < closeUp {
-			e.rejects.IncWeakClose(models.RejectWeakCloseUp, closePos)
+		// анти-повтор: если уже ждём pending — не перетираем
+		if st.Pending.Active {
 			e.updateBuffer(st, t)
-			e.MaybeLogRejects()
-			return models.Signal{}, false, becameReady
+			return models.Signal{}, false
 		}
 
-		if st.Trend == models.TrendDown && closePos > closeDn {
-			e.rejects.IncWeakClose(models.RejectWeakCloseDown, closePos)
-			e.updateBuffer(st, t)
-			e.MaybeLogRejects()
-			return models.Signal{}, false, becameReady
-		}
-		var side models.Side
+		ltfDur := tfDuration(helper.NormTF(e.cfg.Strategy.LTF))
 
 		if st.Trend == models.TrendUp && brokeUpByBody && upBoPct >= bo {
-			side = models.SideBuy
-		} else if st.Trend == models.TrendDown && brokeDnByBody && dnBoPct >= bo {
-			side = models.SideSell
-		} else {
-			e.rejects.Inc(models.RejectNoBreakout)
+			st.Pending = models.PendingEntry{
+				Active:         true,
+				Side:           models.SideBuy,
+				Level:          dh,
+				Created:        time.Now(),
+				ExpireAt:       time.Now().Add(3 * ltfDur),
+				BreakCandleEnd: t.End,
+				BreakClosePos:  closePos,
+			}
 			e.updateBuffer(st, t)
-			e.MaybeLogRejects()
-			return models.Signal{}, false, becameReady
+			return models.Signal{}, false
 		}
 
-		// ---- СИГНАЛ ----
-		st.LastSignalEnd = t.End
-
-		sig := models.Signal{
-			InstID:    t.InstID,
-			TF:        helper.NormTF(e.cfg.Strategy.LTF),
-			Side:      side,
-			Price:     t.Close,
-			Strategy:  "donchian_v2_htf",
-			CreatedAt: time.Now(),
+		if st.Trend == models.TrendDown && brokeDnByBody && dnBoPct >= bo {
+			st.Pending = models.PendingEntry{
+				Active:         true,
+				Side:           models.SideSell,
+				Level:          dl,
+				Created:        time.Now(),
+				ExpireAt:       time.Now().Add(3 * ltfDur),
+				BreakCandleEnd: t.End,
+				BreakClosePos:  closePos,
+			}
+			e.updateBuffer(st, t)
+			return models.Signal{}, false
 		}
 
+		// breakout не состоялся
+		e.rejects.Inc(models.RejectNoBreakout)
 		e.updateBuffer(st, t)
-
 		e.MaybeLogRejects()
-
-		return sig, true, becameReady
+		return models.Signal{}, false
 
 	default:
 		e.rejects.Inc(models.RejectInternal)
-		e.Logger.Warn("unknown timeframe",
-			zap.String("raw", t.TimeframeRaw),
-			zap.String("norm", tf),
-			zap.String("instId", t.InstID),
-			zap.String("want_ltf", helper.NormTF(e.cfg.Strategy.LTF)),
-			zap.String("want_htf", helper.NormTF(e.cfg.Strategy.HTF)),
-		)
-		return models.Signal{}, false, false
+		if e.Logger != nil {
+			e.Logger.Warn("unknown timeframe",
+				zap.String("raw", t.TimeframeRaw),
+				zap.String("norm", tf),
+				zap.String("instId", t.InstID),
+				zap.String("want_ltf", helper.NormTF(e.cfg.Strategy.LTF)),
+				zap.String("want_htf", helper.NormTF(e.cfg.Strategy.HTF)),
+			)
+		}
+		return models.Signal{}, false
 	}
 }
-
 func (e *Service) updateBuffer(st *models.V2State, t models.CandleTick) {
 	st.Highs = append(st.Highs, t.High)
 	st.Lows = append(st.Lows, t.Low)

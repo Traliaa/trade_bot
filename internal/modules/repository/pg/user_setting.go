@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 	"trade_bot/internal/models"
 	"trade_bot/internal/modules/config"
 	"trade_bot/internal/modules/repository/pg/user_settings"
@@ -70,9 +71,11 @@ func (u *User) Get(
 	ctx context.Context,
 	userID int64,
 ) (user *models.UserSettings, err error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	defer func() {
 		if err != nil {
-			err = fmt.Errorf("pg.CreateEvent: %w", err)
+			err = fmt.Errorf("pg.Get: %w", err)
 		}
 	}()
 
@@ -89,6 +92,7 @@ func (u *User) Get(
 }
 
 func (u *User) GetUser(ctx context.Context, chatID int64, cfg *config.Config) (*models.UserSettings, error) {
+
 	user, err := u.Get(ctx, chatID)
 	if err != nil {
 		// not found в PG

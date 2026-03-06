@@ -2,22 +2,16 @@ package service
 
 import (
 	"context"
+	"trade_bot/internal/models"
 	"trade_bot/internal/modules/runner/sessions"
 )
 
-func (r *Service) GetSession(ctx context.Context, userID int64) (*sessions.UserSession, error) {
+func (r *Service) GetSession(userID int64) (*sessions.UserSession, bool) {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
 	s, ok := r.users[userID]
-	if !ok {
-		u, err := r.Repository.GetUser(ctx, userID, r.config)
-		if err != nil {
-			return nil, err
-		}
-		r.EnableUser(ctx, u)
-
-		return r.GetSession(ctx, userID)
-	}
-
-	return s, nil
+	r.mu.RUnlock()
+	return s, ok
+}
+func (r *Service) GetUser(ctx context.Context, userID int64) (*models.UserSettings, error) {
+	return r.Repository.GetUser(ctx, userID, r.config)
 }

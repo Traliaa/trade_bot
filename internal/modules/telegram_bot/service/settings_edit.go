@@ -54,12 +54,11 @@ func (t *Telegram) askValue(ctx context.Context, chatID int64, key string) {
 }
 
 func (t *Telegram) handleAwaitValue(ctx context.Context, chatID int64, text, key string) {
-	user, err := t.router.GetSession(ctx, chatID)
-	if err != nil {
-		_, _ = t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
+	session, ok := t.router.GetSession(chatID)
+	if !ok {
+		t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
 		return
 	}
-
 	text = strings.TrimSpace(text)
 	if strings.EqualFold(text, "отмена") {
 		t.clearAwait(chatID)
@@ -68,8 +67,8 @@ func (t *Telegram) handleAwaitValue(ctx context.Context, chatID int64, text, key
 	}
 	text = strings.ReplaceAll(text, ",", ".")
 
-	ts := &user.User.Settings.TradingSettings
-	tr := &user.User.Settings.TrailingConfig
+	ts := &session.User.Settings.TradingSettings
+	tr := &session.User.Settings.TrailingConfig
 
 	switch key {
 	// -------- TradingSettings --------
@@ -196,7 +195,7 @@ func (t *Telegram) handleAwaitValue(ctx context.Context, chatID int64, text, key
 	if ts.ConfirmTimeout <= 0 {
 		ts.ConfirmTimeout = 30 * time.Second
 	}
-	t.router.ApplySettings(ctx, user.User) // ✅ горячее применение
+	t.router.ApplySettings(ctx, session.User) // ✅ горячее применение
 	t.handleSettingsMenu(ctx, chatID)
 
 	// ✅ успех — чистим await
@@ -224,9 +223,9 @@ func isTrailingKey(key string) bool {
 
 // применить пресет
 func (t *Telegram) applyPreset(ctx context.Context, chatID int64, key string) {
-	session, err := t.router.GetSession(ctx, chatID)
-	if err != nil {
-		_, _ = t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
+	session, ok := t.router.GetSession(chatID)
+	if !ok {
+		t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
 		return
 	}
 

@@ -76,15 +76,15 @@ func (t *Telegram) handleCallback(ctx context.Context, chatID int64, cb *tgbotap
 			return
 		}
 
-		user, err := t.router.GetSession(ctx, chatID)
-		if err != nil {
-			_, _ = t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
+		session, ok := t.router.GetSession(chatID)
+		if !ok {
+			t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
 			return
 		}
 
-		preset.Apply(&user.User.Settings.TrailingConfig)
+		preset.Apply(&session.User.Settings.TrailingConfig)
 
-		t.router.ApplySettings(ctx, user.User) // ✅ горячее применение
+		t.router.ApplySettings(ctx, session.User) // ✅ горячее применение
 		t.handleSettingsMenu(ctx, chatID)
 
 		_, _ = t.Send(ctx, chatID,

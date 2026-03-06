@@ -28,3 +28,15 @@ const (
 	SideBuy  Side = "BUY"
 	SideSell Side = "SELL"
 )
+
+type PendingEntry struct {
+	Active   bool
+	Side     Side
+	Level    float64 // уровень пробоя (dh для buy, dl для sell)
+	Created  time.Time
+	ExpireAt time.Time
+
+	// доп. инфа для дебага/фильтров
+	BreakCandleEnd time.Time
+	BreakClosePos  float64 // closePos пробойной свечи (не обязательно)
+}

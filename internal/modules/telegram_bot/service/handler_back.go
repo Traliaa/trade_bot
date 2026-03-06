@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 	"math"
-
 	"strings"
 	"trade_bot/internal/models"
 	"trade_bot/pkg/logger"
@@ -55,9 +54,9 @@ func (t *Telegram) handleUpdate(ctx context.Context, update tgbotapi.Update) {
 	// 3) Остальное (inline mode и т.п.) пока игнорируем
 }
 func (t *Telegram) handleStart(ctx context.Context, chatID int64) error {
-	_, err := t.router.GetSession(ctx, chatID)
-	if err != nil {
-		_, err = t.Send(ctx, chatID, "Настройки не найдены, попробуй ещё раз /start")
+	_, ok := t.router.GetSession(chatID)
+	if !ok {
+		_, err := t.Send(ctx, chatID, "Настройки не найдены, попробуй ещё раз /start")
 		return err
 	}
 
@@ -83,19 +82,18 @@ func (t *Telegram) handleStart(ctx context.Context, chatID int64) error {
 	msg.ParseMode = "Markdown"
 	msg.ReplyMarkup = replyKb
 
-	_, err = t.SendMessage(ctx, msg)
+	_, err := t.SendMessage(ctx, msg)
 	return err
 }
-func (t *Telegram) handleTextMessage(ctx context.Context, msg *tgbotapi.Message) {
+func (t *Telegram) handleTextMessage(_ context.Context, msg *tgbotapi.Message) {
+	ctx := context.Background()
 	chatID := msg.Chat.ID
 	text := strings.TrimSpace(msg.Text)
 
-	// 0) если ждём ввод значения
-
+	// 0) Если ждём ввод значения.
 	if key, ok := t.peekAwait(chatID); ok {
-		if strings.EqualFold(strings.TrimSpace(text), "отмена") {
+		if strings.EqualFold(text, "отмена") {
 			t.clearAwait(chatID)
-			// куда вернуть — зависит от key (см. ниже)
 			t.handleSettingsMenu(ctx, chatID)
 			return
 		}
@@ -104,14 +102,14 @@ func (t *Telegram) handleTextMessage(ctx context.Context, msg *tgbotapi.Message)
 		return
 	}
 
-	// 1) Ключи OKX
+	// 1) Ключи OKX.
 	if strings.HasPrefix(strings.ToUpper(text), "OKX:") {
 		t.handleOkxKeys(ctx, msg)
 		return
 	}
 
-	// 2) Гарантируем, что юзер есть
-	session, err := t.router.GetSession(ctx, chatID)
+	// 2) Получаем пользователя из БД, а не runtime session.
+	user, err := t.router.GetUser(ctx, chatID)
 	if err != nil {
 		_, _ = t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
 		return
@@ -119,21 +117,34 @@ func (t *Telegram) handleTextMessage(ctx context.Context, msg *tgbotapi.Message)
 
 	switch text {
 	case "▶️ Запустить бота":
-		go func() {
-			runCtx := context.Background()
+		user.Status = true
 
-			session.User.Status = true
-			t.router.ApplySettings(ctx, session.User) // ✅ горячее применение
-			t.handleSettingsMenu(ctx, chatID)
+		// Если ApplySettings сохраняет и/или применяет настройки.
+		t.router.ApplySettings(ctx, user)
 
-			t.router.EnableUser(ctx, session.User)
-			_, _ = t.Send(runCtx, chatID, "✅ Бот запущен для этого аккаунта.")
-		}()
+		_, started := t.router.EnableUser(ctx, user)
+		if started {
+			_, _ = t.Send(ctx, chatID, "✅ Бот запущен для этого аккаунта.")
+		} else {
+			_, _ = t.Send(ctx, chatID, "ℹ️ Бот уже запущен.")
+		}
+
+		t.handleSettingsMenu(ctx, chatID)
 		return
 
 	case "⏹ Остановить бота":
-		t.router.DisableUser(ctx, chatID)
-		_, _ = t.Send(ctx, chatID, "🛑 Бот остановлен для этого аккаунта.")
+		user.Status = false
+
+		t.router.ApplySettings(ctx, user)
+
+		stopped := t.router.DisableUser(ctx, chatID)
+		if stopped {
+			_, _ = t.Send(ctx, chatID, "🛑 Бот остановлен для этого аккаунта.")
+		} else {
+			_, _ = t.Send(ctx, chatID, "ℹ️ Бот уже остановлен.")
+		}
+
+		//t.handleSettingsMenu(ctx, chatID)
 		return
 
 	case "⚙️ Настройки":
@@ -141,10 +152,23 @@ func (t *Telegram) handleTextMessage(ctx context.Context, msg *tgbotapi.Message)
 		return
 
 	case "📊 Статус":
-		go t.handleStatus(ctx, session.User)
+		sess, ok := t.router.GetSession(chatID)
+		if !ok {
+			_, _ = t.Send(ctx, chatID, "⏸ Бот сейчас остановлен.")
+			return
+		}
+
+		go t.handleStatus(ctx, sess.User)
 		return
 	case "🧪 Тестовая сделка (BTC x1)":
-		t.handleTestTradeMenu(ctx, chatID, session.User) // или без session, как удобнее
+		// Если тестовая сделка должна работать только при активном runtime.
+		sess, ok := t.router.GetSession(chatID)
+		if !ok {
+			_, _ = t.Send(ctx, chatID, "⏸ Сначала запусти бота.")
+			return
+		}
+
+		t.handleTestTradeMenu(ctx, chatID, sess.User)
 		return
 
 	case "❓ Помощь":
@@ -170,8 +194,8 @@ func (t *Telegram) handleOkxKeys(ctx context.Context, msg *tgbotapi.Message) {
 		parts[i] = strings.TrimSpace(parts[i])
 	}
 
-	session, err := t.router.GetSession(ctx, chatID)
-	if err != nil {
+	session, ok := t.router.GetSession(chatID)
+	if !ok {
 		t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
 		return
 	}

@@ -2,6 +2,8 @@ package service
 
 import (
 	"strconv"
+	"time"
+	"trade_bot/internal/helper"
 	"trade_bot/internal/models"
 )
 
@@ -80,4 +82,68 @@ func tuneReasonLabel(r models.RejectReason) string {
 		return "weak_close (up+down)"
 	}
 	return string(r)
+}
+func emaUpdate(prev, x float64, alpha float64) float64 {
+	if prev == 0 {
+		return x
+	}
+	return prev + alpha*(x-prev)
+}
+
+func clampFloat(x, lo, hi float64) float64 {
+	if x < lo {
+		return lo
+	}
+	if x > hi {
+		return hi
+	}
+	return x
+}
+func tfDuration(tf string) time.Duration {
+	switch helper.NormTF(tf) {
+	case "1m":
+		return time.Minute
+	case "3m":
+		return 3 * time.Minute
+	case "5m":
+		return 5 * time.Minute
+	case "15m":
+		return 15 * time.Minute
+	case "30m":
+		return 30 * time.Minute
+	case "1h":
+		return time.Hour
+	case "2h":
+		return 2 * time.Hour
+	case "4h":
+		return 4 * time.Hour
+	default:
+		// безопасный дефолт, чтобы pending не умирал мгновенно
+		return 15 * time.Minute
+	}
+}
+
+const pendingMaxAdversePct = 0.004
+const pendingCooldownBars = 2
+
+func adversePct(side models.Side, level, price float64) float64 {
+	if level <= 0 || price <= 0 {
+		return 0
+	}
+	// adverse = движение ПРОТИВ нас
+	if side == models.SideBuy {
+		// для buy плохо, когда цена ниже level
+		if price >= level {
+			return 0
+		}
+		return (level - price) / level
+	}
+	// sell: плохо, когда цена выше level
+	if price <= level {
+		return 0
+	}
+	return (price - level) / level
+}
+func isCooldownActive(until time.Time) bool {
+	return !until.IsZero() && time.Now().Before(until)
 }

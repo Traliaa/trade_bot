@@ -30,16 +30,17 @@ type Telegram struct {
 }
 
 type Router interface {
-	DisableUser(ctx context.Context, userID int64)
-	EnableUser(ctx context.Context, user *models.UserSettings)
+	DisableUser(ctx context.Context, userID int64) bool
+	EnableUser(ctx context.Context, user *models.UserSettings) (*sessions.UserSession, bool)
 	ApplySettings(ctx context.Context, user *models.UserSettings)
 	StatusForUser(ctx context.Context, userID int64) ([]models.OpenPosition, error)
-	GetSession(ctx context.Context, userID int64) (*sessions.UserSession, error)
+	GetSession(userID int64) (*sessions.UserSession, bool)
 	AutoTuneNow(ctx context.Context) (models.TuneDecision, models.RuntimeTuning, time.Time, time.Time, bool, models.TuneMode)
 	ToggleTuneMode(ctx context.Context) models.TuneMode
 	TuneMode(ctx context.Context) models.TuneMode
 	StrategyRejects(reset bool) models.RejectSnapshot
 	StrategyTuning() (models.RuntimeTuning, time.Time, time.Time)
+	GetUser(ctx context.Context, userID int64) (*models.UserSettings, error)
 }
 
 func (t *Telegram) SetRouter(r Router) {

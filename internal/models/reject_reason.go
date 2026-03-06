@@ -9,19 +9,20 @@ import (
 type RejectReason string
 
 const (
-	RejectInvalidPrice  RejectReason = "invalid_price"
-	RejectNoChannel     RejectReason = "no_channel"
-	RejectNotReady      RejectReason = "not_ready"
-	RejectNoTrend       RejectReason = "no_trend"
-	RejectSmallChannel  RejectReason = "small_channel"
-	RejectSmallBody     RejectReason = "small_body"
-	RejectWeakCloseUp   RejectReason = "weak_close_up"
-	RejectWeakCloseDown RejectReason = "weak_close_down"
-	RejectNoBreakout    RejectReason = "no_breakout"
-	RejectZeroRange     RejectReason = "zero_range"
-	RejectCooldown      RejectReason = "cooldown"
-	RejectInternal      RejectReason = "internal"
-	RejectWeakClose     RejectReason = "weak_close" // weak_close_up + weak_close_down (aggregated)
+	RejectInvalidPrice   RejectReason = "invalid_price"
+	RejectNoChannel      RejectReason = "no_channel"
+	RejectNotReady       RejectReason = "not_ready"
+	RejectNoTrend        RejectReason = "no_trend"
+	RejectSmallChannel   RejectReason = "small_channel"
+	RejectSmallBody      RejectReason = "small_body"
+	RejectWeakCloseUp    RejectReason = "weak_close_up"
+	RejectWeakCloseDown  RejectReason = "weak_close_down"
+	RejectNoBreakout     RejectReason = "no_breakout"
+	RejectZeroRange      RejectReason = "zero_range"
+	RejectCooldown       RejectReason = "cooldown"
+	RejectInternal       RejectReason = "internal"
+	RejectWeakClose      RejectReason = "weak_close" // weak_close_up + weak_close_down (aggregated)
+	RejectPendingExpired RejectReason = "pending_expired"
 )
 
 type RejectTopItem struct {

@@ -14,11 +14,11 @@ import (
 )
 
 type TradeRouter interface {
-	DisableUser(ctx context.Context, userID int64)
-	EnableUser(ctx context.Context, user *models.UserSettings)
+	DisableUser(ctx context.Context, userID int64) bool
+	EnableUser(context.Context, *models.UserSettings) (*sessions.UserSession, bool)
 	ApplySettings(ctx context.Context, user *models.UserSettings)
 	StatusForUser(ctx context.Context, userID int64) ([]models.OpenPosition, error)
-	GetSession(ctx context.Context, userID int64) (*sessions.UserSession, error)
+	GetSession(int64) (*sessions.UserSession, bool)
 	AutoTuneNow(ctx context.Context) (models.TuneDecision, models.RuntimeTuning, time.Time, time.Time, bool, models.TuneMode)
 	ToggleTuneMode(ctx context.Context) models.TuneMode
 	TuneMode(ctx context.Context) models.TuneMode
@@ -110,12 +110,12 @@ func (c *TradeController) GetSetting(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	sess, err := c.r.GetSession(r.Context(), userID)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+
+	session, ok := c.r.GetSession(userID)
+	if !ok {
+		http.Error(w, "Настройки не найдены, попробуй /start", http.StatusInternalServerError)
 	}
-	writeJSON(w, settingResponse{Setting: *sess.User})
+	writeJSON(w, settingResponse{Setting: *session.User})
 }
 
 func (c *TradeController) AutoTuneNow(w http.ResponseWriter, r *http.Request) {

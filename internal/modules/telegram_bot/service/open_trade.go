@@ -8,9 +8,9 @@ import (
 )
 
 func (t *Telegram) openTestTradeBTC1x(ctx context.Context, chatID int64) {
-	session, err := t.router.GetSession(ctx, chatID)
-	if err != nil {
-		_, _ = t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
+	session, ok := t.router.GetSession(chatID)
+	if !ok {
+		t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
 		return
 	}
 

@@ -18,6 +18,14 @@ type V2State struct {
 
 	// anti-spam: одна LTF свеча -> максимум 1 сигнал
 	LastSignalEnd time.Time
+
+	// --- NEW: ожидание входа по ретесту ---
+	Pending       PendingEntry
+	CooldownUntil time.Time
+	// --- NEW: простые “индикаторы силы”, без TA-библиотек ---
+	BodyEma float64 // EMA(bodyPct)
+	AtrEma  float64 // EMA(rangePct) = (high-low)/close
+
 }
 
 // OpenPosition — приведённый вид позиций под интерфейс бота

@@ -48,6 +48,8 @@ type UserSession struct {
 
 	msgMu     sync.Mutex
 	LastMsgAt map[string]time.Time // key -> time
+
+	WG sync.WaitGroup
 }
 
 // OpenPositionWithTpSl открывает рыночный ордер и пытается поставить TP/SL.

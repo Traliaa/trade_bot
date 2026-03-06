@@ -7,43 +7,47 @@ import (
 	"trade_bot/internal/modules/runner/sessions"
 )
 
-func (r *Service) EnableUser(ctx context.Context, user *models.UserSettings) {
+func (r *Service) EnableUser(ctx context.Context, user *models.UserSettings) (*sessions.UserSession, bool) {
 	if user == nil {
-		return
+		return nil, false
 	}
 
 	r.mu.Lock()
-	if _, ok := r.users[user.TelegramID]; ok {
+	if existing, ok := r.users[user.TelegramID]; ok {
 		r.mu.Unlock()
-		return
+		return existing, false
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	runCtx, cancel := context.WithCancel(context.Background())
+
+	// Важно: сохраняем копию, а не внешний указатель.
+	u := *user
 
 	sess := &sessions.UserSession{
 		Notifier:       r.TelegramNotifier,
 		PositionsCache: make(map[models.PosKey]models.CachedPos),
 		Positions:      make(map[string]*models.PositionTrailState),
-		User:           user,
-		Ctx:            ctx,
+		User:           &u,
+		Ctx:            runCtx,
 		Cancel:         cancel,
 		Repo:           r.Repository,
 		LastMsgAt:      make(map[string]time.Time),
 	}
 
-	// ✅ инициализируем настройки (снэпшот)
-	sess.InitSettings(user.Settings)
+	// Снапшот настроек.
+	sess.InitSettings(u.Settings)
 
-	// ✅ инициализируем OKX клиента из user (ключи)
-	sess.UpdateOKXClient(user)
+	// Инициализация OKX клиента.
+	sess.UpdateOKXClient(&u)
 
-	r.users[user.TelegramID] = sess
+	r.users[u.TelegramID] = sess
 	r.mu.Unlock()
 
-	go sess.PositionCacheWorker(ctx)
+	go sess.PositionCacheWorker(runCtx)
 
 	if sess.User.Premium {
-		go sess.PositionGuardWorker(ctx)
+		go sess.PositionGuardWorker(runCtx)
 	}
 
+	return sess, true
 }

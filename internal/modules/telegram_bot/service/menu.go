@@ -10,15 +10,16 @@ import (
 )
 
 func (t *Telegram) buildSettingsMenu(ctx context.Context, chatID int64) (text string, kb tgbotapi.InlineKeyboardMarkup, err error) {
-	user, err := t.router.GetSession(ctx, chatID)
-	if err != nil {
-		return "", tgbotapi.InlineKeyboardMarkup{}, err
+	session, ok := t.router.GetSession(chatID)
+	if !ok {
+		t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
+		return
 	}
 
 	modeStr := models.TuneModeString(t.router.TuneMode(ctx))
 
-	ts := user.User.Settings.TradingSettings
-	tr := user.User.Settings.TrailingConfig
+	ts := session.User.Settings.TradingSettings
+	tr := session.User.Settings.TrailingConfig
 
 	var b strings.Builder
 	b.WriteString("⚙️ *Настройки торговли*\n\n")
@@ -131,13 +132,13 @@ func (t *Telegram) handleSettingsMenuEdit(ctx context.Context, chatID int64, msg
 	_, _ = t.bot.Request(edit)
 }
 func (t *Telegram) handleTrailingMenu(ctx context.Context, chatID int64) {
-	user, err := t.router.GetSession(ctx, chatID)
-	if err != nil {
-		_, _ = t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
+	session, ok := t.router.GetSession(chatID)
+	if !ok {
+		t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
 		return
 	}
 
-	tr := user.User.Settings.TrailingConfig
+	tr := session.User.Settings.TrailingConfig
 
 	var b strings.Builder
 	b.WriteString("📉 *Trailing / Partial*\n\n")
@@ -209,15 +210,15 @@ func (t *Telegram) handleTrailingMenu(ctx context.Context, chatID int64) {
 
 func (t *Telegram) handleFeaturesMenu(ctx context.Context, chatID int64) {
 
-	user, err := t.router.GetSession(ctx, chatID)
-	if err != nil {
-		_, _ = t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
+	session, ok := t.router.GetSession(chatID)
+	if !ok {
+		t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
 		return
 	}
-	if !user.User.Premium {
+	if !session.User.Premium {
 		return
 	}
-	ff := user.User.Settings.FeatureFlags
+	ff := session.User.Settings.FeatureFlags
 
 	var b strings.Builder
 	b.WriteString("✨ *Фичи бота*\n\n")

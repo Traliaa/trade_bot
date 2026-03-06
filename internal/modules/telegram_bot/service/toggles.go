@@ -7,20 +7,19 @@ import (
 )
 
 func (t *Telegram) togglePartial(ctx context.Context, chatID int64) {
-	session, err := t.router.GetSession(ctx, chatID)
-	if err != nil {
-		_, _ = t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
+	session, ok := t.router.GetSession(chatID)
+	if !ok {
+		t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
 		return
 	}
-
 	session.User.Settings.TrailingConfig.PartialEnabled = !session.User.Settings.TrailingConfig.PartialEnabled
 	t.router.ApplySettings(ctx, session.User) // ✅ горячее применение
 	t.handleSettingsMenu(ctx, chatID)
 }
 func (t *Telegram) toggleFeature(ctx context.Context, chatID int64, key string, cb *tgbot.CallbackQuery) {
-	session, err := t.router.GetSession(ctx, chatID)
-	if err != nil {
-		_, _ = t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
+	session, ok := t.router.GetSession(chatID)
+	if !ok {
+		t.Send(ctx, chatID, "Настройки не найдены, попробуй /start")
 		return
 	}
 
