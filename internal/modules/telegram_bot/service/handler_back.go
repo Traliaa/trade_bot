@@ -70,6 +70,14 @@ func (t *Telegram) handleStart(ctx context.Context, chatID int64) error {
 			tgbotapi.NewKeyboardButton("⚙️ Настройки"),
 			tgbotapi.NewKeyboardButton("📊 Статус"),
 		),
+		tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton("📚 История"),
+			tgbotapi.NewKeyboardButton("📈 Сделки"),
+		),
+		tgbotapi.NewKeyboardButtonRow(
+			tgbotapi.NewKeyboardButton("🧪 Тестовая сделка (BTC x1)"),
+			tgbotapi.NewKeyboardButton("❓ Помощь"),
+		),
 	)
 
 	msgText := "Привет! Я торговый бот для OKX.\n\n" +
