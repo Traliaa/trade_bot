@@ -7,7 +7,104 @@ package sql
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
+
+const closeTrade = `-- name: CloseTrade :exec
+UPDATE trade_history
+SET
+    exit_price = $2,
+    exit_size = $3,
+    exit_at = $4,
+    realized_pnl = $5,
+    realized_pnl_pct = $6,
+    close_reason = $7,
+    status = 'closed',
+    updated_at = now()
+WHERE guid = $1
+  AND status = 'open'
+`
+
+type CloseTradeParams struct {
+	Guid           pgtype.UUID        `db:"guid"`
+	ExitPrice      float64            `db:"exit_price"`
+	ExitSize       float64            `db:"exit_size"`
+	ExitAt         pgtype.Timestamptz `db:"exit_at"`
+	RealizedPnl    float64            `db:"realized_pnl"`
+	RealizedPnlPct float64            `db:"realized_pnl_pct"`
+	CloseReason    string             `db:"close_reason"`
+}
+
+func (q *Queries) CloseTrade(ctx context.Context, db DBTX, arg *CloseTradeParams) error {
+	_, err := db.Exec(ctx, closeTrade,
+		arg.Guid,
+		arg.ExitPrice,
+		arg.ExitSize,
+		arg.ExitAt,
+		arg.RealizedPnl,
+		arg.RealizedPnlPct,
+		arg.CloseReason,
+	)
+	return err
+}
+
+const createTrade = `-- name: CreateTrade :exec
+INSERT INTO trade_history (
+    guid, user_id, inst_id, pos_side, side, timeframe, strategy,
+    entry_price, entry_size, entry_at,
+    stop_loss, take_profit, leverage,
+    open_order_id, algo_id,
+    status, created_at, updated_at
+) VALUES (
+             $1,$2,$3,$4,$5,$6,$7,
+             $8,$9,$10,
+             $11,$12,$13,
+             $14,$15,
+             $16,now(),now()
+         )
+`
+
+type CreateTradeParams struct {
+	Guid        pgtype.UUID        `db:"guid"`
+	UserID      int64              `db:"user_id"`
+	InstID      string             `db:"inst_id"`
+	PosSide     string             `db:"pos_side"`
+	Side        string             `db:"side"`
+	Timeframe   string             `db:"timeframe"`
+	Strategy    string             `db:"strategy"`
+	EntryPrice  float64            `db:"entry_price"`
+	EntrySize   float64            `db:"entry_size"`
+	EntryAt     pgtype.Timestamptz `db:"entry_at"`
+	StopLoss    float64            `db:"stop_loss"`
+	TakeProfit  float64            `db:"take_profit"`
+	Leverage    int32              `db:"leverage"`
+	OpenOrderID string             `db:"open_order_id"`
+	AlgoID      string             `db:"algo_id"`
+	Status      string             `db:"status"`
+}
+
+func (q *Queries) CreateTrade(ctx context.Context, db DBTX, arg *CreateTradeParams) error {
+	_, err := db.Exec(ctx, createTrade,
+		arg.Guid,
+		arg.UserID,
+		arg.InstID,
+		arg.PosSide,
+		arg.Side,
+		arg.Timeframe,
+		arg.Strategy,
+		arg.EntryPrice,
+		arg.EntrySize,
+		arg.EntryAt,
+		arg.StopLoss,
+		arg.TakeProfit,
+		arg.Leverage,
+		arg.OpenOrderID,
+		arg.AlgoID,
+		arg.Status,
+	)
+	return err
+}
 
 const delete = `-- name: Delete :exec
 DELETE FROM user_settings
@@ -147,6 +244,78 @@ func (q *Queries) ListEnabled(ctx context.Context, db DBTX) ([]*UserSetting, err
 			&i.Step,
 			&i.Status,
 			&i.Premium,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, &i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listOpenTrades = `-- name: ListOpenTrades :many
+SELECT
+    guid, user_id, inst_id, pos_side, side, timeframe, strategy,
+    entry_price, entry_size, entry_at,
+    stop_loss, take_profit, leverage,
+    open_order_id, algo_id,
+    status, created_at, updated_at
+FROM trade_history
+WHERE user_id = $1 AND status = 'open'
+ORDER BY entry_at ASC
+`
+
+type ListOpenTradesRow struct {
+	Guid        pgtype.UUID        `db:"guid"`
+	UserID      int64              `db:"user_id"`
+	InstID      string             `db:"inst_id"`
+	PosSide     string             `db:"pos_side"`
+	Side        string             `db:"side"`
+	Timeframe   string             `db:"timeframe"`
+	Strategy    string             `db:"strategy"`
+	EntryPrice  float64            `db:"entry_price"`
+	EntrySize   float64            `db:"entry_size"`
+	EntryAt     pgtype.Timestamptz `db:"entry_at"`
+	StopLoss    float64            `db:"stop_loss"`
+	TakeProfit  float64            `db:"take_profit"`
+	Leverage    int32              `db:"leverage"`
+	OpenOrderID string             `db:"open_order_id"`
+	AlgoID      string             `db:"algo_id"`
+	Status      string             `db:"status"`
+	CreatedAt   pgtype.Timestamptz `db:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `db:"updated_at"`
+}
+
+func (q *Queries) ListOpenTrades(ctx context.Context, db DBTX, userID int64) ([]*ListOpenTradesRow, error) {
+	rows, err := db.Query(ctx, listOpenTrades, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []*ListOpenTradesRow
+	for rows.Next() {
+		var i ListOpenTradesRow
+		if err := rows.Scan(
+			&i.Guid,
+			&i.UserID,
+			&i.InstID,
+			&i.PosSide,
+			&i.Side,
+			&i.Timeframe,
+			&i.Strategy,
+			&i.EntryPrice,
+			&i.EntrySize,
+			&i.EntryAt,
+			&i.StopLoss,
+			&i.TakeProfit,
+			&i.Leverage,
+			&i.OpenOrderID,
+			&i.AlgoID,
+			&i.Status,
+			&i.CreatedAt,
+			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}

@@ -13,6 +13,7 @@ import (
 	strategy "trade_bot/internal/modules/strategy/service"
 
 	tgbot "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/google/uuid"
 	"go.uber.org/fx"
 	"go.uber.org/zap"
 )
@@ -111,7 +112,6 @@ func (s *Service) Start(ctx context.Context, sigs chan models.Signal, candles ch
 }
 
 func (s *Service) OnSignal(ctx context.Context, sig models.Signal) {
-
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -123,11 +123,9 @@ func (s *Service) OnSignal(ctx context.Context, sig models.Signal) {
 	)
 
 	for _, sess := range s.users {
-
-		// 1️⃣ лимит по открытым позициям
+		// 1. лимит по открытым позициям
 		if sess.User.Settings.TradingSettings.MaxOpenPositions > 0 {
 			if len(sess.Positions) >= sess.User.Settings.TradingSettings.MaxOpenPositions {
-
 				sess.Notifier.SendF(ctx, sess.User.TelegramID,
 					"⚠️ [%s] Лимит открытых позиций (%d) достигнут, сигнал пропущен",
 					sig.InstID, sess.User.Settings.TradingSettings.MaxOpenPositions,
@@ -136,7 +134,7 @@ func (s *Service) OnSignal(ctx context.Context, sig models.Signal) {
 			}
 		}
 
-		// 2️⃣ расчёт параметров сделки
+		// 2. расчёт параметров сделки
 		params, err := sess.CalcTradeParams(ctx, sig.InstID, string(sig.Side), sig.Price)
 		if err != nil {
 			sess.Notifier.SendF(ctx, sess.User.TelegramID,
@@ -146,7 +144,7 @@ func (s *Service) OnSignal(ctx context.Context, sig models.Signal) {
 			continue
 		}
 
-		// 3️⃣ открытие позиции
+		// 3. открытие позиции
 		res, err := sess.OpenPositionWithTpSl(ctx, sig, params)
 		if err != nil {
 			sess.Notifier.SendF(ctx, sess.User.TelegramID,
@@ -155,29 +153,38 @@ func (s *Service) OnSignal(ctx context.Context, sig models.Signal) {
 			)
 			continue
 		}
+		trade := &models.TradeRecord{
+			GUID:        uuid.New(),
+			UserID:      sess.User.TelegramID,
+			InstID:      sig.InstID,
+			PosSide:     res.PosSide,
+			Side:        string(sig.Side),
+			Timeframe:   sig.TF,
+			Strategy:    string(sig.Strategy),
+			EntryPrice:  res.Entry,
+			EntrySize:   params.Size,
+			EntryAt:     time.Now(),
+			StopLoss:    params.SL,
+			TakeProfit:  params.TP,
+			Leverage:    sess.User.Settings.TradingSettings.Leverage,
+			OpenOrderID: res.OrderID,
+			AlgoID:      res.SLAlgoID,
+			Status:      models.TradeStatusOpen,
+		}
 
-		// 4️⃣ ✅ УВЕДОМЛЕНИЕ ОБ УСПЕШНОМ ОТКРЫТИИ
-		sess.Notifier.SendF(ctx, sess.User.TelegramID,
-			"🚀 <b>Позиция открыта</b>\n\n"+
-				"Инструмент: <b>%s</b>\n"+
-				"Сторона: <b>%s</b>\n"+
-				"Цена входа: <code>%.6f</code>\n"+
-				"Размер: <code>%.4f</code>\n"+
-				"SL: <code>%.6f</code>\n"+
-				"TP: <code>%.6f</code>\n"+
-				"TF: <code>%s</code>\n"+
-				"Стратегия: <code>%s</code>",
-			sig.InstID,
-			sig.Side,
-			res.Entry,
-			params.Size,
-			params.SL,
-			params.TP,
-			sig.TF,
-			sig.Strategy,
-		)
+		if err := s.Repository.CreateTrade(ctx, trade); err != nil {
+			s.Logger.Error("create trade history failed",
+				zap.Error(err),
+				zap.String("instId", sig.InstID),
+				zap.Int64("userID", sess.User.TelegramID),
+			)
+		}
 
-		// 5️⃣ сохраняем трейл-состояние
+		// 4. уведомление об успешном открытии
+		msg := formatOpenPositionMessage(sig, res, params)
+		sess.Notifier.Send(ctx, sess.User.TelegramID, msg)
+
+		// 5. сохраняем трейл-состояние
 		if res.SLAlgoID == "" {
 			continue
 		}

@@ -4,7 +4,7 @@ sql:
     queries: .
     schema: migrations
     source:
-      - "internal/modules/telegram_bot/service/pg/user_settings/sql/query.sql"
+      - "internal/modules/repository/pg/user_settings/sql/query.sql"
     gen:
       go:
         output_files_suffix: "_sqlc"

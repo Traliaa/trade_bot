@@ -67,3 +67,22 @@ type PositionInfo struct {
 	UnrealizedPnlPct float64 // %
 	Leverage         int
 }
+
+type TransactionDetailsResponse struct {
+	Code string                    `json:"code"`
+	Msg  string                    `json:"msg"`
+	Data []TransactionDetailRecord `json:"data"`
+}
+
+type TransactionDetailRecord struct {
+	InstID   string `json:"instId"`
+	PosSide  string `json:"posSide"`
+	Side     string `json:"side"`
+	OrdID    string `json:"ordId"`
+	TradeID  string `json:"tradeId"`
+	FillPx   string `json:"fillPx"`
+	FillSz   string `json:"fillSz"`
+	FillTime string `json:"fillTime"`
+	FillPnl  string `json:"fillPnl"`
+	ExecType string `json:"execType"`
+}

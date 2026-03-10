@@ -3,23 +3,26 @@ package user_settings
 import (
 	"context"
 	"fmt"
+	"time"
 	"trade_bot/internal/models"
-	sql2 "trade_bot/internal/modules/repository/pg/user_settings/sql"
+	"trade_bot/internal/modules/repository/pg/user_settings/sql"
 
 	"github.com/bytedance/sonic"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/samber/lo"
 )
 
 // UserSettings implement db store
 type UserSettings struct {
-	sql *sql2.Queries
+	sql *sql.Queries
 }
 
 // New instance
 func New() *UserSettings {
 	return &UserSettings{
-		sql: sql2.New(),
+		sql: sql.New(),
 	}
 }
 
@@ -35,7 +38,7 @@ func (u *UserSettings) Insert(ctx context.Context, tx pgx.Tx, user *models.UserS
 	if err != nil {
 		return err
 	}
-	_, err = u.sql.Insert(ctx, tx, &sql2.InsertParams{
+	_, err = u.sql.Insert(ctx, tx, &sql.InsertParams{
 		Chatid:   user.TelegramID,
 		Name:     user.Name,
 		Settings: data,
@@ -60,7 +63,7 @@ func (u *UserSettings) Update(ctx context.Context, tx pgx.Tx, user *models.UserS
 	if err != nil {
 		return err
 	}
-	return u.sql.Update(ctx, tx, &sql2.UpdateParams{
+	return u.sql.Update(ctx, tx, &sql.UpdateParams{
 		Chatid:   user.TelegramID,
 		Name:     user.Name,
 		Settings: data,
@@ -76,7 +79,7 @@ func (u *UserSettings) Delete(ctx context.Context, tx pgx.Tx, user *models.UserS
 			err = fmt.Errorf("UserSettings.Delete: %w", err)
 		}
 	}()
-	return u.sql.Delete(ctx, tx, &sql2.DeleteParams{
+	return u.sql.Delete(ctx, tx, &sql.DeleteParams{
 		Chatid: user.TelegramID,
 		ID:     user.ID,
 	})
@@ -162,4 +165,97 @@ func (u *UserSettings) ListEnabled(ctx context.Context, tx pgx.Tx) (users []*mod
 		})
 	}
 	return users, err
+}
+
+func (u *UserSettings) CreateTrade(ctx context.Context, tx pgx.Tx, tr *models.TradeRecord) (err error) {
+	defer func() {
+		if err != nil {
+			err = fmt.Errorf("pg.User.CreateTrade: %w", err)
+		}
+	}()
+
+	err = u.sql.CreateTrade(ctx, tx, &sql.CreateTradeParams{
+		Guid: ConvertUUIDToPgType(tr.GUID), UserID: tr.UserID, InstID: tr.InstID, PosSide: tr.PosSide, Side: tr.Side, Timeframe: tr.Timeframe, Strategy: tr.Strategy,
+		EntryPrice: tr.EntryPrice, EntrySize: tr.EntrySize, EntryAt: ConvertTimeToPgTimestamptz(tr.EntryAt),
+		StopLoss: tr.StopLoss, TakeProfit: tr.TakeProfit, Leverage: int32(tr.Leverage),
+		OpenOrderID: tr.OpenOrderID, AlgoID: tr.AlgoID,
+		Status: string(tr.Status),
+	})
+	if err != nil {
+		return err
+	}
+
+	return err
+}
+
+func (u *UserSettings) ListOpenTrades(ctx context.Context, tx pgx.Tx, userID int64) (out []models.TradeRecord, err error) {
+	defer func() {
+		if err != nil {
+			err = fmt.Errorf("pg.User.ListEnabled: %w", err)
+		}
+	}()
+
+	resp, err := u.sql.ListOpenTrades(ctx, tx, userID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range resp {
+
+		out = append(out, models.TradeRecord{
+			GUID:        resp[i].Guid.Bytes,
+			UserID:      resp[i].UserID,
+			InstID:      resp[i].InstID,
+			PosSide:     resp[i].PosSide,
+			Side:        resp[i].Side,
+			Timeframe:   resp[i].Timeframe,
+			Strategy:    resp[i].Strategy,
+			EntryPrice:  resp[i].EntryPrice,
+			EntrySize:   resp[i].EntrySize,
+			EntryAt:     resp[i].EntryAt.Time,
+			StopLoss:    resp[i].StopLoss,
+			TakeProfit:  resp[i].TakeProfit,
+			Leverage:    int(resp[i].Leverage),
+			OpenOrderID: resp[i].OpenOrderID,
+			AlgoID:      resp[i].AlgoID,
+			Status:      models.TradeStatus(resp[i].Status),
+			CreatedAt:   resp[i].CreatedAt.Time,
+			UpdatedAt:   resp[i].UpdatedAt.Time,
+		})
+	}
+	return out, nil
+}
+
+func (u *UserSettings) CloseTrade(ctx context.Context, tx pgx.Tx, guid uuid.UUID, in models.TradeCloseInput) (err error) {
+	defer func() {
+		if err != nil {
+			err = fmt.Errorf("pg.User.CloseTrade: %w", err)
+		}
+	}()
+
+	err = u.sql.CloseTrade(ctx, tx, &sql.CloseTradeParams{
+		Guid:           ConvertUUIDToPgType(guid),
+		ExitPrice:      in.ExitPrice,
+		ExitSize:       in.ExitSize,
+		ExitAt:         ConvertTimeToPgTimestamptz(in.ExitAt),
+		RealizedPnl:    in.RealizedPnL,
+		RealizedPnlPct: in.RealizedPnLPct,
+		CloseReason:    string(in.CloseReason),
+	})
+	return err
+}
+
+// ConvertUUIDToPgType ...
+func ConvertUUIDToPgType(guid uuid.UUID) pgtype.UUID {
+	return pgtype.UUID{
+		Bytes: guid,
+		Valid: true,
+	}
+}
+
+// ConvertTimeToPgTimestamptz ...
+func ConvertTimeToPgTimestamptz(t time.Time) pgtype.Timestamptz {
+	if t.IsZero() {
+		return pgtype.Timestamptz{Valid: false, Time: t}
+	}
+	return pgtype.Timestamptz{Valid: true, Time: t}
 }

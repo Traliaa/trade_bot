@@ -7,6 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"trade_bot/internal/base"
 	"trade_bot/internal/helper"
 	"trade_bot/internal/models"
 	okx_client "trade_bot/internal/modules/okx_client/service"
@@ -21,6 +22,7 @@ type TelegramNotifier interface {
 }
 
 type UserSession struct {
+	base.Base
 	Ctx      context.Context
 	Cancel   context.CancelFunc
 	settings atomic.Value // stores models.Settings
@@ -84,7 +86,7 @@ func (s *UserSession) OpenPositionWithTpSl(
 		len(ts.OKXPassphrase),
 	)
 	// 2. Открываем рыночный ордер
-	orderID, err := s.Okx.PlaceMarket(
+	OrderID, err := s.Okx.PlaceMarket(
 		ctx,
 		sig.InstID,
 		params.Size,
@@ -102,15 +104,6 @@ func (s *UserSession) OpenPositionWithTpSl(
 		posSide = "short"
 	}
 
-	// debug для себя
-	s.Notifier.SendF(ctx, s.User.TelegramID,
-		"[%s] DEBUG entry=%.6f SL=%.6f TP=%.6f 1R=%.6f RR=%.2f risk=%.2f%% size=%.4f (%s)",
-		sig.InstID,
-		params.Entry, params.SL, params.TP, params.RiskDist,
-		params.RR, params.RiskPct, params.Size,
-		sig.Reason,
-	)
-
 	// 1) Stop-loss
 	slAlgoId, err := s.Okx.PlaceSingleAlgo(ctx, sig.InstID, posSide, params.Size, params.SL, false)
 	if err != nil {
@@ -126,22 +119,7 @@ func (s *UserSession) OpenPositionWithTpSl(
 
 	}
 
-	// 4. Финальное сообщение об успешном входе
-	s.Notifier.SendF(ctx,
-		s.User.TelegramID,
-		"✅ [%s] Вход подтверждён | OPEN %-4s @ %.4f | SL=%.4f TP=%.4f lev=%dx size=%.4f | strategy=%s (orderId=%s)",
-		sig.InstID,
-		params.Direction,
-		params.Entry,
-		params.SL,
-		params.TP,
-		params.Leverage,
-		params.Size,
-		sig.Strategy,
-		orderID,
-	)
-
-	return &models.OpenResult{PosSide: posSide, SLAlgoID: slAlgoId, TPAlgoID: tpAlgoId, Entry: params.Entry}, nil
+	return &models.OpenResult{PosSide: posSide, SLAlgoID: slAlgoId, TPAlgoID: tpAlgoId, Entry: params.Entry, OrderID: OrderID}, nil
 }
 func (s *UserSession) Status(ctx context.Context) ([]models.OpenPosition, error) {
 	// просто прокидываем в OKX-клиент, который уже сконфигурен под этого юзера
