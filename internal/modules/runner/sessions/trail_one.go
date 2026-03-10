@@ -3,7 +3,9 @@ package sessions
 import (
 	"context"
 	"fmt"
+
 	"time"
+
 	"trade_bot/internal/helper"
 	"trade_bot/internal/models"
 )
@@ -31,60 +33,116 @@ func (s *UserSession) trailOne(ctx context.Context, ct models.CandleTick, p mode
 	if p.Entry > 0 {
 		st.Entry = p.Entry
 	}
+
 	// 1m MFE update
 	st.UpdateMFE(ct.High, ct.Low)
 
-	// Решение только на 15m слот (даже если свеча 1m)
-	dec := decideTrail15m(st, s.User.Settings, ct.End)
-	if !dec.MoveSL && !dec.Close {
+	// Решение только на 15m слот
+	dec := decideTrail15m(st, s.User.Settings, ct.Close, ct.End)
+	if !dec.MoveSL && !dec.Close && dec.CloseSize <= 0 {
 		return
 	}
 
-	// rate limit по времени (на всякий)
+	// rate limit по времени
 	if !st.LastTrailAt.IsZero() && ct.End.Sub(st.LastTrailAt) < 60*time.Second {
 		return
 	}
+
 	// --- PARTIAL CLOSE ---
 	if dec.CloseSize > 0 {
+		if dec.CloseSize <= 0 || st.Size <= 0 {
+			return
+		}
+
 		_, _ = s.Okx.CloseMarket(ctx, st.InstID, st.PosSide, dec.CloseSize)
 
-		// уменьшаем локально size, чтобы дальше SL ставился на остаток
 		s.PosMu.Lock()
 		if st.Size > dec.CloseSize {
 			st.Size -= dec.CloseSize
 		} else {
-			// если внезапно закрыли всё — удаляем стейт
 			delete(s.Positions, key)
+			s.PosMu.Unlock()
+			return
 		}
 		st.LastTrailAt = ct.End
 		s.PosMu.Unlock()
 
+		// После partial сразу защищаем остаток позиции
+		if dec.MoveSLAfterPartial && st.AlgoID != "" && st.Size > 0 {
+			newSL := dec.NewSLAfterPartial
+
+			if shouldImproveSL(st, newSL) {
+				if st.TickSz > 0 {
+					if st.PosSide == "long" {
+						newSL = helper.RoundUpToTick(newSL, st.TickSz)
+					} else {
+						newSL = helper.RoundDownToTick(newSL, st.TickSz)
+					}
+				}
+
+				_ = s.Okx.CancelAlgo(ctx, st.InstID, st.AlgoID)
+
+				newAlgoID, err := s.Okx.PlaceSingleAlgo(ctx, st.InstID, st.PosSide, st.Size, newSL, false)
+				if err == nil {
+					s.PosMu.Lock()
+					st.SL = newSL
+					st.AlgoID = newAlgoID
+					s.PosMu.Unlock()
+				}
+			}
+		}
+
 		if s.canSend("partial:"+st.InstID+":"+st.PosSide, 30*time.Minute) {
+			msg := dec.Note
+			if msg == "" {
+				msg = string(dec.Reason)
+			}
+
 			s.Notifier.SendF(ctx, s.User.TelegramID,
 				"💰 [%s] Частичная фиксация (%s) закрыто=%.4f | %s",
-				st.InstID, st.PosSide, dec.CloseSize, dec.Reason,
+				st.InstID, st.PosSide, dec.CloseSize, msg,
 			)
 		}
 		return
 	}
+
 	// --- CLOSE ---
 	if dec.Close {
+		if st.Size <= 0 {
+			return
+		}
+
+		now := time.Now()
+
+		s.PosMu.Lock()
+		st.CloseReason = dec.Reason
+		st.ClosingAt = &now
+		s.PosMu.Unlock()
+
 		_, _ = s.Okx.CloseMarket(ctx, st.InstID, st.PosSide, st.Size)
 
-		// удаляем стейт, чтобы не трогать закрытую
 		s.PosMu.Lock()
 		delete(s.Positions, key)
 		s.PosMu.Unlock()
 
+		msg := dec.Note
+		if msg == "" {
+			msg = string(dec.Reason)
+		}
+
 		s.Notifier.SendF(ctx, s.User.TelegramID,
-			"🕒 [%s] TimeStop закрытие позиции (%s) | reason=%s",
-			st.InstID, st.PosSide, dec.Reason,
+			"🕒 [%s] Закрытие позиции (%s) | reason=%s",
+			st.InstID, st.PosSide, msg,
 		)
 		return
 	}
 
 	// --- MOVE SL ---
 	newSL := dec.NewSL
+	if !shouldImproveSL(st, newSL) {
+		return
+	}
+
 	if st.TickSz > 0 {
 		if st.PosSide == "long" {
 			newSL = helper.RoundUpToTick(newSL, st.TickSz)
@@ -93,10 +151,8 @@ func (s *UserSession) trailOne(ctx context.Context, ct models.CandleTick, p mode
 		}
 	}
 
-	// cancel old SL
 	_ = s.Okx.CancelAlgo(ctx, st.InstID, st.AlgoID)
 
-	// place new SL
 	newAlgoID, err := s.Okx.PlaceSingleAlgo(ctx, st.InstID, st.PosSide, st.Size, newSL, false)
 	if err != nil {
 		return
@@ -106,20 +162,36 @@ func (s *UserSession) trailOne(ctx context.Context, ct models.CandleTick, p mode
 	st.SL = newSL
 	st.AlgoID = newAlgoID
 	st.LastTrailAt = ct.End
-	// LastTrailEnd уже выставил decideTrail15m через slot
 	s.PosMu.Unlock()
 
 	if s.canSend("trail:"+st.InstID+":"+st.PosSide, 15*time.Minute) {
+		msg := dec.Note
+		if msg == "" {
+			msg = string(dec.Reason)
+		}
+
 		s.Notifier.SendF(ctx, s.User.TelegramID,
 			"🛡 [%s] SL обновлён (%s) -> %.6f | %s",
-			st.InstID, st.PosSide, newSL, dec.Reason,
+			st.InstID, st.PosSide, newSL, msg,
 		)
 	}
 }
 
+func shouldImproveSL(st *models.PositionTrailState, candidate float64) bool {
+	if st == nil || candidate <= 0 || st.SL <= 0 {
+		return false
+	}
+
+	if st.PosSide == "long" {
+		return candidate > st.SL
+	}
+
+	return candidate < st.SL
+}
 func decideTrail15m(
 	st *models.PositionTrailState,
 	cfg models.Settings,
+	lastPrice float64,
 	slotEnd time.Time,
 ) models.TrailDecision {
 	R := st.RiskDist
@@ -127,13 +199,11 @@ func decideTrail15m(
 		return models.TrailDecision{}
 	}
 
-	// 1 апдейт на 15m слот
 	slot := helper.TrailSlot15m(slotEnd)
 	if !st.LastTrailEnd.IsZero() && st.LastTrailEnd.Equal(slot) {
 		return models.TrailDecision{}
 	}
 
-	// --- helper: улучшение SL ---
 	improves := func(candidate float64) bool {
 		if st.PosSide == "long" {
 			return candidate > st.SL
@@ -149,7 +219,6 @@ func decideTrail15m(
 		return st.SL-candidate >= minImprove
 	}
 
-	// --- прогресс в R по MFE ---
 	var mfeR float64
 	if st.PosSide == "long" {
 		mfeR = (st.MFE - st.Entry) / R
@@ -157,22 +226,48 @@ func decideTrail15m(
 		mfeR = (st.Entry - st.MFE) / R
 	}
 
-	// --- тайм-стоп: 3 часа и не дал 0.3R ---
-	if cfg.TrailingConfig.TimeStopBars > 0 &&
-		cfg.TrailingConfig.TimeStopMinMFER > 0 &&
+	var currentR float64
+	if lastPrice > 0 {
+		if st.PosSide == "long" {
+			currentR = (lastPrice - st.Entry) / R
+		} else {
+			currentR = (st.Entry - lastPrice) / R
+		}
+	}
+
+	// --- EARLY FAIL ---
+	if cfg.TrailingConfig.EarlyTimeStopBars > 0 &&
+		cfg.TrailingConfig.EarlyTimeStopMinMFER > 0 &&
 		!st.OpenedAt.IsZero() {
 
-		maxDur := time.Duration(cfg.TrailingConfig.TimeStopBars) * 15 * time.Minute
-		if slotEnd.Sub(st.OpenedAt) >= maxDur && mfeR < cfg.TrailingConfig.TimeStopMinMFER {
+		earlyDur := time.Duration(cfg.TrailingConfig.EarlyTimeStopBars) * 15 * time.Minute
+		if slotEnd.Sub(st.OpenedAt) >= earlyDur && mfeR < cfg.TrailingConfig.EarlyTimeStopMinMFER {
 			st.LastTrailEnd = slot
 			return models.TrailDecision{
 				Close:  true,
-				Reason: "TIME_STOP",
+				Reason: models.CloseReasonTimeStop,
+				Note:   "TIME_STOP_EARLY",
 			}
 		}
 	}
 
-	// --- 1) BE на 0.6R ---
+	// --- STALE EXIT ---
+	if cfg.TrailingConfig.TimeStopBars > 0 &&
+		!st.OpenedAt.IsZero() {
+
+		maxDur := time.Duration(cfg.TrailingConfig.TimeStopBars) * 15 * time.Minute
+		if slotEnd.Sub(st.OpenedAt) >= maxDur &&
+			currentR < cfg.TrailingConfig.TimeStopMinCurrentR {
+			st.LastTrailEnd = slot
+			return models.TrailDecision{
+				Close:  true,
+				Reason: models.CloseReasonTimeStop,
+				Note:   "TIME_STOP_STALE",
+			}
+		}
+	}
+
+	// --- BE ---
 	if !st.MovedToBE && mfeR >= cfg.TrailingConfig.BETriggerR {
 		cand := st.Entry
 		if cfg.TrailingConfig.BEOffsetR != 0 {
@@ -182,14 +277,20 @@ func decideTrail15m(
 				cand = st.Entry - cfg.TrailingConfig.BEOffsetR*R
 			}
 		}
+
 		if improves(cand) && improvesEnough(cand) {
 			st.MovedToBE = true
 			st.LastTrailEnd = slot
-			return models.TrailDecision{NewSL: cand, MoveSL: true, Reason: "BE@0.6R"}
+			return models.TrailDecision{
+				NewSL:  cand,
+				MoveSL: true,
+				Reason: models.CloseReasonUnknown,
+				Note:   "BE@0.6R",
+			}
 		}
 	}
 
-	// --- PARTIAL TAKE ---
+	// --- PARTIAL ---
 	if cfg.TrailingConfig.PartialEnabled &&
 		!st.TookPartial &&
 		mfeR >= cfg.TrailingConfig.PartialTriggerR &&
@@ -200,17 +301,30 @@ func decideTrail15m(
 			st.TookPartial = true
 			st.LastTrailEnd = slot
 
+			newSL := st.Entry
+			if cfg.TrailingConfig.BEOffsetR != 0 {
+				if st.PosSide == "long" {
+					newSL = st.Entry + cfg.TrailingConfig.BEOffsetR*R
+				} else {
+					newSL = st.Entry - cfg.TrailingConfig.BEOffsetR*R
+				}
+			}
+
 			return models.TrailDecision{
 				CloseSize: closeSz,
-				Reason: fmt.Sprintf(
-					"PARTIAL@%.2fR (%.0f%%)",
+				Reason:    models.CloseReasonPartial,
+				Note: fmt.Sprintf(
+					"PARTIAL@%.2fR (%.0f%%) + SL->BE",
 					cfg.TrailingConfig.PartialTriggerR,
 					cfg.TrailingConfig.PartialCloseFrac*100,
 				),
+				MoveSLAfterPartial: true,
+				NewSLAfterPartial:  newSL,
 			}
 		}
 	}
-	// --- 2) Lock profit на 0.9R: SL = Entry + 0.3R ---
+
+	// --- LOCK ---
 	if !st.LockedProfit && mfeR >= cfg.TrailingConfig.LockTriggerR {
 		var cand float64
 		if st.PosSide == "long" {
@@ -218,13 +332,18 @@ func decideTrail15m(
 		} else {
 			cand = st.Entry - cfg.TrailingConfig.LockOffsetR*R
 		}
+
 		if improves(cand) && improvesEnough(cand) {
 			st.LockedProfit = true
 			st.LastTrailEnd = slot
-			return models.TrailDecision{NewSL: cand, MoveSL: true, Reason: "LOCK@0.9R->0.3R"}
+			return models.TrailDecision{
+				NewSL:  cand,
+				MoveSL: true,
+				Reason: models.CloseReasonUnknown,
+				Note:   "LOCK@0.9R->0.3R",
+			}
 		}
 	}
 
-	// ничего не делаем, но слот фиксировать не нужно
 	return models.TrailDecision{}
 }

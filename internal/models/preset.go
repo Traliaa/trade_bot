@@ -65,7 +65,7 @@ var TrailingPresets = map[string]TrailingPreset{
 
 			// TimeStop — быстро режем слабые входы
 			tr.TimeStopBars = 8
-			tr.TimeStopMinMFER = 0.3
+			tr.TimeStopMinCurrentR = 0.3
 
 			// Partial — фиксируем половину
 			tr.PartialEnabled = true
@@ -85,7 +85,7 @@ var TrailingPresets = map[string]TrailingPreset{
 			tr.LockOffsetR = 0.3
 
 			tr.TimeStopBars = 12
-			tr.TimeStopMinMFER = 0.4
+			tr.TimeStopMinCurrentR = 0.4
 
 			tr.PartialEnabled = true
 			tr.PartialTriggerR = 1.0
@@ -107,7 +107,7 @@ var TrailingPresets = map[string]TrailingPreset{
 
 			// TimeStop — терпим дольше
 			tr.TimeStopBars = 20
-			tr.TimeStopMinMFER = 0.6
+			tr.EarlyTimeStopMinMFER = 0.6
 
 			// Partial — либо мало, либо вообще выключено
 			tr.PartialEnabled = false

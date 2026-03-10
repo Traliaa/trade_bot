@@ -51,6 +51,7 @@ type TradingSettings struct {
 }
 
 type TrailingConfig struct {
+
 	// --- BE / Lock ---
 	BETriggerR float64 `yaml:"be_trigger_r"` // 0.6
 	BEOffsetR  float64 `yaml:"be_offset_r"`  // 0.0
@@ -58,14 +59,19 @@ type TrailingConfig struct {
 	LockTriggerR float64 `yaml:"lock_trigger_r"` // 0.9
 	LockOffsetR  float64 `yaml:"lock_offset_r"`  // 0.3
 
-	// --- Time stop ---
-	TimeStopBars    int     `yaml:"time_stop_bars"`      // 12
-	TimeStopMinMFER float64 `yaml:"time_stop_min_mfe_r"` // 0.3
+	// --- Time stop (late) ---
+	TimeStopBars        int     `yaml:"time_stop_bars"`          // 12
+	TimeStopMinCurrentR float64 `yaml:"time_stop_min_current_r"` // 0.1
+
+	// --- Early fail ---
+	EarlyTimeStopBars    int     `yaml:"early_time_stop_bars"`      // 4
+	EarlyTimeStopMinMFER float64 `yaml:"early_time_stop_min_mfe_r"` // 0.15
 
 	// --- Partial ---
 	PartialEnabled   bool    `yaml:"partial_enabled"`    // true
 	PartialTriggerR  float64 `yaml:"partial_trigger_r"`  // 0.9
 	PartialCloseFrac float64 `yaml:"partial_close_frac"` // 0.5
+
 }
 
 func NewTradingSettingsFromDefaults(userID int64, cfg *config.Config) *UserSettings {
@@ -82,15 +88,18 @@ func NewTradingSettingsFromDefaults(userID int64, cfg *config.Config) *UserSetti
 				TakeProfitRR: cfg.UserDefaults.DefaultTakeProfitRR,
 			},
 			TrailingConfig: TrailingConfig{
-				BETriggerR:       cfg.DefaultTrailing.BETriggerR,
-				BEOffsetR:        cfg.DefaultTrailing.BEOffsetR,
-				LockTriggerR:     cfg.DefaultTrailing.LockTriggerR,
-				LockOffsetR:      cfg.DefaultTrailing.LockOffsetR,
-				TimeStopBars:     cfg.DefaultTrailing.TimeStopBars,
-				TimeStopMinMFER:  cfg.DefaultTrailing.TimeStopMinMFER,
-				PartialEnabled:   cfg.DefaultTrailing.PartialEnabled,
-				PartialTriggerR:  cfg.DefaultTrailing.PartialTriggerR,
-				PartialCloseFrac: cfg.DefaultTrailing.PartialCloseFrac,
+				BETriggerR:          cfg.DefaultTrailing.BETriggerR,
+				BEOffsetR:           cfg.DefaultTrailing.BEOffsetR,
+				LockTriggerR:        cfg.DefaultTrailing.LockTriggerR,
+				LockOffsetR:         cfg.DefaultTrailing.LockOffsetR,
+				TimeStopBars:        cfg.DefaultTrailing.TimeStopBars,
+				TimeStopMinCurrentR: cfg.DefaultTrailing.EarlyTimeStopMinMFER,
+
+				EarlyTimeStopBars:    cfg.DefaultTrailing.EarlyTimeStopBars,
+				EarlyTimeStopMinMFER: cfg.DefaultTrailing.EarlyTimeStopMinMFER,
+				PartialEnabled:       cfg.DefaultTrailing.PartialEnabled,
+				PartialTriggerR:      cfg.DefaultTrailing.PartialTriggerR,
+				PartialCloseFrac:     cfg.DefaultTrailing.PartialCloseFrac,
 			},
 		},
 	}

@@ -160,6 +160,12 @@ func (t *Telegram) handleTextMessage(_ context.Context, msg *tgbotapi.Message) {
 
 		go t.handleStatus(ctx, sess.User)
 		return
+	case "/history", "📚 История":
+		t.handleHistory(ctx, chatID)
+		return
+	case "/stats", "📈 Сделки":
+		t.handleStats(ctx, chatID)
+		return
 	case "🧪 Тестовая сделка (BTC x1)":
 		// Если тестовая сделка должна работать только при активном runtime.
 		sess, ok := t.router.GetSession(chatID)

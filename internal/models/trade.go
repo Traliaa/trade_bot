@@ -1,8 +1,9 @@
 package models
 
 import (
-	"github.com/google/uuid"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type TradeStatus string
@@ -21,6 +22,7 @@ const (
 	CloseReasonTimeStop CloseReason = "time_stop"
 	CloseReasonManual   CloseReason = "manual"
 	CloseReasonUnknown  CloseReason = "unknown"
+	CloseReasonPartial  CloseReason = "partial"
 )
 
 type TradeRecord struct {

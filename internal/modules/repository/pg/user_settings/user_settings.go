@@ -259,3 +259,83 @@ func ConvertTimeToPgTimestamptz(t time.Time) pgtype.Timestamptz {
 	}
 	return pgtype.Timestamptz{Valid: true, Time: t}
 }
+
+func (u *UserSettings) ListRecentTrades(ctx context.Context, tx pgx.Tx, userID int64, limit int) (out []models.TradeRecord, err error) {
+	defer func() {
+		if err != nil {
+			err = fmt.Errorf("pg.User.ListEnabled: %w", err)
+		}
+	}()
+
+	resp, err := u.sql.ListOpenTrades(ctx, tx, userID)
+	if err != nil {
+		return nil, err
+	}
+	for i := range resp {
+
+		out = append(out, models.TradeRecord{
+			GUID:        resp[i].Guid.Bytes,
+			UserID:      resp[i].UserID,
+			InstID:      resp[i].InstID,
+			PosSide:     resp[i].PosSide,
+			Side:        resp[i].Side,
+			Timeframe:   resp[i].Timeframe,
+			Strategy:    resp[i].Strategy,
+			EntryPrice:  resp[i].EntryPrice,
+			EntrySize:   resp[i].EntrySize,
+			EntryAt:     resp[i].EntryAt.Time,
+			StopLoss:    resp[i].StopLoss,
+			TakeProfit:  resp[i].TakeProfit,
+			Leverage:    int(resp[i].Leverage),
+			OpenOrderID: resp[i].OpenOrderID,
+			AlgoID:      resp[i].AlgoID,
+			Status:      models.TradeStatus(resp[i].Status),
+			CreatedAt:   resp[i].CreatedAt.Time,
+			UpdatedAt:   resp[i].UpdatedAt.Time,
+		})
+	}
+	return out, nil
+
+}
+
+func (u *UserSettings) GetTradeStats(ctx context.Context, tx pgx.Tx, userID int64) (out models.TradeStats, err error) {
+	defer func() {
+		if err != nil {
+			err = fmt.Errorf("pg.User.GetTradeStats: %w", err)
+		}
+	}()
+
+	resp, err := u.sql.GetTradeStats(ctx, tx, userID)
+	if err != nil {
+		return models.TradeStats{}, err
+	}
+
+	out = models.TradeStats{
+		TotalTrades:   int(resp.TotalTrades),
+		OpenTrades:    int(resp.OpenTrades),
+		ClosedTrades:  int(resp.ClosedTrades),
+		Wins:          int(resp.Wins),
+		Losses:        int(resp.Losses),
+		WinRatePct:    float64(resp.Wins),
+		TotalPnL:      resp.TotalPnl,
+		AvgPnL:        resp.AvgPnl,
+		AvgWin:        resp.AvgWin,
+		AvgLoss:       resp.AvgLoss,
+		TPCount:       int(resp.TpCount),
+		SLCount:       int(resp.SlCount),
+		TimeStopCount: int(resp.TimeStopCount),
+		PartialCount:  int(resp.PartialCount),
+		ManualCount:   int(resp.ManualCount),
+		UnknownCount:  int(resp.UnknownCount),
+	}
+
+	if err != nil {
+		return models.TradeStats{}, err
+	}
+
+	if out.ClosedTrades > 0 {
+		out.WinRatePct = float64(out.Wins) / float64(out.ClosedTrades) * 100
+	}
+
+	return out, nil
+}

@@ -76,6 +76,10 @@ type PositionTrailState struct {
 	LastTrailEnd time.Time
 	LastTrailAt  time.Time
 	TookPartial  bool
+
+	// 👇 НОВОЕ
+	CloseReason CloseReason
+	ClosingAt   *time.Time
 }
 
 func (st *PositionTrailState) UpdateMFE(high, low float64) {

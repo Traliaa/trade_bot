@@ -50,5 +50,7 @@ func (r *Service) EnableUser(ctx context.Context, user *models.UserSettings) (*s
 		go sess.PositionGuardWorker(runCtx)
 	}
 
+	go sess.TradeHistoryWorker(runCtx)
+
 	return sess, true
 }

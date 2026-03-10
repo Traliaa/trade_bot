@@ -167,7 +167,7 @@ func (t *Telegram) handleAwaitValue(ctx context.Context, chatID int64, text, key
 			_, _ = t.Send(ctx, chatID, "❗️Нужно число 0..20, например `0.3`")
 			return
 		}
-		tr.TimeStopMinMFER = v
+		tr.EarlyTimeStopMinMFER = v
 
 	case "partial_trigger_r":
 		v, err := strconv.ParseFloat(text, 64)

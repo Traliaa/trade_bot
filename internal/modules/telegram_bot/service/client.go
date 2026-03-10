@@ -41,6 +41,8 @@ type Router interface {
 	StrategyRejects(reset bool) models.RejectSnapshot
 	StrategyTuning() (models.RuntimeTuning, time.Time, time.Time)
 	GetUser(ctx context.Context, userID int64) (*models.UserSettings, error)
+	ListRecentTrades(ctx context.Context, userID int64, limit int) ([]models.TradeRecord, error)
+	GetTradeStats(ctx context.Context, userID int64) (models.TradeStats, error)
 }
 
 func (t *Telegram) SetRouter(r Router) {

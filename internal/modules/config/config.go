@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"log"
 	"os"
 	"strconv"
@@ -92,6 +93,7 @@ type UserDefaultsConfig struct {
 }
 
 type TrailingDefaultsConfig struct {
+
 	// --- BE / Lock ---
 	BETriggerR float64 `yaml:"be_trigger_r"` // 0.6
 	BEOffsetR  float64 `yaml:"be_offset_r"`  // 0.0
@@ -99,9 +101,13 @@ type TrailingDefaultsConfig struct {
 	LockTriggerR float64 `yaml:"lock_trigger_r"` // 0.9
 	LockOffsetR  float64 `yaml:"lock_offset_r"`  // 0.3
 
-	// --- Time stop ---
-	TimeStopBars    int     `yaml:"time_stop_bars"`      // 12
-	TimeStopMinMFER float64 `yaml:"time_stop_min_mfe_r"` // 0.3
+	// --- Time stop (late) ---
+	TimeStopBars        int     `yaml:"time_stop_bars"`          // 12
+	TimeStopMinCurrentR float64 `yaml:"time_stop_min_current_r"` // 0.1
+
+	// --- Early fail ---
+	EarlyTimeStopBars    int     `yaml:"early_time_stop_bars"`      // 4
+	EarlyTimeStopMinMFER float64 `yaml:"early_time_stop_min_mfe_r"` // 0.15
 
 	// --- Partial ---
 	PartialEnabled   bool    `yaml:"partial_enabled"`    // true
@@ -110,71 +116,24 @@ type TrailingDefaultsConfig struct {
 }
 
 func NewConfig() (*Config, error) {
-	// дефолты на случай пустого yaml
-	cfg := &Config{
-		DefaultTrailing: TrailingDefaultsConfig{
-			BETriggerR:       0.6,
-			BEOffsetR:        0.0,
-			LockTriggerR:     0.9,
-			LockOffsetR:      0.3,
-			TimeStopBars:     12,
-			TimeStopMinMFER:  0.3,
-			PartialEnabled:   true,
-			PartialTriggerR:  0.9,
-			PartialCloseFrac: 0.5,
-		},
-	}
-
-	// Service defaults
-	cfg.Service.Host = "localhost"
-	cfg.Service.PublicPort = 3000
-	cfg.Service.AdminPort = 3001
-	cfg.Service.Workers = 5
-
-	// Strategy defaults
-	cfg.Strategy.LTF = "15m"
-	cfg.Strategy.HTF = "1h"
-	cfg.Strategy.DonchianPeriod = 20
-	cfg.Strategy.MinChannelPct = 0.0026
-	cfg.Strategy.MinBodyPct = 0.0015
-	cfg.Strategy.BreakoutPct = 0.001
-	cfg.Strategy.HTFEmaFast = 50
-	cfg.Strategy.HTFEmaSlow = 200
-	cfg.Strategy.MinWarmupLTF = 20
-	cfg.Strategy.MinWarmupHTF = 200
-	cfg.Strategy.ExpectedSymbols = 100
-	cfg.Strategy.ProgressEvery = 2 * time.Minute
-	cfg.Strategy.WatchTopN = 100
-	cfg.Strategy.TuneMode = 2
-	cfg.Strategy.MinRetestDepthPct = 0.001
-	cfg.Strategy.MaxBreakoutBodyPct = 0.012  // 1.2%
-	cfg.Strategy.MaxBreakoutRangePct = 0.018 // 1.8%
-	cfg.Strategy.MinConfirmBodyFrac = 0.25   // 1.2%
-	cfg.Strategy.MaxConfirmWickFrac = 0.35   // 1.8%
-
-	// User defaults (только стартовые)
-	cfg.UserDefaults.DefaultLeverage = 15
-	cfg.UserDefaults.DefaultMaxOpenPositions = 6
-	cfg.UserDefaults.DefaultPositionPct = 1.0
-	cfg.UserDefaults.DefaultRiskPct = 0.5
-	cfg.UserDefaults.DefaultStopPct = 3.0
-	cfg.UserDefaults.DefaultTakeProfitRR = 2.0
+	cfg := &Config{}
 
 	// --- читаем yaml ---
 	configFileName := os.Getenv(configFilePathENV)
 	if configFileName == "" {
 		configFileName = "values_local.yaml"
 	}
+
 	file, err := os.Open("configs/" + configFileName)
 	if err != nil {
-		log.Printf("Failed to open config file: %v", err)
+		log.Printf("failed to open config file: %v", err)
 		return nil, err
 	}
 	defer file.Close()
 
 	dec := yaml.NewDecoder(file)
 	if err := dec.Decode(cfg); err != nil {
-		log.Printf("Failed to decode config file: %v", err)
+		log.Printf("failed to decode config file: %v", err)
 		return nil, err
 	}
 
@@ -185,7 +144,8 @@ func NewConfig() (*Config, error) {
 	if v := os.Getenv(databaseDSN); v != "" {
 		cfg.DB = v
 	}
-	cfg.ServiceTelegramChatID = intFromEnv(ServiceTelegramChatID, 0)
+
+	cfg.ServiceTelegramChatID = intFromEnv(ServiceTelegramChatID, cfg.ServiceTelegramChatID)
 
 	// WS keys (сервисные)
 	if v := os.Getenv(OKXWSAPIKey); v != "" {
@@ -198,14 +158,13 @@ func NewConfig() (*Config, error) {
 		cfg.OKXWS.Passphrase = v
 	}
 
-	// sanity: если забыли токен
-	if cfg.Telegram.Token == "" {
-		log.Printf("WARN: telegram.token is empty (env %s or yaml telegram.token)", tokenTelegramENV)
+	// --- validate ---
+	if err := validateConfig(cfg); err != nil {
+		return nil, err
 	}
 
 	return cfg, nil
 }
-
 func intFromEnv(key string, def int) int {
 	if v := os.Getenv(key); v != "" {
 		if n, err := strconv.Atoi(v); err == nil {
@@ -213,4 +172,83 @@ func intFromEnv(key string, def int) int {
 		}
 	}
 	return def
+}
+
+func validateConfig(cfg *Config) error {
+	if cfg == nil {
+		return fmt.Errorf("config is nil")
+	}
+
+	if cfg.Telegram.Token == "" {
+		log.Printf("WARN: telegram.token is empty (env %s or yaml telegram.token)", tokenTelegramENV)
+	}
+
+	if cfg.Service.Host == "" {
+		return fmt.Errorf("service.host is required")
+	}
+	if cfg.Service.PublicPort <= 0 {
+		return fmt.Errorf("service.public_port must be > 0")
+	}
+	if cfg.Service.AdminPort <= 0 {
+		return fmt.Errorf("service.admin_port must be > 0")
+	}
+	if cfg.Service.Workers <= 0 {
+		return fmt.Errorf("service.workers must be > 0")
+	}
+
+	if cfg.Strategy.LTF == "" {
+		return fmt.Errorf("strategy.ltf is required")
+	}
+	if cfg.Strategy.HTF == "" {
+		return fmt.Errorf("strategy.htf is required")
+	}
+	if cfg.Strategy.DonchianPeriod <= 0 {
+		return fmt.Errorf("strategy.donchian_period must be > 0")
+	}
+	if cfg.Strategy.MinWarmupLTF <= 0 {
+		return fmt.Errorf("strategy.min_warmup_ltf must be > 0")
+	}
+	if cfg.Strategy.MinWarmupHTF <= 0 {
+		return fmt.Errorf("strategy.min_warmup_htf must be > 0")
+	}
+	if cfg.Strategy.ExpectedSymbols < 0 {
+		return fmt.Errorf("strategy.expected_symbols must be >= 0")
+	}
+	if cfg.Strategy.WatchTopN < 0 {
+		return fmt.Errorf("strategy.watch_top_n must be >= 0")
+	}
+
+	if cfg.UserDefaults.DefaultLeverage <= 0 {
+		return fmt.Errorf("user_defaults.default_leverage must be > 0")
+	}
+	if cfg.UserDefaults.DefaultMaxOpenPositions <= 0 {
+		return fmt.Errorf("user_defaults.default_max_open_positions must be > 0")
+	}
+	if cfg.UserDefaults.DefaultPositionPct <= 0 {
+		return fmt.Errorf("user_defaults.default_position_pct must be > 0")
+	}
+	if cfg.UserDefaults.DefaultRiskPct <= 0 {
+		return fmt.Errorf("user_defaults.default_risk_pct must be > 0")
+	}
+	if cfg.UserDefaults.DefaultTakeProfitRR <= 0 {
+		return fmt.Errorf("user_defaults.default_take_profit_rr must be > 0")
+	}
+
+	if cfg.DefaultTrailing.BETriggerR < 0 {
+		return fmt.Errorf("default_trailing.be_trigger_r must be >= 0")
+	}
+	if cfg.DefaultTrailing.LockTriggerR < 0 {
+		return fmt.Errorf("default_trailing.lock_trigger_r must be >= 0")
+	}
+	if cfg.DefaultTrailing.TimeStopBars < 0 {
+		return fmt.Errorf("default_trailing.time_stop_bars must be >= 0")
+	}
+	if cfg.DefaultTrailing.EarlyTimeStopBars < 0 {
+		return fmt.Errorf("default_trailing.early_time_stop_bars must be >= 0")
+	}
+	if cfg.DefaultTrailing.PartialCloseFrac < 0 || cfg.DefaultTrailing.PartialCloseFrac > 1 {
+		return fmt.Errorf("default_trailing.partial_close_frac must be in [0..1]")
+	}
+
+	return nil
 }

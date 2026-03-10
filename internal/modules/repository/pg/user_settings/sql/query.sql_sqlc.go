@@ -190,6 +190,71 @@ func (q *Queries) GetById(ctx context.Context, db DBTX, chatid int64) (*GetByIdR
 	return &i, err
 }
 
+const getTradeStats = `-- name: GetTradeStats :one
+SELECT
+    COUNT(*) AS total_trades,
+    COUNT(*) FILTER (WHERE status = 'open') AS open_trades,
+    COUNT(*) FILTER (WHERE status = 'closed') AS closed_trades,
+
+    COUNT(*) FILTER (WHERE status = 'closed' AND realized_pnl > 0) AS wins,
+    COUNT(*) FILTER (WHERE status = 'closed' AND realized_pnl < 0) AS losses,
+
+    COALESCE(SUM(realized_pnl) FILTER (WHERE status = 'closed'), 0)::double precision AS total_pnl,
+    COALESCE(AVG(realized_pnl) FILTER (WHERE status = 'closed'), 0)::double precision  AS avg_pnl,
+    COALESCE(AVG(realized_pnl) FILTER (WHERE status = 'closed' AND realized_pnl > 0), 0)::double precision  AS avg_win,
+    COALESCE(AVG(realized_pnl) FILTER (WHERE status = 'closed' AND realized_pnl < 0), 0)::double precision  AS avg_loss,
+
+    COUNT(*) FILTER (WHERE status = 'closed' AND close_reason = 'tp') AS tp_count,
+    COUNT(*) FILTER (WHERE status = 'closed' AND close_reason = 'sl') AS sl_count,
+    COUNT(*) FILTER (WHERE status = 'closed' AND close_reason = 'time_stop') AS time_stop_count,
+    COUNT(*) FILTER (WHERE status = 'closed' AND close_reason = 'partial') AS partial_count,
+    COUNT(*) FILTER (WHERE status = 'closed' AND close_reason = 'manual') AS manual_count,
+    COUNT(*) FILTER (WHERE status = 'closed' AND close_reason = 'unknown') AS unknown_count
+FROM trade_history
+WHERE user_id = $1
+`
+
+type GetTradeStatsRow struct {
+	TotalTrades   int64   `db:"total_trades"`
+	OpenTrades    int64   `db:"open_trades"`
+	ClosedTrades  int64   `db:"closed_trades"`
+	Wins          int64   `db:"wins"`
+	Losses        int64   `db:"losses"`
+	TotalPnl      float64 `db:"total_pnl"`
+	AvgPnl        float64 `db:"avg_pnl"`
+	AvgWin        float64 `db:"avg_win"`
+	AvgLoss       float64 `db:"avg_loss"`
+	TpCount       int64   `db:"tp_count"`
+	SlCount       int64   `db:"sl_count"`
+	TimeStopCount int64   `db:"time_stop_count"`
+	PartialCount  int64   `db:"partial_count"`
+	ManualCount   int64   `db:"manual_count"`
+	UnknownCount  int64   `db:"unknown_count"`
+}
+
+func (q *Queries) GetTradeStats(ctx context.Context, db DBTX, userID int64) (*GetTradeStatsRow, error) {
+	row := db.QueryRow(ctx, getTradeStats, userID)
+	var i GetTradeStatsRow
+	err := row.Scan(
+		&i.TotalTrades,
+		&i.OpenTrades,
+		&i.ClosedTrades,
+		&i.Wins,
+		&i.Losses,
+		&i.TotalPnl,
+		&i.AvgPnl,
+		&i.AvgWin,
+		&i.AvgLoss,
+		&i.TpCount,
+		&i.SlCount,
+		&i.TimeStopCount,
+		&i.PartialCount,
+		&i.ManualCount,
+		&i.UnknownCount,
+	)
+	return &i, err
+}
+
 const insert = `-- name: Insert :one
 INSERT INTO user_settings (
     chatid, name, settings, step, status,premium
@@ -313,6 +378,71 @@ func (q *Queries) ListOpenTrades(ctx context.Context, db DBTX, userID int64) ([]
 			&i.Leverage,
 			&i.OpenOrderID,
 			&i.AlgoID,
+			&i.Status,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, &i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRecentTrades = `-- name: ListRecentTrades :many
+SELECT
+    guid, user_id, inst_id, pos_side, side, timeframe, strategy,
+    entry_price, entry_size, entry_at,
+    stop_loss, take_profit, leverage,
+    open_order_id, algo_id,
+    exit_price, exit_size, exit_at,
+    realized_pnl, realized_pnl_pct, close_reason,
+    status, created_at, updated_at
+FROM trade_history
+WHERE user_id = $1
+ORDER BY entry_at DESC
+LIMIT $2
+`
+
+type ListRecentTradesParams struct {
+	UserID int64 `db:"user_id"`
+	Limit  int32 `db:"limit"`
+}
+
+func (q *Queries) ListRecentTrades(ctx context.Context, db DBTX, arg *ListRecentTradesParams) ([]*TradeHistory, error) {
+	rows, err := db.Query(ctx, listRecentTrades, arg.UserID, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []*TradeHistory
+	for rows.Next() {
+		var i TradeHistory
+		if err := rows.Scan(
+			&i.Guid,
+			&i.UserID,
+			&i.InstID,
+			&i.PosSide,
+			&i.Side,
+			&i.Timeframe,
+			&i.Strategy,
+			&i.EntryPrice,
+			&i.EntrySize,
+			&i.EntryAt,
+			&i.StopLoss,
+			&i.TakeProfit,
+			&i.Leverage,
+			&i.OpenOrderID,
+			&i.AlgoID,
+			&i.ExitPrice,
+			&i.ExitSize,
+			&i.ExitAt,
+			&i.RealizedPnl,
+			&i.RealizedPnlPct,
+			&i.CloseReason,
 			&i.Status,
 			&i.CreatedAt,
 			&i.UpdatedAt,

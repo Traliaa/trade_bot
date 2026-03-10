@@ -4,6 +4,37 @@
 
 package sql
 
+import (
+	"github.com/jackc/pgx/v5/pgtype"
+)
+
+type TradeHistory struct {
+	Guid           pgtype.UUID        `db:"guid"`
+	UserID         int64              `db:"user_id"`
+	InstID         string             `db:"inst_id"`
+	PosSide        string             `db:"pos_side"`
+	Side           string             `db:"side"`
+	Timeframe      string             `db:"timeframe"`
+	Strategy       string             `db:"strategy"`
+	EntryPrice     float64            `db:"entry_price"`
+	EntrySize      float64            `db:"entry_size"`
+	EntryAt        pgtype.Timestamptz `db:"entry_at"`
+	StopLoss       float64            `db:"stop_loss"`
+	TakeProfit     float64            `db:"take_profit"`
+	Leverage       int32              `db:"leverage"`
+	OpenOrderID    string             `db:"open_order_id"`
+	AlgoID         string             `db:"algo_id"`
+	ExitPrice      float64            `db:"exit_price"`
+	ExitSize       float64            `db:"exit_size"`
+	ExitAt         pgtype.Timestamptz `db:"exit_at"`
+	RealizedPnl    float64            `db:"realized_pnl"`
+	RealizedPnlPct float64            `db:"realized_pnl_pct"`
+	CloseReason    string             `db:"close_reason"`
+	Status         string             `db:"status"`
+	CreatedAt      pgtype.Timestamptz `db:"created_at"`
+	UpdatedAt      pgtype.Timestamptz `db:"updated_at"`
+}
+
 type UserSetting struct {
 	ID       int64   `db:"id"`
 	Chatid   int64   `db:"chatid"`

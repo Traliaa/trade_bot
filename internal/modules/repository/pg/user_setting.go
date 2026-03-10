@@ -188,3 +188,29 @@ func (u *User) CloseTrade(ctx context.Context, guid uuid.UUID, in models.TradeCl
 	})
 	return err
 }
+func (u *User) ListRecentTrades(ctx context.Context, userID int64, limit int) (out []models.TradeRecord, err error) {
+	defer func() {
+		if err != nil {
+			err = fmt.Errorf("pg.User.ListRecentTrades: %w", err)
+		}
+	}()
+
+	err = u.db.RunMaster(ctx, func(ctxTx context.Context, tx pgx.Tx) error {
+		out, err = u.user.ListRecentTrades(ctxTx, tx, userID, limit)
+		return err
+	})
+	return out, err
+}
+func (u *User) GetTradeStats(ctx context.Context, userID int64) (out models.TradeStats, err error) {
+	defer func() {
+		if err != nil {
+			err = fmt.Errorf("pg.User.GetTradeStats: %w", err)
+		}
+	}()
+
+	err = u.db.RunMaster(ctx, func(ctxTx context.Context, tx pgx.Tx) error {
+		out, err = u.user.GetTradeStats(ctxTx, tx, userID)
+		return err
+	})
+	return out, err
+}

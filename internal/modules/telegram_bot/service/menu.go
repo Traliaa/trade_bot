@@ -168,7 +168,7 @@ func (t *Telegram) handleTrailingMenu(ctx context.Context, chatID int64) {
 			"💡 R — это отношение прибыли к риску (1R = риск по стоп-лоссу)",
 		tr.BETriggerR, tr.BEOffsetR,
 		tr.LockTriggerR, tr.LockOffsetR,
-		tr.TimeStopBars, tr.TimeStopMinMFER,
+		tr.TimeStopBars, tr.EarlyTimeStopMinMFER,
 		onOff(tr.PartialEnabled),
 		tr.PartialTriggerR,
 		tr.PartialCloseFrac*100,

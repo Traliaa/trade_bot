@@ -1,10 +1,16 @@
 package models
 
 type TrailDecision struct {
-	NewSL     float64
-	MoveSL    bool
-	Close     bool
-	Reason    string
-	CloseSize float64 // ✅ частичное закрытие
+	MoveSL bool
+	NewSL  float64
 
+	Close bool
+
+	CloseSize float64
+
+	Reason CloseReason
+	Note   string
+
+	MoveSLAfterPartial bool
+	NewSLAfterPartial  float64
 }
