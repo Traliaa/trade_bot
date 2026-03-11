@@ -27,10 +27,14 @@ strategy:
   max_breakout_range_pct: 0.018
   min_confirm_body_frac: 0.25
   max_confirm_wick_frac: 0.35
+  max_retest_bars: 4
+  max_retest_stretch_r: 1.5
 
 user_defaults:
   default_leverage: 15
   default_max_open_positions: 6
+  default_max_long_positions: 3
+  default_max_short_positions: 3
   default_position_pct: 1.0
   default_risk_pct: 0.5
   default_stop_pct: 3.0

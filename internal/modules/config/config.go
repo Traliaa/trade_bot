@@ -80,16 +80,21 @@ type StrategyConfig struct {
 	MaxBreakoutRangePct float64 `yaml:"max_breakout_range_pct"`
 	MinConfirmBodyFrac  float64 `yaml:"min_confirm_body_frac"`
 	MaxConfirmWickFrac  float64 `yaml:"max_confirm_wick_frac"`
+
+	MaxRetestBars     int     `yaml:"max_retest_bars"`
+	MaxRetestStretchR float64 `yaml:"max_retest_stretch_r"`
 }
 
 type UserDefaultsConfig struct {
 	// стартовые дефолты для нового юзера
-	DefaultLeverage         int     `yaml:"default_leverage"`
-	DefaultMaxOpenPositions int     `yaml:"default_max_open_positions"`
-	DefaultPositionPct      float64 `yaml:"default_position_pct"`
-	DefaultRiskPct          float64 `yaml:"default_risk_pct"`
-	DefaultStopPct          float64 `yaml:"default_stop_pct"`
-	DefaultTakeProfitRR     float64 `yaml:"default_take_profit_rr"`
+	DefaultLeverage          int     `yaml:"default_leverage"`
+	DefaultMaxOpenPositions  int     `yaml:"default_max_open_positions"`
+	DefaultMaxLongPositions  int     `yaml:"default_max_long_positions"`
+	DefaultMaxShortPositions int     `yaml:"default_max_short_positions"`
+	DefaultPositionPct       float64 `yaml:"default_position_pct"`
+	DefaultRiskPct           float64 `yaml:"default_risk_pct"`
+	DefaultStopPct           float64 `yaml:"default_stop_pct"`
+	DefaultTakeProfitRR      float64 `yaml:"default_take_profit_rr"`
 }
 
 type TrailingDefaultsConfig struct {

@@ -517,6 +517,26 @@ func (e *Service) OnCandle(t models.CandleTick) (models.Signal, bool) {
 				return models.Signal{}, false
 			}
 
+			// ---- stale / stretched retest ----
+			riskDist := math.Abs(t.Close - st.Pending.Level)
+			if reason, bad := rejectLateRetest(
+				e.cfg.Strategy.MaxRetestBars,
+				e.cfg.Strategy.MaxRetestStretchR,
+				st.Pending,
+				t.Close,
+				riskDist,
+				ltfDur,
+				now,
+			); bad {
+				e.rejects.Inc(reason)
+
+				st.Pending = models.PendingEntry{}
+				st.CooldownUntil = now.Add(pendingCooldownBars * ltfDur)
+
+				e.updateBuffer(st, t)
+				e.MaybeLogRejects()
+				return models.Signal{}, false
+			}
 			// ✅ реальный сигнал
 			side := st.Pending.Side
 			st.Pending = models.PendingEntry{}
@@ -582,6 +602,7 @@ func (e *Service) OnCandle(t models.CandleTick) (models.Signal, bool) {
 				BreakClosePos:  closePos,
 				BreakBodyPct:   bodyPct,
 				BreakRangePct:  breakRangePct,
+				BreakoutPrice:  t.Close,
 			}
 			e.updateBuffer(st, t)
 			return models.Signal{}, false
@@ -605,6 +626,7 @@ func (e *Service) OnCandle(t models.CandleTick) (models.Signal, bool) {
 				BreakClosePos:  closePos,
 				BreakBodyPct:   bodyPct,
 				BreakRangePct:  breakRangePct,
+				BreakoutPrice:  t.Close,
 			}
 			e.updateBuffer(st, t)
 			return models.Signal{}, false

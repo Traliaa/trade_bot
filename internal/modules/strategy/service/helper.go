@@ -184,3 +184,34 @@ func isBadConfirmCandle(
 		return true
 	}
 }
+func rejectLateRetest(
+	maxRetestBars int,
+	maxRetestStretchR float64,
+	p models.PendingEntry,
+	entryPrice float64,
+	riskDist float64,
+	ltfDur time.Duration,
+	now time.Time,
+) (reason models.RejectReason, reject bool) {
+	// 1) слишком старый retest
+	if maxRetestBars > 0 && !p.Created.IsZero() && ltfDur > 0 {
+		barsAlive := int(now.Sub(p.Created) / ltfDur)
+		if barsAlive > maxRetestBars {
+			return models.RejectStaleRetest, true
+		}
+	}
+
+	// 2) слишком растянутый retest
+	if maxRetestStretchR > 0 &&
+		p.BreakoutPrice > 0 &&
+		entryPrice > 0 &&
+		riskDist > 0 {
+
+		stretchR := math.Abs(entryPrice-p.BreakoutPrice) / riskDist
+		if stretchR > maxRetestStretchR {
+			return models.RejectLateRetestStretch, true
+		}
+	}
+
+	return "", false
+}

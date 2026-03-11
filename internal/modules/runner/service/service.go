@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 	"trade_bot/internal/base"
@@ -132,6 +133,40 @@ func (s *Service) OnSignal(ctx context.Context, sig models.Signal) {
 				)
 				continue
 			}
+		}
+
+		// 1.1️⃣ лимит по стороне
+		sess.PosMu.RLock()
+		longs, shorts := countOpenSides(sess.Positions)
+		sess.PosMu.RUnlock()
+
+		side := strings.ToLower(string(sig.Side))
+
+		isLong := side == "buy" || side == "long"
+		isShort := side == "sell" || side == "short"
+
+		if isLong &&
+			sess.User.Settings.TradingSettings.MaxLongPositions > 0 &&
+			longs >= sess.User.Settings.TradingSettings.MaxLongPositions {
+
+			sess.Notifier.SendF(ctx, sess.User.TelegramID,
+				"⚠️ [%s] Лимит LONG позиций (%d) достигнут, сигнал пропущен",
+				sig.InstID,
+				sess.User.Settings.TradingSettings.MaxLongPositions,
+			)
+			continue
+		}
+
+		if isShort &&
+			sess.User.Settings.TradingSettings.MaxShortPositions > 0 &&
+			shorts >= sess.User.Settings.TradingSettings.MaxShortPositions {
+
+			sess.Notifier.SendF(ctx, sess.User.TelegramID,
+				"⚠️ [%s] Лимит SHORT позиций (%d) достигнут, сигнал пропущен",
+				sig.InstID,
+				sess.User.Settings.TradingSettings.MaxShortPositions,
+			)
+			continue
 		}
 
 		// 2. расчёт параметров сделки

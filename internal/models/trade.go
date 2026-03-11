@@ -51,6 +51,7 @@ type TradeRecord struct {
 	RealizedPnL    float64
 	RealizedPnLPct float64
 	CloseReason    CloseReason
+	RMultiple      float64
 
 	Status    TradeStatus
 	CreatedAt time.Time

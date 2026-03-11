@@ -19,4 +19,5 @@ type PendingEntry struct {
 	Touched        bool
 	Confirmed      bool
 	DeepRetestSeen bool
+	BreakoutPrice  float64
 }

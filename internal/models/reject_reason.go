@@ -28,6 +28,8 @@ const (
 	RejectPendingShallowRetest    RejectReason = "pending_shallow_retest"
 	RejectBreakoutTooLong         RejectReason = "breakout_too_long"
 	RejectPendingBadConfirmCandle RejectReason = "pending_bad_confirm_candle"
+	RejectStaleRetest             RejectReason = "stale_retest"
+	RejectLateRetestStretch       RejectReason = "late_retest_stretch"
 )
 
 type RejectTopItem struct {

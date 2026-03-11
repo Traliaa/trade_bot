@@ -38,10 +38,13 @@ type TradingSettings struct {
 	OKXPassphrase string `json:"okx_passphrase"`
 
 	// исполнение/риск (юзер правит)
-	Leverage         int     `json:"leverage"`
-	MaxOpenPositions int     `json:"max_open_positions"`
-	PositionPct      float64 `json:"position_pct"` // размер позиции
-	RiskPct          float64 `json:"risk_pct"`     // риск на сделку
+	Leverage          int `json:"leverage"`
+	MaxOpenPositions  int `json:"max_open_positions"`
+	MaxLongPositions  int `json:"max_long_positions"`
+	MaxShortPositions int `json:"max_short_positions"`
+
+	PositionPct float64 `json:"position_pct"` // размер позиции
+	RiskPct     float64 `json:"risk_pct"`     // риск на сделку
 
 	StopPct      float64 `json:"stop_pct"`       // расстояние SL (%)
 	TakeProfitRR float64 `json:"take_profit_rr"` // TP в R
@@ -79,10 +82,12 @@ func NewTradingSettingsFromDefaults(userID int64, cfg *config.Config) *UserSetti
 		TelegramID: userID,
 		Settings: Settings{
 			TradingSettings: TradingSettings{
-				Leverage:         cfg.UserDefaults.DefaultLeverage,
-				MaxOpenPositions: cfg.UserDefaults.DefaultMaxOpenPositions,
-				PositionPct:      cfg.UserDefaults.DefaultPositionPct,
-				RiskPct:          cfg.UserDefaults.DefaultRiskPct,
+				Leverage:          cfg.UserDefaults.DefaultLeverage,
+				MaxOpenPositions:  cfg.UserDefaults.DefaultMaxOpenPositions,
+				MaxLongPositions:  cfg.UserDefaults.DefaultMaxLongPositions,
+				MaxShortPositions: cfg.UserDefaults.DefaultMaxShortPositions,
+				PositionPct:       cfg.UserDefaults.DefaultPositionPct,
+				RiskPct:           cfg.UserDefaults.DefaultRiskPct,
 
 				StopPct:      cfg.UserDefaults.DefaultStopPct,
 				TakeProfitRR: cfg.UserDefaults.DefaultTakeProfitRR,
