@@ -4,26 +4,28 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"strconv"
 	"time"
 	"trade_bot/internal/modules/runner/sessions"
 
 	"trade_bot/internal/models"
-
-	"github.com/go-chi/chi/v5"
 )
 
 type TradeRouter interface {
 	DisableUser(ctx context.Context, userID int64) bool
-	EnableUser(context.Context, *models.UserSettings) (*sessions.UserSession, bool)
+	EnableUser(ctx context.Context, user *models.UserSettings) (*sessions.UserSession, bool)
 	ApplySettings(ctx context.Context, user *models.UserSettings)
 	StatusForUser(ctx context.Context, userID int64) ([]models.OpenPosition, error)
-	GetSession(int64) (*sessions.UserSession, bool)
+	GetSession(userID int64) (*sessions.UserSession, bool)
+
 	AutoTuneNow(ctx context.Context) (models.TuneDecision, models.RuntimeTuning, time.Time, time.Time, bool, models.TuneMode)
 	ToggleTuneMode(ctx context.Context) models.TuneMode
 	TuneMode(ctx context.Context) models.TuneMode
 	StrategyRejects(reset bool) models.RejectSnapshot
 	StrategyTuning() (models.RuntimeTuning, time.Time, time.Time)
+
+	GetUser(ctx context.Context, userID int64) (*models.UserSettings, error)
+	ListRecentTrades(ctx context.Context, userID int64, limit int) ([]models.TradeRecord, error)
+	GetTradeStats(ctx context.Context, userID int64) (models.TradeStats, error)
 }
 
 func (c *TradeController) SetRouter(r TradeRouter) {
@@ -63,59 +65,96 @@ type autoTuneResponse struct {
 	Mode     models.TuneMode      `json:"mode"`
 }
 
+type tradesResponse struct {
+	Trades []models.TradeRecord `json:"trades"`
+}
+
+type statsResponse struct {
+	Stats models.TradeStats `json:"stats"`
+}
+
 func (c *TradeController) DisableUser(w http.ResponseWriter, r *http.Request) {
-	userID, ok := mustUserID(w, r)
+	userID, ok := mustAuthUserID(w, r)
 	if !ok {
 		return
 	}
+
 	c.r.DisableUser(r.Context(), userID)
 	w.WriteHeader(http.StatusNoContent)
 }
 
 func (c *TradeController) EnableUser(w http.ResponseWriter, r *http.Request) {
+	userID, ok := mustAuthUserID(w, r)
+	if !ok {
+		return
+	}
+
 	var req enableUserRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "bad json", http.StatusBadRequest)
 		return
 	}
-	c.r.EnableUser(r.Context(), &req.User)
+
+	// страхуемся: user id всегда берём из auth, а не из body
+	req.User.TelegramID = userID
+
+	_, _ = c.r.EnableUser(r.Context(), &req.User)
 	w.WriteHeader(http.StatusNoContent)
 }
 
 func (c *TradeController) ApplySettings(w http.ResponseWriter, r *http.Request) {
+	userID, ok := mustAuthUserID(w, r)
+	if !ok {
+		return
+	}
+
 	var req applySettingsRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "bad json", http.StatusBadRequest)
 		return
 	}
+
+	// user id не доверяем клиенту
+	req.User.TelegramID = userID
+
 	c.r.ApplySettings(r.Context(), &req.User)
 	w.WriteHeader(http.StatusNoContent)
 }
 
 func (c *TradeController) StatusForUser(w http.ResponseWriter, r *http.Request) {
-	userID, ok := mustUserID(w, r)
+	userID, ok := mustAuthUserID(w, r)
 	if !ok {
 		return
 	}
+
 	positions, err := c.r.StatusForUser(r.Context(), userID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
 	writeJSON(w, statusResponse{Positions: positions})
 }
 
 func (c *TradeController) GetSetting(w http.ResponseWriter, r *http.Request) {
-	userID, ok := mustUserID(w, r)
+	userID, ok := mustAuthUserID(w, r)
 	if !ok {
 		return
 	}
 
 	session, ok := c.r.GetSession(userID)
-	if !ok {
-		http.Error(w, "Настройки не найдены, попробуй /start", http.StatusInternalServerError)
+	if ok && session != nil && session.User != nil {
+		writeJSON(w, settingResponse{Setting: *session.User})
+		return
 	}
-	writeJSON(w, settingResponse{Setting: *session.User})
+
+	user, err := c.r.GetUser(r.Context(), userID)
+	if err != nil {
+		http.Error(w, "settings not found", http.StatusNotFound)
+		return
+	}
+
+	writeJSON(w, settingResponse{Setting: *user})
 }
 
 func (c *TradeController) AutoTuneNow(w http.ResponseWriter, r *http.Request) {
@@ -155,19 +194,39 @@ func (c *TradeController) StrategyTuning(w http.ResponseWriter, r *http.Request)
 	})
 }
 
-// helpers
-
-func mustUserID(w http.ResponseWriter, r *http.Request) (int64, bool) {
-	idStr := chi.URLParam(r, "id")
-	id, err := strconv.ParseInt(idStr, 10, 64)
-	if err != nil || id <= 0 {
-		http.Error(w, "bad user id", http.StatusBadRequest)
-		return 0, false
+func (c *TradeController) RecentTrades(w http.ResponseWriter, r *http.Request) {
+	userID, ok := mustAuthUserID(w, r)
+	if !ok {
+		return
 	}
-	return id, true
+
+	limit := 20
+	if s := r.URL.Query().Get("limit"); s != "" {
+		if n, err := parsePositiveInt(s); err == nil && n > 0 {
+			limit = n
+		}
+	}
+
+	trades, err := c.r.ListRecentTrades(r.Context(), userID, limit)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, tradesResponse{Trades: trades})
 }
 
-func writeJSON(w http.ResponseWriter, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(v)
+func (c *TradeController) TradeStats(w http.ResponseWriter, r *http.Request) {
+	userID, ok := mustAuthUserID(w, r)
+	if !ok {
+		return
+	}
+
+	stats, err := c.r.GetTradeStats(r.Context(), userID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, statsResponse{Stats: stats})
 }

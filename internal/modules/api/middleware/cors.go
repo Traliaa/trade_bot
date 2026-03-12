@@ -5,7 +5,9 @@ import (
 )
 
 type CORSConfig struct {
-	AllowedOrigins []string
+	AllowedOrigins   []string
+	AllowedHeaders   []string
+	AllowCredentials bool
 }
 
 func CORS(cfg CORSConfig) func(http.Handler) http.Handler {
