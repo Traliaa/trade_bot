@@ -1,11 +1,11 @@
-package runner
+package runner_old
 
 import (
 	"context"
 	"trade_bot/internal/base"
 
 	"trade_bot/internal/models"
-	runner "trade_bot/internal/modules/runner/service"
+	runner "trade_bot/internal/modules/runner_old/service"
 	"trade_bot/internal/modules/telegram_bot/service"
 
 	"go.uber.org/fx"
@@ -13,7 +13,7 @@ import (
 )
 
 func Module() fx.Option {
-	return fx.Module("runner",
+	return fx.Module("runner_old",
 		fx.Provide(
 
 			runner.NewModuleConfig,
@@ -26,7 +26,7 @@ func Module() fx.Option {
 
 		fx.Invoke(func(lc fx.Lifecycle, s *runner.Service, root *zap.Logger, sigs chan models.Signal, // входящие сигналы
 			candles chan models.CandleTick) {
-			s.Base = base.New("runner", root, true)
+			s.Base = base.New("runner_old", root, true)
 
 			lc.Append(fx.Hook{
 				OnStart: func(_ context.Context) error {

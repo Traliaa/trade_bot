@@ -10,7 +10,7 @@ import (
 	"trade_bot/internal/models"
 	"trade_bot/internal/modules/config"
 	"trade_bot/internal/modules/repository/pg"
-	"trade_bot/internal/modules/runner/sessions"
+	"trade_bot/internal/modules/runner_old/sessions"
 	strategy "trade_bot/internal/modules/strategy/service"
 
 	tgbot "github.com/go-telegram-bot-api/telegram-bot-api/v5"

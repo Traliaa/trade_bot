@@ -6,7 +6,7 @@ import (
 
 	"trade_bot/internal/modules/api/controller"
 	"trade_bot/internal/modules/api/middleware"
-	"trade_bot/internal/modules/runner/service"
+	"trade_bot/internal/modules/runner_old/service"
 
 	"github.com/go-chi/chi/v5"
 	"go.uber.org/fx"

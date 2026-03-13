@@ -6,7 +6,7 @@ import (
 	"time"
 	"trade_bot/internal/helper"
 	"trade_bot/internal/models"
-	"trade_bot/internal/modules/runner/sessions"
+	"trade_bot/internal/modules/runner_old/sessions"
 
 	"github.com/bytedance/gopkg/util/logger"
 	"go.uber.org/zap"

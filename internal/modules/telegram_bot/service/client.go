@@ -7,7 +7,7 @@ import (
 	"time"
 	"trade_bot/internal/models"
 	"trade_bot/internal/modules/config"
-	"trade_bot/internal/modules/runner/sessions"
+	"trade_bot/internal/modules/runner_old/sessions"
 	"trade_bot/pkg/logger"
 
 	tgbot "github.com/go-telegram-bot-api/telegram-bot-api/v5"

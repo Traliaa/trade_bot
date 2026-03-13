@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"time"
-	"trade_bot/internal/modules/runner/sessions"
+	"trade_bot/internal/modules/runner_old/sessions"
 
 	"trade_bot/internal/models"
 )
@@ -41,10 +41,6 @@ func NewTradeController() *TradeController {
 }
 
 type applySettingsRequest struct {
-	User models.UserSettings `json:"user"`
-}
-
-type enableUserRequest struct {
 	User models.UserSettings `json:"user"`
 }
 
@@ -89,16 +85,12 @@ func (c *TradeController) EnableUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var req enableUserRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "bad json", http.StatusBadRequest)
-		return
+	resp, err := c.r.GetUser(r.Context(), userID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+
 	}
-
-	// страхуемся: user id всегда берём из auth, а не из body
-	req.User.TelegramID = userID
-
-	_, _ = c.r.EnableUser(r.Context(), &req.User)
+	_, _ = c.r.EnableUser(r.Context(), resp)
 	w.WriteHeader(http.StatusNoContent)
 }
 

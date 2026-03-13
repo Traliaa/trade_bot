@@ -3,7 +3,7 @@ package service
 import (
 	"context"
 	"trade_bot/internal/models"
-	"trade_bot/internal/modules/runner/sessions"
+	"trade_bot/internal/modules/runner_old/sessions"
 )
 
 func (r *Service) GetSession(userID int64) (*sessions.UserSession, bool) {

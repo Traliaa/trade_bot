@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"trade_bot/internal/models"
-	"trade_bot/internal/modules/runner/sessions"
+	"trade_bot/internal/modules/runner_old/sessions"
 )
 
 // StatusForUser возвращает список открытых позиций с OKX для данного пользователя.
@@ -12,6 +12,11 @@ func (r *Service) StatusForUser(ctx context.Context, userID int64) ([]models.Ope
 	r.mu.RLock()
 	sess := r.users[userID]
 	r.mu.RUnlock()
+
+	//TODO убрать после рефаткоринга
+
+	user, _ := r.GetUser(ctx, userID)
+	sess, _ = r.EnableUser(ctx, user)
 
 	if sess == nil {
 		return nil, fmt.Errorf("бот не запущен для этого пользователя")

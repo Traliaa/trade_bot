@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"trade_bot/internal/modules/bootstrap/lifecyclelog"
-	runner "trade_bot/internal/modules/runner/service"
+	runner "trade_bot/internal/modules/runner_old/service"
 	"trade_bot/internal/modules/telegram_bot/service"
 	"trade_bot/internal/modules/telegram_public/public"
 
