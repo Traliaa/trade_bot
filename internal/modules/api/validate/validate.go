@@ -19,7 +19,6 @@ import (
 // 4) secret_key = HMAC_SHA256("WebAppData", bot_token)
 // 5) check_hash = HMAC_SHA256(secret_key, data_check_string) hex
 func ValidateInitData(initData string, botToken string) (bool, url.Values) {
-
 	v, err := url.ParseQuery(initData)
 	if err != nil {
 		return false, nil
@@ -52,14 +51,15 @@ func ValidateInitData(initData string, botToken string) (bool, url.Values) {
 	dataCheckString := b.String()
 	log.Println("DATA CHECK:", dataCheckString)
 
-	// SHA256(bot_token)
-	hash := sha256.Sum256([]byte(botToken))
-	secretKey := hash[:]
+	// 🔑 Telegram WebApp secret
+	secret := hmac.New(sha256.New, []byte("WebAppData"))
+	secret.Write([]byte(botToken))
+	secretKey := secret.Sum(nil)
 
 	mac := hmac.New(sha256.New, secretKey)
 	mac.Write([]byte(dataCheckString))
-
 	sum := mac.Sum(nil)
+
 	want := hex.EncodeToString(sum)
 	log.Println("CALC HASH:", want)
 
