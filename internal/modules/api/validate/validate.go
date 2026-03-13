@@ -30,7 +30,7 @@ func ValidateInitData(initData string, botToken string) (bool, url.Values) {
 	}
 
 	v.Del("hash")
-	v.Del("signature")
+	//v.Del("signature")
 
 	keys := make([]string, 0, len(v))
 	for k := range v {
@@ -47,9 +47,7 @@ func ValidateInitData(initData string, botToken string) (bool, url.Values) {
 		b.WriteByte('=')
 		b.WriteString(v.Get(k))
 	}
-	log.Println("RECV HASH:", recvHash)
 	dataCheckString := b.String()
-	log.Println("DATA CHECK:", dataCheckString)
 
 	// 🔑 Telegram WebApp secret
 	secret := hmac.New(sha256.New, []byte("WebAppData"))
@@ -61,6 +59,9 @@ func ValidateInitData(initData string, botToken string) (bool, url.Values) {
 	sum := mac.Sum(nil)
 
 	want := hex.EncodeToString(sum)
+	log.Println("BOT TOKEN LEN:", len(botToken))
+	log.Println("RECV HASH:", recvHash)
+	log.Println("DATA CHECK:", dataCheckString)
 	log.Println("CALC HASH:", want)
 
 	return hmac.Equal([]byte(recvHash), []byte(want)), v
