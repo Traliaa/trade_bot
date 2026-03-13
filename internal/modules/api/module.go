@@ -22,7 +22,6 @@ func Module() fx.Option {
 	return fx.Module("api",
 		fx.Provide(
 
-			provideBotToken,
 			provideJWTSecret,
 
 			controller.NewTgSessionController,
@@ -36,11 +35,6 @@ func Module() fx.Option {
 			},
 			registerRoutes),
 	)
-}
-
-func provideBotToken() string {
-	// лучше потом заменить на твою config/rtc схему
-	return os.Getenv("BOT_TOKEN")
 }
 
 func provideJWTSecret() []byte {

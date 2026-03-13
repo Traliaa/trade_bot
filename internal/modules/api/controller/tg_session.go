@@ -9,10 +9,11 @@ import (
 	"time"
 	"trade_bot/internal/modules/api/auth"
 	"trade_bot/internal/modules/api/validate"
+	"trade_bot/internal/modules/config"
 )
 
 type TgSessionController struct {
-	BotToken  string
+	cfg       *config.Config
 	JWTSecret []byte
 }
 
@@ -24,9 +25,9 @@ type tgSessionResp struct {
 	Token string `json:"token"`
 }
 
-func NewTgSessionController(botToken string, jwtSecret []byte) *TgSessionController {
+func NewTgSessionController(cfg *config.Config, jwtSecret []byte) *TgSessionController {
 	return &TgSessionController{
-		BotToken:  botToken,
+		cfg:       cfg,
 		JWTSecret: jwtSecret,
 	}
 }
@@ -41,7 +42,7 @@ func (c *TgSessionController) CreateSession(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	ok, v := validate.ValidateInitData(req.InitData, c.BotToken)
+	ok, v := validate.ValidateInitData(req.InitData, c.cfg.Telegram.Token)
 	if !ok {
 		log.Println("unauthorized: ValidateInitData")
 

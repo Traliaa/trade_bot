@@ -17,7 +17,7 @@ import (
 // 3) Build data_check_string = "key=value\n..." sorted by key
 // 4) secret_key = HMAC_SHA256("WebAppData", bot_token)
 // 5) check_hash = HMAC_SHA256(secret_key, data_check_string) hex
-func ValidateInitData(initData string, botToken string) (ok bool, values url.Values) {
+func ValidateInitData(initData string, botToken string) (bool, url.Values) {
 	v, err := url.ParseQuery(initData)
 	if err != nil {
 		return false, nil
@@ -44,18 +44,18 @@ func ValidateInitData(initData string, botToken string) (ok bool, values url.Val
 		b.WriteByte('=')
 		b.WriteString(v.Get(k))
 	}
+
 	dataCheckString := b.String()
 
-	// secret_key = HMAC_SHA256("WebAppData", botToken)
-	secret := hmac.New(sha256.New, []byte("WebAppData"))
-	secret.Write([]byte(botToken))
-	secretKey := secret.Sum(nil)
+	// SHA256(bot_token)
+	hash := sha256.Sum256([]byte(botToken))
+	secretKey := hash[:]
 
-	// check_hash = HMAC_SHA256(secretKey, dataCheckString)
 	mac := hmac.New(sha256.New, secretKey)
 	mac.Write([]byte(dataCheckString))
+
 	sum := mac.Sum(nil)
 	want := hex.EncodeToString(sum)
 
-	return hmac.Equal([]byte(strings.ToLower(recvHash)), []byte(want)), v
+	return hmac.Equal([]byte(recvHash), []byte(want)), v
 }
