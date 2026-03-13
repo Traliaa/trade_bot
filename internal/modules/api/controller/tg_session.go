@@ -43,12 +43,16 @@ func (c *TgSessionController) CreateSession(w http.ResponseWriter, r *http.Reque
 
 	ok, v := validate.ValidateInitData(req.InitData, c.BotToken)
 	if !ok {
+		log.Println("unauthorized: ValidateInitData")
+
 		http.Error(w, "unauthorized: ValidateInitData", http.StatusUnauthorized)
 		return
 	}
 
 	userJSON := v.Get("user")
 	if userJSON == "" {
+		log.Println("unauthorized: no user")
+
 		http.Error(w, "unauthorized: no user", http.StatusUnauthorized)
 		return
 	}
@@ -58,6 +62,8 @@ func (c *TgSessionController) CreateSession(w http.ResponseWriter, r *http.Reque
 		Username string `json:"username"`
 	}
 	if err := json.Unmarshal([]byte(userJSON), &u); err != nil || u.ID == 0 {
+		log.Println("unauthorized: bad user")
+
 		http.Error(w, "unauthorized: bad user", http.StatusUnauthorized)
 		return
 	}
