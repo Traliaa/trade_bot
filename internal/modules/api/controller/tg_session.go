@@ -3,6 +3,7 @@ package controller
 import (
 	"encoding/json"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 	"trade_bot/internal/modules/api/auth"
@@ -62,6 +63,51 @@ func (c *TgSessionController) CreateSession(w http.ResponseWriter, r *http.Reque
 		Sub:        strconv.FormatInt(u.ID, 10),
 		TgUserID:   u.ID,
 		TgUsername: u.Username,
+		Iat:        now,
+		Exp:        now + 60*60*24*7, // 7 дней
+	}
+
+	tok, err := auth.SignHS256(c.JWTSecret, claims)
+	if err != nil {
+		http.Error(w, "failed to sign token", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(tgSessionResp{Token: tok})
+}
+
+type devSessionResponse struct {
+	Token string `json:"token"`
+}
+
+func (c *TgSessionController) CreateDevSession(w http.ResponseWriter, r *http.Request) {
+	// Разрешаем только для локальной/дев среды
+	appEnv := os.Getenv("APP_ENV")
+	if appEnv != "dev" && appEnv != "local" {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	// По умолчанию твой admin/test user
+	var userID int64 = 213532199
+	username := "dev"
+
+	// Можно переопределить через env
+	if s := os.Getenv("DEV_TELEGRAM_USER_ID"); s != "" {
+		if v, err := strconv.ParseInt(s, 10, 64); err == nil && v > 0 {
+			userID = v
+		}
+	}
+	if s := os.Getenv("DEV_TELEGRAM_USERNAME"); s != "" {
+		username = s
+	}
+
+	now := time.Now().Unix()
+	claims := auth.Claims{
+		Sub:        strconv.FormatInt(userID, 10),
+		TgUserID:   userID,
+		TgUsername: username,
 		Iat:        now,
 		Exp:        now + 60*60*24*7, // 7 дней
 	}

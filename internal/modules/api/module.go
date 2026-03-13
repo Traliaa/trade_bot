@@ -71,7 +71,7 @@ func registerRoutes(
 		}))
 
 		r.Post("/tg/session", tg.CreateSession)
-
+		r.Post("/dev/session", tg.CreateDevSession)
 		r.Group(func(pr chi.Router) {
 			pr.Use(middleware.Auth(jwtSecret))
 
