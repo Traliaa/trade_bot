@@ -29,7 +29,9 @@ func ValidateInitData(initData string, botToken string) (bool, url.Values) {
 	if recvHash == "" {
 		return false, v
 	}
+
 	v.Del("hash")
+	v.Del("signature")
 
 	keys := make([]string, 0, len(v))
 	for k := range v {
