@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"log"
 	"net/url"
 	"sort"
 	"strings"
@@ -18,6 +19,7 @@ import (
 // 4) secret_key = HMAC_SHA256("WebAppData", bot_token)
 // 5) check_hash = HMAC_SHA256(secret_key, data_check_string) hex
 func ValidateInitData(initData string, botToken string) (bool, url.Values) {
+
 	v, err := url.ParseQuery(initData)
 	if err != nil {
 		return false, nil
@@ -44,8 +46,9 @@ func ValidateInitData(initData string, botToken string) (bool, url.Values) {
 		b.WriteByte('=')
 		b.WriteString(v.Get(k))
 	}
-
+	log.Println("RECV HASH:", recvHash)
 	dataCheckString := b.String()
+	log.Println("DATA CHECK:", dataCheckString)
 
 	// SHA256(bot_token)
 	hash := sha256.Sum256([]byte(botToken))
@@ -56,6 +59,7 @@ func ValidateInitData(initData string, botToken string) (bool, url.Values) {
 
 	sum := mac.Sum(nil)
 	want := hex.EncodeToString(sum)
+	log.Println("CALC HASH:", want)
 
 	return hmac.Equal([]byte(recvHash), []byte(want)), v
 }
