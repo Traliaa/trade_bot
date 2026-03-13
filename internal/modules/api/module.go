@@ -1,6 +1,7 @@
 package api
 
 import (
+	"log"
 	"os"
 
 	"trade_bot/internal/modules/api/controller"
@@ -44,7 +45,12 @@ func provideBotToken() string {
 
 func provideJWTSecret() []byte {
 	// лучше потом заменить на твою config/rtc схему
-	return []byte(os.Getenv("JWT_SECRET"))
+	jwtSecret := []byte(os.Getenv("JWT_SECRET"))
+
+	if len(jwtSecret) == 0 {
+		log.Fatal("JWT_SECRET is empty")
+	}
+	return jwtSecret
 }
 
 func registerRoutes(

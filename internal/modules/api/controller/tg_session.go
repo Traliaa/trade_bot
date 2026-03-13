@@ -77,10 +77,6 @@ func (c *TgSessionController) CreateSession(w http.ResponseWriter, r *http.Reque
 	_ = json.NewEncoder(w).Encode(tgSessionResp{Token: tok})
 }
 
-type devSessionResponse struct {
-	Token string `json:"token"`
-}
-
 func (c *TgSessionController) CreateDevSession(w http.ResponseWriter, r *http.Request) {
 	// Разрешаем только для локальной/дев среды
 	//appEnv := os.Getenv("APP_ENV")

@@ -10,6 +10,7 @@ import (
 	"time"
 )
 
+type UserIDContextKey struct{}
 type Claims struct {
 	Sub        string `json:"sub"`
 	TgUserID   int64  `json:"tg_user_id"`

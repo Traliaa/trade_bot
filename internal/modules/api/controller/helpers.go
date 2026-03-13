@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"trade_bot/internal/modules/api/auth"
 )
 
 func mustAuthUserID(w http.ResponseWriter, r *http.Request) (int64, bool) {
@@ -18,7 +19,7 @@ func mustAuthUserID(w http.ResponseWriter, r *http.Request) (int64, bool) {
 }
 
 func authUserIDFromContext(ctx context.Context) (int64, error) {
-	v := ctx.Value(userIDContextKey{})
+	v := ctx.Value(auth.UserIDContextKey{})
 	if v == nil {
 		return 0, errors.New("user id not found in context")
 	}
@@ -30,8 +31,6 @@ func authUserIDFromContext(ctx context.Context) (int64, error) {
 
 	return id, nil
 }
-
-type userIDContextKey struct{}
 
 func parsePositiveInt(s string) (int, error) {
 	var n int
