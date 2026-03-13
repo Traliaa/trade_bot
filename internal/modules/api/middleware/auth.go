@@ -17,6 +17,7 @@ func Auth(jwtSecret []byte) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 
 			log.Println("Auth JWT SECRET LEN:", len(jwtSecret))
+			log.Println("Auth JWT SECRET LEN:", jwtSecret)
 
 			h := r.Header.Get("Authorization")
 			if h == "" || !strings.HasPrefix(h, "Bearer ") {

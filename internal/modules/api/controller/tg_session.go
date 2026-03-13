@@ -34,6 +34,8 @@ func NewTgSessionController(botToken string, jwtSecret []byte) *TgSessionControl
 func (c *TgSessionController) CreateSession(w http.ResponseWriter, r *http.Request) {
 	var req tgSessionReq
 	log.Println("CreateSession JWT SECRET LEN:", len(c.JWTSecret))
+	log.Println("CreateSession JWT SECRET LEN:", c.JWTSecret)
+
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.InitData == "" {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return
@@ -41,7 +43,7 @@ func (c *TgSessionController) CreateSession(w http.ResponseWriter, r *http.Reque
 
 	ok, v := validate.ValidateInitData(req.InitData, c.BotToken)
 	if !ok {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		http.Error(w, "unauthorized: ValidateInitData", http.StatusUnauthorized)
 		return
 	}
 
