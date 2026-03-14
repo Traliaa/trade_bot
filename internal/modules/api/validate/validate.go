@@ -4,10 +4,11 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
-	"log"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // ValidateInitData validates Telegram WebApp initData using bot token.
@@ -30,7 +31,6 @@ func ValidateInitData(initData string, botToken string) (bool, url.Values) {
 	}
 
 	v.Del("hash")
-	//v.Del("signature")
 
 	keys := make([]string, 0, len(v))
 	for k := range v {
@@ -49,7 +49,6 @@ func ValidateInitData(initData string, botToken string) (bool, url.Values) {
 	}
 	dataCheckString := b.String()
 
-	// 🔑 Telegram WebApp secret
 	secret := hmac.New(sha256.New, []byte("WebAppData"))
 	secret.Write([]byte(botToken))
 	secretKey := secret.Sum(nil)
@@ -57,12 +56,33 @@ func ValidateInitData(initData string, botToken string) (bool, url.Values) {
 	mac := hmac.New(sha256.New, secretKey)
 	mac.Write([]byte(dataCheckString))
 	sum := mac.Sum(nil)
-
 	want := hex.EncodeToString(sum)
-	log.Println("BOT TOKEN LEN:", len(botToken))
-	log.Println("RECV HASH:", recvHash)
-	log.Println("DATA CHECK:", dataCheckString)
-	log.Println("CALC HASH:", want)
 
-	return hmac.Equal([]byte(recvHash), []byte(want)), v
+	if !hmac.Equal([]byte(strings.ToLower(recvHash)), []byte(strings.ToLower(want))) {
+		return false, v
+	}
+
+	authDateStr := v.Get("auth_date")
+	if authDateStr == "" {
+		return false, v
+	}
+
+	authDate, err := strconv.ParseInt(authDateStr, 10, 64)
+	if err != nil || authDate <= 0 {
+		return false, v
+	}
+
+	now := time.Now().Unix()
+
+	// допустимое окно 1 час
+	if now-authDate > 3600 {
+		return false, v
+	}
+
+	// защита от слишком "будущего" времени
+	if authDate-now > 300 {
+		return false, v
+	}
+
+	return true, v
 }

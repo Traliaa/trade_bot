@@ -267,7 +267,10 @@ func (u *UserSettings) ListRecentTrades(ctx context.Context, tx pgx.Tx, userID i
 		}
 	}()
 
-	resp, err := u.sql.ListOpenTrades(ctx, tx, userID)
+	resp, err := u.sql.ListRecentTrades(ctx, tx, &sql.ListRecentTradesParams{
+		UserID: userID,
+		Limit:  int32(limit),
+	})
 	if err != nil {
 		return nil, err
 	}
