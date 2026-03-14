@@ -16,6 +16,7 @@ type UserSettings struct {
 	Settings Settings `json:"settings"`
 	Status   bool     `json:"Status"` // ✅ было ли "включено"
 	Premium  bool     `json:"Premium"`
+	Balance  float64  `json:"balance"`
 }
 type Settings struct {
 	TradingSettings TradingSettings

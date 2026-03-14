@@ -35,6 +35,7 @@ func (r *Service) EnableUser(ctx context.Context, user *models.UserSettings) (*s
 		LastMsgAt:      make(map[string]time.Time),
 	}
 
+	sess.USDTBalance(ctx)
 	// Снапшот настроек.
 	sess.InitSettings(u.Settings)
 

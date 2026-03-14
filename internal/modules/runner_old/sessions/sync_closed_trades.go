@@ -21,6 +21,7 @@ func (s *UserSession) syncClosedTrades(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	s.USDTBalance(ctx)
 
 	okxOpen := make(map[string]models.OpenPosition, len(openPos))
 	for _, p := range openPos {

@@ -7,6 +7,15 @@ import (
 	"trade_bot/internal/models"
 )
 
+func (s *UserSession) USDTBalance(ctx context.Context) {
+	var err error
+	s.User.Balance, err = s.Okx.USDTBalance(ctx)
+	if err != nil {
+		s.Logger.Error(fmt.Sprintf("get equity: %w", err.Error()))
+	}
+
+}
+
 // calcSizeByRiskWithMeta считает размер позиции в КОНТРАКТАХ (sz),
 // исходя из:
 //   - целевого риска в USDT (RiskPct * equity),
