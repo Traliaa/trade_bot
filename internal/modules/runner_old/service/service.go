@@ -280,6 +280,9 @@ func (r *Service) StrategyTuning() (models.RuntimeTuning, time.Time, time.Time) 
 func (r *Service) ListRecentTrades(ctx context.Context, userID int64, limit int) ([]models.TradeRecord, error) {
 	return r.Repository.ListRecentTrades(ctx, userID, limit)
 }
+func (r *Service) ListOpenTrades(ctx context.Context, userID int64) ([]models.TradeRecord, error) {
+	return r.Repository.ListOpenTrades(ctx, userID)
+}
 func (r *Service) GetTradeStats(ctx context.Context, userID int64) (models.TradeStats, error) {
 	return r.Repository.GetTradeStats(ctx, userID)
 }

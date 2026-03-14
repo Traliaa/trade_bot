@@ -26,6 +26,7 @@ type TradeRouter interface {
 	GetUser(ctx context.Context, userID int64) (*models.UserSettings, error)
 	ListRecentTrades(ctx context.Context, userID int64, limit int) ([]models.TradeRecord, error)
 	GetTradeStats(ctx context.Context, userID int64) (models.TradeStats, error)
+	ListOpenTrades(ctx context.Context, userID int64) ([]models.TradeRecord, error)
 }
 
 func (c *TradeController) SetRouter(r TradeRouter) {
@@ -200,6 +201,20 @@ func (c *TradeController) RecentTrades(w http.ResponseWriter, r *http.Request) {
 	}
 
 	trades, err := c.r.ListRecentTrades(r.Context(), userID, limit)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, tradesResponse{Trades: trades})
+}
+func (c *TradeController) OpenTrades(w http.ResponseWriter, r *http.Request) {
+	userID, ok := mustAuthUserID(w, r)
+	if !ok {
+		return
+	}
+
+	trades, err := c.r.ListOpenTrades(r.Context(), userID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
