@@ -41,7 +41,14 @@ func (s *UserSession) calcSizeByRiskWithMeta(
 	if entryPrice <= 0 || slPrice <= 0 {
 		return 0, fmt.Errorf("entry/sl <= 0")
 	}
-	equity := s.User.Balance
+	//equity := s.User.Balance
+	equity, err := s.Okx.USDTBalance(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("get equity: %w", err)
+	}
+	if equity <= 0 {
+		return 0, fmt.Errorf("equity <= 0")
+	}
 
 	riskFraction := ts.RiskPct / 100.0
 	if riskFraction <= 0 {
