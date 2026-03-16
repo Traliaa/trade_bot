@@ -301,7 +301,7 @@ func (r *Service) GetUserStatus(ctx context.Context, userID int64) (models.UserS
 	status := models.UserStatus{
 		BotRunning: false,
 		Account:    models.AccountSnapshot{},
-		OpenTrades: models.NewTradeListItems(openTrades),
+		OpenTrades: openTrades,
 	}
 
 	r.mu.RLock()

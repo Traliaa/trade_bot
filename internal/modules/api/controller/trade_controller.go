@@ -113,7 +113,7 @@ func (c *TradeController) ApplySettings(w http.ResponseWriter, r *http.Request) 
 type statusResponse struct {
 	BotRunning bool                   `json:"bot_running"`
 	Account    models.AccountSnapshot `json:"account"`
-	OpenTrades []models.TradeListItem `json:"open_trades"`
+	OpenTrades []models.TradeRecord   `json:"open_trades"`
 }
 
 func (c *TradeController) StatusForUser(w http.ResponseWriter, r *http.Request) {
