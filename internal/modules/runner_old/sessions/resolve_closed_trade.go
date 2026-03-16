@@ -3,9 +3,6 @@ package sessions
 import (
 	"context"
 	"fmt"
-	"math"
-	"strconv"
-	"strings"
 	"time"
 
 	"trade_bot/internal/models"
@@ -15,97 +12,92 @@ func (s *UserSession) resolveClosedTrade(
 	ctx context.Context,
 	tr models.TradeRecord,
 ) (models.TradeCloseInput, error) {
-	fills, err := s.Okx.TransactionDetails(ctx, "SWAP", tr.InstID, 100)
+	_ = ctx
+
+	p := tr.Payload
+
+	// здесь дальше ты можешь заменить на реальный источник:
+	// - last filled order
+	// - closed position info from OKX
+	// - algo order status
+	// - fallback market price
+	exitPrice, exitSize, exitAt, reason, err := s.resolveClosedTradeExecution(ctx, tr)
 	if err != nil {
 		return models.TradeCloseInput{}, err
 	}
 
-	var best *models.TransactionDetailRecord
+	payload := p
+	payload.ExitPrice = exitPrice
+	payload.ExitSize = exitSize
+	payload.DurationSec = models.CalcDurationSec(tr.EntryAt, &exitAt)
+	payload.RiskDist = models.CalcRiskDist(payload.EntryPrice, payload.StopLoss, payload.PosSide)
+	payload.RMultiple = models.CalcRMultiple(payload.EntryPrice, payload.ExitPrice, payload.StopLoss, payload.PosSide)
 
-	for i := range fills {
-		f := fills[i]
+	realizedPnL, realizedPnLPct := calcClosedTradePnL(payload)
+	payload.RealizedPnL = realizedPnL
+	payload.RealizedPnLPct = realizedPnLPct
 
-		if !strings.EqualFold(f.InstID, tr.InstID) {
-			continue
-		}
-		if tr.PosSide != "" && !strings.EqualFold(f.PosSide, tr.PosSide) {
-			continue
-		}
-
-		fillTimeMs, _ := strconv.ParseInt(f.FillTime, 10, 64)
-		fillTime := time.UnixMilli(fillTimeMs)
-
-		if fillTime.Before(tr.EntryAt.Add(-1 * time.Minute)) {
-			continue
-		}
-
-		if best == nil {
-			best = &fills[i]
-			continue
-		}
-
-		bestTimeMs, _ := strconv.ParseInt(best.FillTime, 10, 64)
-		if fillTimeMs > bestTimeMs {
-			best = &fills[i]
-		}
+	if payload.MFEPrice > 0 {
+		payload.MFER = models.CalcMFER(payload.EntryPrice, payload.MFEPrice, payload.StopLoss, payload.PosSide)
 	}
-
-	if best == nil {
-		return models.TradeCloseInput{}, fmt.Errorf("close fill not found")
-	}
-
-	exitPx, _ := strconv.ParseFloat(best.FillPx, 64)
-	exitSz, _ := strconv.ParseFloat(best.FillSz, 64)
-	fillPnl, _ := strconv.ParseFloat(best.FillPnl, 64)
-	fillTimeMs, _ := strconv.ParseInt(best.FillTime, 10, 64)
-	exitAt := time.UnixMilli(fillTimeMs)
-
-	pnlPct := 0.0
-	if tr.EntryPrice > 0 && tr.EntrySize > 0 {
-		notional := tr.EntryPrice * tr.EntrySize
-		if notional > 0 {
-			pnlPct = fillPnl / notional * 100
-		}
-	}
-
-	reason := detectCloseReason(tr, exitPx)
-
-	if state, ok := s.getPositionState(tr.InstID, tr.PosSide); ok {
-		if state.CloseReason != "" {
-			reason = models.CloseReason(state.CloseReason)
-		}
+	if payload.MAEPrice > 0 {
+		payload.MAER = models.CalcMAER(payload.EntryPrice, payload.MAEPrice, payload.StopLoss, payload.PosSide)
 	}
 
 	return models.TradeCloseInput{
-		ExitPrice:      exitPx,
-		ExitSize:       exitSz,
-		ExitAt:         exitAt,
-		RealizedPnL:    fillPnl,
-		RealizedPnLPct: pnlPct,
-		CloseReason:    reason,
+		ExitAt:      exitAt,
+		CloseReason: reason,
+		Payload:     payload,
 	}, nil
 }
 
-func detectCloseReason(tr models.TradeRecord, exitPx float64) models.CloseReason {
-	const eps = 0.001
+func (s *UserSession) resolveClosedTradeExecution(
+	ctx context.Context,
+	tr models.TradeRecord,
+) (exitPrice float64, exitSize float64, exitAt time.Time, reason models.CloseReason, err error) {
+	_ = ctx
 
-	if almostEqual(exitPx, tr.TakeProfit, eps) {
-		return models.CloseReasonTP
-	}
-	if almostEqual(exitPx, tr.StopLoss, eps) {
-		return models.CloseReasonSL
+	p := tr.Payload
+
+	// Временный fallback.
+	// Потом сюда можно подставить:
+	// - получение последних fills с OKX
+	// - определение sl/tp/time stop/manual/recovery
+	// Сейчас хотя бы не ломаем пайплайн.
+
+	if p.EntryPrice <= 0 || p.EntrySize <= 0 {
+		return 0, 0, time.Time{}, models.CloseReasonUnknown, fmt.Errorf("invalid trade payload: entry_price=%.8f entry_size=%.8f", p.EntryPrice, p.EntrySize)
 	}
 
-	return models.CloseReasonUnknown
+	return p.EntryPrice, p.EntrySize, time.Now().UTC(), models.CloseReasonUnknown, nil
 }
 
-func almostEqual(a, b, rel float64) bool {
-	if a == 0 || b == 0 {
-		return false
+func calcClosedTradePnL(p models.TradePayload) (float64, float64) {
+	if p.EntryPrice <= 0 || p.ExitPrice <= 0 || p.ExitSize <= 0 {
+		return 0, 0
 	}
 
-	diff := math.Abs(a - b)
-	base := math.Max(math.Abs(a), math.Abs(b))
+	var pnl float64
+	switch p.PosSide {
+	case "long":
+		pnl = (p.ExitPrice - p.EntryPrice) * p.ExitSize
+	case "short":
+		pnl = (p.EntryPrice - p.ExitPrice) * p.ExitSize
+	default:
+		return 0, 0
+	}
 
-	return diff/base <= rel
+	// Это price move %, без плеча.
+	// Если хочешь отдельный leveraged pnl pct — лучше считать и хранить отдельно.
+	pnlPct := 0.0
+	if p.EntryPrice > 0 {
+		switch p.PosSide {
+		case "long":
+			pnlPct = ((p.ExitPrice - p.EntryPrice) / p.EntryPrice) * 100
+		case "short":
+			pnlPct = ((p.EntryPrice - p.ExitPrice) / p.EntryPrice) * 100
+		}
+	}
+
+	return pnl, pnlPct
 }

@@ -2,54 +2,28 @@ package sessions
 
 import (
 	"fmt"
-	"strings"
 	"time"
-
 	"trade_bot/internal/models"
 )
 
-func formatClosedTradeMessage(tr models.TradeRecord, in models.TradeCloseInput) string {
-	var b strings.Builder
+func formatClosedTradeMessage(tr models.TradeRecord, closeInput models.TradeCloseInput) string {
+	p := closeInput.Payload
 
-	title := "✅ СДЕЛКА ЗАКРЫТА"
-	switch in.CloseReason {
-	case models.CloseReasonTP:
-		title = "🎯 ТЕЙК-ПРОФИТ"
-	case models.CloseReasonSL:
-		title = "🛑 СТОП-ЛОСС"
-	case models.CloseReasonTimeStop:
-		title = "🕒 TIME STOP"
-	}
+	exitAt := closeInput.ExitAt.Format(time.DateTime)
 
-	b.WriteString(title)
-	b.WriteString("\n\n")
-
-	fmt.Fprintf(&b, "Инструмент: %s\n", tr.InstID)
-	fmt.Fprintf(&b, "Направление: %s\n", strings.ToUpper(tr.PosSide))
-
-	if tr.Strategy != "" {
-		fmt.Fprintf(&b, "Стратегия: %s\n", tr.Strategy)
-	}
-	if tr.Timeframe != "" {
-		fmt.Fprintf(&b, "ТФ: %s\n", tr.Timeframe)
-	}
-
-	b.WriteString("\n")
-	fmt.Fprintf(&b, "Вход: %.6f\n", tr.EntryPrice)
-	fmt.Fprintf(&b, "Выход: %.6f\n", in.ExitPrice)
-	fmt.Fprintf(&b, "Размер: %.4f\n", in.ExitSize)
-
-	b.WriteString("\n")
-	fmt.Fprintf(&b, "PnL: %+.2f USDT\n", in.RealizedPnL)
-	fmt.Fprintf(&b, "Результат: %+.2f%%\n", in.RealizedPnLPct)
-	fmt.Fprintf(&b, "Причина: %s\n", strings.ToUpper(string(in.CloseReason)))
-
-	dur := in.ExitAt.Sub(tr.EntryAt).Round(time.Minute)
-	if dur > 0 {
-		fmt.Fprintf(&b, "Длительность: %s\n", formatTradeDuration(dur))
-	}
-
-	return b.String()
+	return fmt.Sprintf(
+		"🔒 Сделка закрыта\n\nИнструмент: %s\nСторона: %s\nВход: %.6f\nВыход: %.6f\nРазмер: %.4f\nPnL: %.4f\nPnL %%: %.2f\nR: %.2f\nПричина: %s\nВремя закрытия: %s",
+		tr.InstID,
+		p.PosSide,
+		p.EntryPrice,
+		p.ExitPrice,
+		p.ExitSize,
+		p.RealizedPnL,
+		p.RealizedPnLPct,
+		p.RMultiple,
+		closeInput.CloseReason,
+		exitAt,
+	)
 }
 
 func formatTradeDuration(d time.Duration) string {

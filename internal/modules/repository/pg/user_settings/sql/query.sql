@@ -30,80 +30,164 @@ SELECT id, name, settings, step::text,status,premium FROM user_settings WHERE ch
 
 -- name: GetAll :many
 SELECT id, chatid, name, settings, step::text, status,premium FROM user_settings;
-
--- name: CreateTrade :exec
-INSERT INTO trade_history (
-    guid, user_id, inst_id, pos_side, side, timeframe, strategy,
-    entry_price, entry_size, entry_at,
-    stop_loss, take_profit, leverage,
-    open_order_id, algo_id,
-    status, created_at, updated_at
+-- name: CreateTradeHistory :exec
+INSERT INTO public.trade_history (
+    guid,
+    user_id,
+    inst_id,
+    strategy,
+    timeframe,
+    status,
+    close_reason,
+    entry_at,
+    exit_at,
+    payload,
+    created_at,
+    updated_at
 ) VALUES (
-             $1,$2,$3,$4,$5,$6,$7,
-             $8,$9,$10,
-             $11,$12,$13,
-             $14,$15,
-             $16,now(),now()
+             @guid,
+             @user_id,
+             @inst_id,
+             @strategy,
+             @timeframe,
+             @status,
+             @close_reason,
+             @entry_at,
+             @exit_at,
+             @payload,
+             @created_at,
+             @updated_at
          );
 
--- name: ListOpenTrades :many
-SELECT
-    guid, user_id, inst_id, pos_side, side, timeframe, strategy,
-    entry_price, entry_size, entry_at,
-    stop_loss, take_profit, leverage,
-    open_order_id, algo_id,
-    status, created_at, updated_at
-FROM trade_history
-WHERE user_id = $1 AND status = 'open'
-ORDER BY entry_at ASC;
-
--- name: CloseTrade :exec
-UPDATE trade_history
+-- name: UpdateTradeHistoryPayload :exec
+UPDATE public.trade_history
 SET
-    exit_price = $2,
-    exit_size = $3,
-    exit_at = $4,
-    realized_pnl = $5,
-    realized_pnl_pct = $6,
-    close_reason = $7,
-    status = 'closed',
-    updated_at = now()
-WHERE guid = $1
-  AND status = 'open';
+    payload = @payload,
+    updated_at = @updated_at
+WHERE guid = @guid;
 
--- name: ListRecentTrades :many
+-- name: CloseTradeHistory :exec
+UPDATE public.trade_history
+SET
+    status = @status,
+    close_reason = @close_reason,
+    exit_at = @exit_at,
+    payload = @payload,
+    updated_at = @updated_at
+WHERE guid = @guid;
+
+-- name: GetTradeHistoryByGUID :one
 SELECT
-    guid, user_id, inst_id, pos_side, side, timeframe, strategy,
-    entry_price, entry_size, entry_at,
-    stop_loss, take_profit, leverage,
-    open_order_id, algo_id,
-    exit_price, exit_size, exit_at,
-    realized_pnl, realized_pnl_pct, close_reason,
-    status, created_at, updated_at
-FROM trade_history
-WHERE user_id = $1
+    guid,
+    user_id,
+    inst_id,
+    strategy,
+    timeframe,
+    status,
+    close_reason,
+    entry_at,
+    exit_at,
+    payload,
+    created_at,
+    updated_at
+FROM public.trade_history
+WHERE guid = @guid;
+
+-- name: GetOpenTradeByUserAndInst :one
+SELECT
+    guid,
+    user_id,
+    inst_id,
+    strategy,
+    timeframe,
+    status,
+    close_reason,
+    entry_at,
+    exit_at,
+    payload,
+    created_at,
+    updated_at
+FROM public.trade_history
+WHERE user_id = @user_id
+  AND inst_id = @inst_id
+  AND status = 'open'
 ORDER BY entry_at DESC
-LIMIT $2;
+LIMIT 1;
 
--- name: GetTradeStats :one
+-- name: ListRecentTradesByUser :many
 SELECT
-    COUNT(*) AS total_trades,
-    COUNT(*) FILTER (WHERE status = 'open') AS open_trades,
-    COUNT(*) FILTER (WHERE status = 'closed') AS closed_trades,
+    guid,
+    user_id,
+    inst_id,
+    strategy,
+    timeframe,
+    status,
+    close_reason,
+    entry_at,
+    exit_at,
+    payload,
+    created_at,
+    updated_at
+FROM public.trade_history
+WHERE user_id = @user_id
+ORDER BY created_at DESC
+LIMIT $1;
 
-    COUNT(*) FILTER (WHERE status = 'closed' AND realized_pnl > 0) AS wins,
-    COUNT(*) FILTER (WHERE status = 'closed' AND realized_pnl < 0) AS losses,
+-- name: ListClosedTradesByUser :many
+SELECT
+    guid,
+    user_id,
+    inst_id,
+    strategy,
+    timeframe,
+    status,
+    close_reason,
+    entry_at,
+    exit_at,
+    payload,
+    created_at,
+    updated_at
+FROM public.trade_history
+WHERE user_id = @user_id
+  AND status = 'closed'
+ORDER BY exit_at DESC NULLS LAST
+LIMIT $1;
 
-    COALESCE(SUM(realized_pnl) FILTER (WHERE status = 'closed'), 0)::double precision AS total_pnl,
-    COALESCE(AVG(realized_pnl) FILTER (WHERE status = 'closed'), 0)::double precision  AS avg_pnl,
-    COALESCE(AVG(realized_pnl) FILTER (WHERE status = 'closed' AND realized_pnl > 0), 0)::double precision  AS avg_win,
-    COALESCE(AVG(realized_pnl) FILTER (WHERE status = 'closed' AND realized_pnl < 0), 0)::double precision  AS avg_loss,
+-- name: ListOpenTradesByUser :many
+SELECT
+    guid,
+    user_id,
+    inst_id,
+    strategy,
+    timeframe,
+    status,
+    close_reason,
+    entry_at,
+    exit_at,
+    payload,
+    created_at,
+    updated_at
+FROM public.trade_history
+WHERE user_id = @user_id
+  AND status = 'open'
+ORDER BY entry_at DESC;
 
-    COUNT(*) FILTER (WHERE status = 'closed' AND close_reason = 'tp') AS tp_count,
-    COUNT(*) FILTER (WHERE status = 'closed' AND close_reason = 'sl') AS sl_count,
-    COUNT(*) FILTER (WHERE status = 'closed' AND close_reason = 'time_stop') AS time_stop_count,
-    COUNT(*) FILTER (WHERE status = 'closed' AND close_reason = 'partial') AS partial_count,
-    COUNT(*) FILTER (WHERE status = 'closed' AND close_reason = 'manual') AS manual_count,
-    COUNT(*) FILTER (WHERE status = 'closed' AND close_reason = 'unknown') AS unknown_count
-FROM trade_history
-WHERE user_id = @user_id;
+-- name: ListTradesByUserForPeriod :many
+SELECT
+    guid,
+    user_id,
+    inst_id,
+    strategy,
+    timeframe,
+    status,
+    close_reason,
+    entry_at,
+    exit_at,
+    payload,
+    created_at,
+    updated_at
+FROM public.trade_history
+WHERE user_id = @user_id
+  AND created_at >= @date_from
+  AND created_at < @date_to
+ORDER BY created_at DESC;

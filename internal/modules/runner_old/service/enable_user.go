@@ -5,6 +5,8 @@ import (
 	"time"
 	"trade_bot/internal/models"
 	"trade_bot/internal/modules/runner_old/sessions"
+
+	"go.uber.org/zap"
 )
 
 func (r *Service) EnableUser(ctx context.Context, user *models.UserSettings) (*sessions.UserSession, bool) {
@@ -34,7 +36,12 @@ func (r *Service) EnableUser(ctx context.Context, user *models.UserSettings) (*s
 		Repo:           r.Repository,
 		LastMsgAt:      make(map[string]time.Time),
 	}
-
+	if err := sess.RefreshAccountSnapshot(ctx); err != nil {
+		r.Logger.Warn("initial account snapshot refresh failed",
+			zap.Error(err),
+			zap.Int64("userID", user.TelegramID),
+		)
+	}
 	//sess.USDTBalance(ctx)
 	// Снапшот настроек.
 	sess.InitSettings(u.Settings)
@@ -52,6 +59,8 @@ func (r *Service) EnableUser(ctx context.Context, user *models.UserSettings) (*s
 	}
 
 	go sess.TradeHistoryWorker(runCtx)
+
+	sess.StartAccountRefresher(ctx, 10*time.Minute)
 
 	return sess, true
 }

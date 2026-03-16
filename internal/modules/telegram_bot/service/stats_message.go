@@ -2,36 +2,75 @@ package service
 
 import (
 	"fmt"
-	"strings"
-
 	"trade_bot/internal/models"
 )
 
 func formatStatsMessage(st models.TradeStats) string {
-	var b strings.Builder
+	return fmt.Sprintf(
+		"📊 Статистика\n\n"+
+			"Всего сделок: %d\n"+
+			"Открытых: %d\n"+
+			"Закрытых: %d\n\n"+
+			"Побед: %d\n"+
+			"Поражений: %d\n"+
+			"Безубыток: %d\n"+
+			"Winrate: %.2f%%\n\n"+
+			"Total PnL: %.4f\n"+
+			"Avg PnL: %.4f\n"+
+			"Profit Factor: %.2f\n\n"+
+			"Total R: %.2f\n"+
+			"Avg R: %.2f\n"+
+			"Median R: %.2f\n\n"+
+			"Avg Duration: %d sec\n"+
+			"Avg MFE: %.2fR\n"+
+			"Avg MAE: %.2fR\n\n"+
+			"TP: %d\n"+
+			"SL: %d\n"+
+			"BE: %d\n"+
+			"Lock Profit: %d\n"+
+			"Partial Exit: %d\n"+
+			"TimeStop Early: %d\n"+
+			"TimeStop Stale: %d\n"+
+			"Manual: %d\n"+
+			"Recovery: %d\n"+
+			"Force Close: %d\n"+
+			"Unknown: %d\n\n"+
+			"Best Trade: %.2fR\n"+
+			"Worst Trade: %.2fR",
+		st.TotalTrades,
+		st.OpenTrades,
+		st.ClosedTrades,
 
-	b.WriteString("📊 Статистика сделок\n\n")
+		st.Wins,
+		st.Losses,
+		st.BreakevenTrades,
+		st.WinRate,
 
-	fmt.Fprintf(&b, "Всего сделок: %d\n", st.TotalTrades)
-	fmt.Fprintf(&b, "Открытых: %d\n", st.OpenTrades)
-	fmt.Fprintf(&b, "Закрытых: %d\n\n", st.ClosedTrades)
+		st.TotalPnL,
+		st.AvgPnL,
+		st.ProfitFactor,
 
-	fmt.Fprintf(&b, "Побед: %d\n", st.Wins)
-	fmt.Fprintf(&b, "Убытков: %d\n", st.Losses)
-	fmt.Fprintf(&b, "Winrate: %.2f%%\n\n", st.WinRatePct)
+		st.TotalR,
+		st.AvgR,
+		st.MedianR,
 
-	fmt.Fprintf(&b, "Total PnL: %+.2f USDT\n", st.TotalPnL)
-	fmt.Fprintf(&b, "Avg PnL: %+.2f USDT\n", st.AvgPnL)
-	fmt.Fprintf(&b, "Avg Win: %+.2f USDT\n", st.AvgWin)
-	fmt.Fprintf(&b, "Avg Loss: %+.2f USDT\n\n", st.AvgLoss)
+		st.AvgDurationSec,
+		st.AvgMFER,
+		st.AvgMAER,
 
-	b.WriteString("Причины закрытия:\n")
-	fmt.Fprintf(&b, "• TP: %d\n", st.TPCount)
-	fmt.Fprintf(&b, "• SL: %d\n", st.SLCount)
-	fmt.Fprintf(&b, "• TIME_STOP: %d\n", st.TimeStopCount)
-	fmt.Fprintf(&b, "• PARTIAL: %d\n", st.PartialCount)
-	fmt.Fprintf(&b, "• MANUAL: %d\n", st.ManualCount)
-	fmt.Fprintf(&b, "• UNKNOWN: %d", st.UnknownCount)
+		st.TPCount,
+		st.SLCount,
+		st.BreakEvenCount,
+		st.LockProfitCount,
+		st.PartialExitCount,
+		st.TimeStopEarlyCount,
+		st.TimeStopStaleCount,
+		st.ManualCloseCount,
+		st.RecoveryCloseCount,
+		st.ForceCloseCount,
+		st.UnknownCloseCount,
 
-	return b.String()
+		st.BestTradeR,
+		st.WorstTradeR,
+	)
 }

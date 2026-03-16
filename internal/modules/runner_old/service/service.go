@@ -135,13 +135,12 @@ func (s *Service) OnSignal(ctx context.Context, sig models.Signal) {
 			}
 		}
 
-		// 1.1️⃣ лимит по стороне
+		// 1.1 лимит по стороне
 		sess.PosMu.RLock()
 		longs, shorts := countOpenSides(sess.Positions)
 		sess.PosMu.RUnlock()
 
 		side := strings.ToLower(string(sig.Side))
-
 		isLong := side == "buy" || side == "long"
 		isShort := side == "sell" || side == "short"
 
@@ -188,26 +187,35 @@ func (s *Service) OnSignal(ctx context.Context, sig models.Signal) {
 			)
 			continue
 		}
-		trade := &models.TradeRecord{
+
+		now := time.Now().UTC()
+
+		trade := models.TradeRecord{
 			GUID:        uuid.New(),
 			UserID:      sess.User.TelegramID,
 			InstID:      sig.InstID,
-			PosSide:     res.PosSide,
-			Side:        string(sig.Side),
-			Timeframe:   sig.TF,
 			Strategy:    string(sig.Strategy),
-			EntryPrice:  res.Entry,
-			EntrySize:   params.Size,
-			EntryAt:     time.Now(),
-			StopLoss:    params.SL,
-			TakeProfit:  params.TP,
-			Leverage:    sess.User.Settings.TradingSettings.Leverage,
-			OpenOrderID: res.OrderID,
-			AlgoID:      res.SLAlgoID,
+			Timeframe:   sig.TF,
 			Status:      models.TradeStatusOpen,
+			CloseReason: models.CloseReasonUnknown,
+			EntryAt:     now,
+			CreatedAt:   now,
+			UpdatedAt:   now,
+			Payload: models.TradePayload{
+				PosSide:     res.PosSide,
+				Side:        side,
+				EntryPrice:  res.Entry,
+				EntrySize:   params.Size,
+				StopLoss:    params.SL,
+				TakeProfit:  params.TP,
+				Leverage:    int64(sess.User.Settings.TradingSettings.Leverage),
+				OpenOrderID: res.OrderID,
+				AlgoID:      res.SLAlgoID,
+				RiskDist:    params.RiskDist,
+			},
 		}
 
-		if err := s.Repository.CreateTrade(ctx, trade); err != nil {
+		if err := s.Repository.CreateTradeHistory(ctx, trade); err != nil {
 			s.Logger.Error("create trade history failed",
 				zap.Error(err),
 				zap.String("instId", sig.InstID),
@@ -241,7 +249,7 @@ func (s *Service) OnSignal(ctx context.Context, sig models.Signal) {
 			AlgoID:   res.SLAlgoID,
 			Size:     params.Size,
 			MFE:      res.Entry,
-			OpenedAt: time.Now(),
+			OpenedAt: now,
 		}
 		sess.PosMu.Unlock()
 	}
@@ -278,7 +286,7 @@ func (r *Service) StrategyTuning() (models.RuntimeTuning, time.Time, time.Time) 
 	return r.strategy.CurrentTuning()
 }
 func (r *Service) ListRecentTrades(ctx context.Context, userID int64, limit int) ([]models.TradeRecord, error) {
-	return r.Repository.ListRecentTrades(ctx, userID, limit)
+	return r.Repository.ListRecentTrades(ctx, userID, int32(limit))
 }
 func (r *Service) ListOpenTrades(ctx context.Context, userID int64) ([]models.TradeRecord, error) {
 	return r.Repository.ListOpenTrades(ctx, userID)

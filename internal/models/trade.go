@@ -1,6 +1,7 @@
 package models
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -9,60 +10,133 @@ import (
 type TradeStatus string
 
 const (
-	TradeStatusOpen    TradeStatus = "open"
-	TradeStatusClosed  TradeStatus = "closed"
-	TradeStatusPartial TradeStatus = "partial"
+	TradeStatusOpen   TradeStatus = "open"
+	TradeStatusClosed TradeStatus = "closed"
 )
 
 type CloseReason string
 
 const (
-	CloseReasonTP       CloseReason = "tp"
-	CloseReasonSL       CloseReason = "sl"
-	CloseReasonTimeStop CloseReason = "time_stop"
-	CloseReasonManual   CloseReason = "manual"
-	CloseReasonUnknown  CloseReason = "unknown"
-	CloseReasonPartial  CloseReason = "partial"
+	CloseReasonUnknown       CloseReason = "unknown"
+	CloseReasonTP            CloseReason = "tp"
+	CloseReasonSL            CloseReason = "sl"
+	CloseReasonBreakEven     CloseReason = "break_even"
+	CloseReasonLockProfit    CloseReason = "lock_profit"
+	CloseReasonPartialExit   CloseReason = "partial_exit"
+	CloseReasonTimeStopEarly CloseReason = "time_stop_early"
+	CloseReasonTimeStopStale CloseReason = "time_stop_stale"
+	CloseReasonManual        CloseReason = "manual"
+	CloseReasonRecovery      CloseReason = "recovery"
+	CloseReasonForceClose    CloseReason = "force_close"
 )
 
+func NormalizeCloseReason(v string) CloseReason {
+	switch CloseReason(v) {
+	case CloseReasonTP,
+		CloseReasonSL,
+		CloseReasonBreakEven,
+		CloseReasonLockProfit,
+		CloseReasonPartialExit,
+		CloseReasonTimeStopEarly,
+		CloseReasonTimeStopStale,
+		CloseReasonManual,
+		CloseReasonRecovery,
+		CloseReasonForceClose:
+		return CloseReason(v)
+	default:
+		return CloseReasonUnknown
+	}
+}
+
+type TradePayload struct {
+	PosSide string `json:"pos_side"`
+	Side    string `json:"side"`
+
+	EntryPrice float64 `json:"entry_price"`
+	EntrySize  float64 `json:"entry_size"`
+	StopLoss   float64 `json:"stop_loss"`
+	TakeProfit float64 `json:"take_profit"`
+	Leverage   int64   `json:"leverage"`
+
+	OpenOrderID string `json:"open_order_id,omitempty"`
+	AlgoID      string `json:"algo_id,omitempty"`
+
+	ExitPrice float64 `json:"exit_price,omitempty"`
+	ExitSize  float64 `json:"exit_size,omitempty"`
+
+	RealizedPnL    float64 `json:"realized_pnl,omitempty"`
+	RealizedPnLPct float64 `json:"realized_pnl_pct,omitempty"`
+
+	RiskDist    float64 `json:"risk_dist,omitempty"`
+	RMultiple   float64 `json:"r_multiple,omitempty"`
+	DurationSec int64   `json:"duration_sec,omitempty"`
+
+	MovedToBE         bool `json:"moved_to_be,omitempty"`
+	LockedProfit      bool `json:"locked_profit,omitempty"`
+	TookPartial       bool `json:"took_partial,omitempty"`
+	PartialCount      int  `json:"partial_count,omitempty"`
+	TimeStopTriggered bool `json:"time_stop_triggered,omitempty"`
+
+	MFEPrice float64 `json:"mfe_price,omitempty"`
+	MAEPrice float64 `json:"mae_price,omitempty"`
+	MFER     float64 `json:"mfe_r,omitempty"`
+	MAER     float64 `json:"mae_r,omitempty"`
+}
+
 type TradeRecord struct {
-	GUID      uuid.UUID
-	UserID    int64
-	InstID    string
-	PosSide   string // long/short
-	Side      string // buy/sell
-	Timeframe string
-	Strategy  string
+	GUID        uuid.UUID    `json:"guid"`
+	UserID      int64        `json:"user_id"`
+	InstID      string       `json:"inst_id"`
+	Strategy    string       `json:"strategy"`
+	Timeframe   string       `json:"timeframe"`
+	Status      TradeStatus  `json:"status"`
+	CloseReason CloseReason  `json:"close_reason"`
+	EntryAt     time.Time    `json:"entry_at"`
+	ExitAt      *time.Time   `json:"exit_at,omitempty"`
+	Payload     TradePayload `json:"payload"`
+	CreatedAt   time.Time    `json:"created_at"`
+	UpdatedAt   time.Time    `json:"updated_at"`
+}
 
-	EntryPrice float64
-	EntrySize  float64
-	EntryAt    time.Time
+func (p TradePayload) Marshal() ([]byte, error) {
+	return json.Marshal(p)
+}
 
-	StopLoss   float64
-	TakeProfit float64
-	Leverage   int
+func UnmarshalTradePayload(raw []byte) (TradePayload, error) {
+	if len(raw) == 0 {
+		return TradePayload{}, nil
+	}
 
-	OpenOrderID string
-	AlgoID      string
+	var p TradePayload
+	err := json.Unmarshal(raw, &p)
+	return p, err
+}
 
-	ExitPrice      float64
-	ExitSize       float64
-	ExitAt         *time.Time
-	RealizedPnL    float64
-	RealizedPnLPct float64
-	CloseReason    CloseReason
-	RMultiple      float64
-
-	Status    TradeStatus
-	CreatedAt time.Time
-	UpdatedAt time.Time
+func NewOpenTrade(
+	userID int64,
+	instID string,
+	strategy string,
+	timeframe string,
+	entryAt time.Time,
+	payload TradePayload,
+) TradeRecord {
+	return TradeRecord{
+		GUID:        uuid.New(),
+		UserID:      userID,
+		InstID:      instID,
+		Strategy:    strategy,
+		Timeframe:   timeframe,
+		Status:      TradeStatusOpen,
+		CloseReason: CloseReasonUnknown,
+		EntryAt:     entryAt,
+		Payload:     payload,
+		CreatedAt:   time.Now().UTC(),
+		UpdatedAt:   time.Now().UTC(),
+	}
 }
 
 type TradeCloseInput struct {
-	ExitPrice      float64
-	ExitSize       float64
-	ExitAt         time.Time
-	RealizedPnL    float64
-	RealizedPnLPct float64
-	CloseReason    CloseReason
+	ExitAt      time.Time
+	CloseReason CloseReason
+	Payload     TradePayload
 }

@@ -52,6 +52,8 @@ type UserSession struct {
 	LastMsgAt map[string]time.Time // key -> time
 
 	WG sync.WaitGroup
+
+	stopCh chan struct{}
 }
 
 // OpenPositionWithTpSl открывает рыночный ордер и пытается поставить TP/SL.

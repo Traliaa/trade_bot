@@ -11,7 +11,6 @@ import (
 	"trade_bot/internal/modules/repository/pg/user_settings"
 	"trade_bot/pkg/db"
 
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 )
 
@@ -142,75 +141,4 @@ func (u *User) ListEnabled(ctx context.Context) (users []*models.UserSettings, e
 		return err
 	})
 	return users, err
-}
-
-// CreateTrade ...
-func (u *User) CreateTrade(ctx context.Context, tr *models.TradeRecord) (err error) {
-	defer func() {
-		if err != nil {
-			err = fmt.Errorf("pg.User.CreateTrade: %w", err)
-		}
-	}()
-
-	err = u.db.RunMaster(ctx, func(ctxTx context.Context, tx pgx.Tx) error {
-		err = u.user.CreateTrade(ctxTx, tx, tr)
-		return err
-	})
-	return err
-}
-
-// ListOpenTrades ....
-func (u *User) ListOpenTrades(ctx context.Context, userID int64) (out []models.TradeRecord, err error) {
-	defer func() {
-		if err != nil {
-			err = fmt.Errorf("pg.User.ListOpenTrades: %w", err)
-		}
-	}()
-
-	err = u.db.RunMaster(ctx, func(ctxTx context.Context, tx pgx.Tx) error {
-		out, err = u.user.ListOpenTrades(ctxTx, tx, userID)
-		return err
-	})
-	return out, err
-}
-
-// CloseTrade ...
-func (u *User) CloseTrade(ctx context.Context, guid uuid.UUID, in models.TradeCloseInput) (err error) {
-	defer func() {
-		if err != nil {
-			err = fmt.Errorf("pg.User.CloseTrade: %w", err)
-		}
-	}()
-
-	err = u.db.RunMaster(ctx, func(ctxTx context.Context, tx pgx.Tx) error {
-		err = u.user.CloseTrade(ctxTx, tx, guid, in)
-		return err
-	})
-	return err
-}
-func (u *User) ListRecentTrades(ctx context.Context, userID int64, limit int) (out []models.TradeRecord, err error) {
-	defer func() {
-		if err != nil {
-			err = fmt.Errorf("pg.User.ListRecentTrades: %w", err)
-		}
-	}()
-
-	err = u.db.RunMaster(ctx, func(ctxTx context.Context, tx pgx.Tx) error {
-		out, err = u.user.ListRecentTrades(ctxTx, tx, userID, limit)
-		return err
-	})
-	return out, err
-}
-func (u *User) GetTradeStats(ctx context.Context, userID int64) (out models.TradeStats, err error) {
-	defer func() {
-		if err != nil {
-			err = fmt.Errorf("pg.User.GetTradeStats: %w", err)
-		}
-	}()
-
-	err = u.db.RunMaster(ctx, func(ctxTx context.Context, tx pgx.Tx) error {
-		out, err = u.user.GetTradeStats(ctxTx, tx, userID)
-		return err
-	})
-	return out, err
 }

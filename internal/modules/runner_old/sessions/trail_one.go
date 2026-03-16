@@ -245,7 +245,7 @@ func decideTrail15m(
 			st.LastTrailEnd = slot
 			return models.TrailDecision{
 				Close:  true,
-				Reason: models.CloseReasonTimeStop,
+				Reason: models.CloseReasonTimeStopEarly,
 				Note:   "TIME_STOP_EARLY",
 			}
 		}
@@ -261,7 +261,7 @@ func decideTrail15m(
 			st.LastTrailEnd = slot
 			return models.TrailDecision{
 				Close:  true,
-				Reason: models.CloseReasonTimeStop,
+				Reason: models.CloseReasonTimeStopStale,
 				Note:   "TIME_STOP_STALE",
 			}
 		}
@@ -312,7 +312,7 @@ func decideTrail15m(
 
 			return models.TrailDecision{
 				CloseSize: closeSz,
-				Reason:    models.CloseReasonPartial,
+				Reason:    models.CloseReasonPartialExit,
 				Note: fmt.Sprintf(
 					"PARTIAL@%.2fR (%.0f%%) + SL->BE",
 					cfg.TrailingConfig.PartialTriggerR,

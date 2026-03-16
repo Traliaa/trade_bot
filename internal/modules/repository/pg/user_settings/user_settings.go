@@ -167,82 +167,82 @@ func (u *UserSettings) ListEnabled(ctx context.Context, tx pgx.Tx) (users []*mod
 	return users, err
 }
 
-func (u *UserSettings) CreateTrade(ctx context.Context, tx pgx.Tx, tr *models.TradeRecord) (err error) {
-	defer func() {
-		if err != nil {
-			err = fmt.Errorf("pg.User.CreateTrade: %w", err)
-		}
-	}()
-
-	err = u.sql.CreateTrade(ctx, tx, &sql.CreateTradeParams{
-		Guid: ConvertUUIDToPgType(tr.GUID), UserID: tr.UserID, InstID: tr.InstID, PosSide: tr.PosSide, Side: tr.Side, Timeframe: tr.Timeframe, Strategy: tr.Strategy,
-		EntryPrice: tr.EntryPrice, EntrySize: tr.EntrySize, EntryAt: ConvertTimeToPgTimestamptz(tr.EntryAt),
-		StopLoss: tr.StopLoss, TakeProfit: tr.TakeProfit, Leverage: int32(tr.Leverage),
-		OpenOrderID: tr.OpenOrderID, AlgoID: tr.AlgoID,
-		Status: string(tr.Status),
-	})
-	if err != nil {
-		return err
-	}
-
-	return err
-}
-
-func (u *UserSettings) ListOpenTrades(ctx context.Context, tx pgx.Tx, userID int64) (out []models.TradeRecord, err error) {
-	defer func() {
-		if err != nil {
-			err = fmt.Errorf("pg.User.ListEnabled: %w", err)
-		}
-	}()
-
-	resp, err := u.sql.ListOpenTrades(ctx, tx, userID)
-	if err != nil {
-		return nil, err
-	}
-	for i := range resp {
-
-		out = append(out, models.TradeRecord{
-			GUID:        resp[i].Guid.Bytes,
-			UserID:      resp[i].UserID,
-			InstID:      resp[i].InstID,
-			PosSide:     resp[i].PosSide,
-			Side:        resp[i].Side,
-			Timeframe:   resp[i].Timeframe,
-			Strategy:    resp[i].Strategy,
-			EntryPrice:  resp[i].EntryPrice,
-			EntrySize:   resp[i].EntrySize,
-			EntryAt:     resp[i].EntryAt.Time,
-			StopLoss:    resp[i].StopLoss,
-			TakeProfit:  resp[i].TakeProfit,
-			Leverage:    int(resp[i].Leverage),
-			OpenOrderID: resp[i].OpenOrderID,
-			AlgoID:      resp[i].AlgoID,
-			Status:      models.TradeStatus(resp[i].Status),
-			CreatedAt:   resp[i].CreatedAt.Time,
-			UpdatedAt:   resp[i].UpdatedAt.Time,
-		})
-	}
-	return out, nil
-}
-
-func (u *UserSettings) CloseTrade(ctx context.Context, tx pgx.Tx, guid uuid.UUID, in models.TradeCloseInput) (err error) {
-	defer func() {
-		if err != nil {
-			err = fmt.Errorf("pg.User.CloseTrade: %w", err)
-		}
-	}()
-
-	err = u.sql.CloseTrade(ctx, tx, &sql.CloseTradeParams{
-		Guid:           ConvertUUIDToPgType(guid),
-		ExitPrice:      in.ExitPrice,
-		ExitSize:       in.ExitSize,
-		ExitAt:         ConvertTimeToPgTimestamptz(in.ExitAt),
-		RealizedPnl:    in.RealizedPnL,
-		RealizedPnlPct: in.RealizedPnLPct,
-		CloseReason:    string(in.CloseReason),
-	})
-	return err
-}
+//func (u *UserSettings) CreateTrade(ctx context.Context, tx pgx.Tx, tr *models.TradeRecord) (err error) {
+//	defer func() {
+//		if err != nil {
+//			err = fmt.Errorf("pg.User.CreateTrade: %w", err)
+//		}
+//	}()
+//
+//	err = u.sql.CreateTrade(ctx, tx, &sql.CreateTradeParams{
+//		Guid: ConvertUUIDToPgType(tr.GUID), UserID: tr.UserID, InstID: tr.InstID, PosSide: tr.PosSide, Side: tr.Side, Timeframe: tr.Timeframe, Strategy: tr.Strategy,
+//		EntryPrice: tr.EntryPrice, EntrySize: tr.EntrySize, EntryAt: ConvertTimeToPgTimestamptz(tr.EntryAt),
+//		StopLoss: tr.StopLoss, TakeProfit: tr.TakeProfit, Leverage: int32(tr.Leverage),
+//		OpenOrderID: tr.OpenOrderID, AlgoID: tr.AlgoID,
+//		Status: string(tr.Status),
+//	})
+//	if err != nil {
+//		return err
+//	}
+//
+//	return err
+//}
+//
+//func (u *UserSettings) ListOpenTrades(ctx context.Context, tx pgx.Tx, userID int64) (out []models.TradeRecord, err error) {
+//	defer func() {
+//		if err != nil {
+//			err = fmt.Errorf("pg.User.ListEnabled: %w", err)
+//		}
+//	}()
+//
+//	resp, err := u.sql.ListOpenTrades(ctx, tx, userID)
+//	if err != nil {
+//		return nil, err
+//	}
+//	for i := range resp {
+//
+//		out = append(out, models.TradeRecord{
+//			GUID:        resp[i].Guid.Bytes,
+//			UserID:      resp[i].UserID,
+//			InstID:      resp[i].InstID,
+//			PosSide:     resp[i].PosSide,
+//			Side:        resp[i].Side,
+//			Timeframe:   resp[i].Timeframe,
+//			Strategy:    resp[i].Strategy,
+//			EntryPrice:  resp[i].EntryPrice,
+//			EntrySize:   resp[i].EntrySize,
+//			EntryAt:     resp[i].EntryAt.Time,
+//			StopLoss:    resp[i].StopLoss,
+//			TakeProfit:  resp[i].TakeProfit,
+//			Leverage:    int(resp[i].Leverage),
+//			OpenOrderID: resp[i].OpenOrderID,
+//			AlgoID:      resp[i].AlgoID,
+//			Status:      models.TradeStatus(resp[i].Status),
+//			CreatedAt:   resp[i].CreatedAt.Time,
+//			UpdatedAt:   resp[i].UpdatedAt.Time,
+//		})
+//	}
+//	return out, nil
+//}
+//
+//func (u *UserSettings) CloseTrade(ctx context.Context, tx pgx.Tx, guid uuid.UUID, in models.TradeCloseInput) (err error) {
+//	defer func() {
+//		if err != nil {
+//			err = fmt.Errorf("pg.User.CloseTrade: %w", err)
+//		}
+//	}()
+//
+//	err = u.sql.CloseTrade(ctx, tx, &sql.CloseTradeParams{
+//		Guid:           ConvertUUIDToPgType(guid),
+//		ExitPrice:      in.ExitPrice,
+//		ExitSize:       in.ExitSize,
+//		ExitAt:         ConvertTimeToPgTimestamptz(in.ExitAt),
+//		RealizedPnl:    in.RealizedPnL,
+//		RealizedPnlPct: in.RealizedPnLPct,
+//		CloseReason:    string(in.CloseReason),
+//	})
+//	return err
+//}
 
 // ConvertUUIDToPgType ...
 func ConvertUUIDToPgType(guid uuid.UUID) pgtype.UUID {
@@ -260,85 +260,202 @@ func ConvertTimeToPgTimestamptz(t time.Time) pgtype.Timestamptz {
 	return pgtype.Timestamptz{Valid: true, Time: t}
 }
 
-func (u *UserSettings) ListRecentTrades(ctx context.Context, tx pgx.Tx, userID int64, limit int) (out []models.TradeRecord, err error) {
-	defer func() {
-		if err != nil {
-			err = fmt.Errorf("pg.User.ListEnabled: %w", err)
-		}
-	}()
+//func (u *UserSettings) GetTradeStats(ctx context.Context, tx pgx.Tx, userID int64) (out models.TradeStats, err error) {
+//	defer func() {
+//		if err != nil {
+//			err = fmt.Errorf("pg.User.GetTradeStats: %w", err)
+//		}
+//	}()
+//
+//	resp, err := u.sql.GetTradeStats(ctx, tx, userID)
+//	if err != nil {
+//		return models.TradeStats{}, err
+//	}
+//
+//	out = models.TradeStats{
+//		TotalTrades:   int(resp.TotalTrades),
+//		OpenTrades:    int(resp.OpenTrades),
+//		ClosedTrades:  int(resp.ClosedTrades),
+//		Wins:          int(resp.Wins),
+//		Losses:        int(resp.Losses),
+//		WinRatePct:    float64(resp.Wins),
+//		TotalPnL:      resp.TotalPnl,
+//		AvgPnL:        resp.AvgPnl,
+//		AvgWin:        resp.AvgWin,
+//		AvgLoss:       resp.AvgLoss,
+//		TPCount:       int(resp.TpCount),
+//		SLCount:       int(resp.SlCount),
+//		TimeStopCount: int(resp.TimeStopCount),
+//		PartialCount:  int(resp.PartialCount),
+//		ManualCount:   int(resp.ManualCount),
+//		UnknownCount:  int(resp.UnknownCount),
+//	}
+//
+//	if err != nil {
+//		return models.TradeStats{}, err
+//	}
+//
+//	if out.ClosedTrades > 0 {
+//		out.WinRatePct = float64(out.Wins) / float64(out.ClosedTrades) * 100
+//	}
+//
+//	return out, nil
+//}
 
-	resp, err := u.sql.ListRecentTrades(ctx, tx, &sql.ListRecentTradesParams{
+func (u *UserSettings) CreateTradeHistory(ctx context.Context, tx pgx.Tx, tr models.TradeRecord) error {
+	payload, err := tr.Payload.Marshal()
+	if err != nil {
+		return err
+	}
+
+	return u.sql.CreateTradeHistory(ctx, tx, &sql.CreateTradeHistoryParams{
+		Guid:        tr.GUID,
+		UserID:      tr.UserID,
+		InstID:      tr.InstID,
+		Strategy:    tr.Strategy,
+		Timeframe:   tr.Timeframe,
+		Status:      string(tr.Status),
+		CloseReason: string(tr.CloseReason),
+		EntryAt:     ConvertTimeToPgTimestamptz(tr.EntryAt),
+		ExitAt:      ConvertTimeToPgTimestamptz(lo.FromPtr(tr.ExitAt)),
+		Payload:     string(payload),
+		CreatedAt:   ConvertTimeToPgTimestamptz(tr.CreatedAt),
+		UpdatedAt:   ConvertTimeToPgTimestamptz(tr.UpdatedAt),
+	})
+}
+
+func (u *UserSettings) UpdatePayload(ctx context.Context, tx pgx.Tx, guid uuid.UUID, payloadModel models.TradePayload) error {
+	payload, err := payloadModel.Marshal()
+	if err != nil {
+		return err
+	}
+
+	return u.sql.UpdateTradeHistoryPayload(ctx, tx, &sql.UpdateTradeHistoryPayloadParams{
+		Guid:      guid,
+		Payload:   string(payload),
+		UpdatedAt: ConvertTimeToPgTimestamptz(time.Now()),
+	})
+}
+
+func (u *UserSettings) Close(
+	ctx context.Context,
+	tx pgx.Tx,
+	guid uuid.UUID,
+	reason models.CloseReason,
+	payloadModel models.TradePayload,
+	exitAt time.Time,
+) error {
+	payload, err := payloadModel.Marshal()
+	if err != nil {
+		return err
+	}
+
+	return u.sql.CloseTradeHistory(ctx, tx, &sql.CloseTradeHistoryParams{
+		Guid:        guid,
+		Status:      string(models.TradeStatusClosed),
+		CloseReason: string(reason),
+		ExitAt:      ConvertTimeToPgTimestamptz(exitAt),
+		Payload:     string(payload),
+		UpdatedAt:   ConvertTimeToPgTimestamptz(time.Now()),
+	})
+}
+
+func (u *UserSettings) ListOpenTrades(
+	ctx context.Context,
+	tx pgx.Tx,
+	userID int64) ([]models.TradeRecord, error) {
+	rows, err := u.sql.ListOpenTradesByUser(ctx, tx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	res := make([]models.TradeRecord, 0, len(rows))
+	for _, row := range rows {
+		tr, err := mapTradeRow(row)
+		if err != nil {
+			return nil, err
+		}
+		res = append(res, *tr)
+	}
+	return res, nil
+}
+
+func (u *UserSettings) GetByGUID(ctx context.Context, tx pgx.Tx, guid uuid.UUID) (*models.TradeRecord, error) {
+	row, err := u.sql.GetTradeHistoryByGUID(ctx, tx, guid)
+	if err != nil {
+		return nil, err
+	}
+	return mapTradeRow(row)
+}
+
+func (u *UserSettings) FindOpenTrade(ctx context.Context, tx pgx.Tx, userID int64, instID string) (*models.TradeRecord, error) {
+	row, err := u.sql.GetOpenTradeByUserAndInst(ctx, tx, &sql.GetOpenTradeByUserAndInstParams{
 		UserID: userID,
-		Limit:  int32(limit),
+		InstID: instID,
 	})
 	if err != nil {
 		return nil, err
 	}
-	for i := range resp {
-
-		out = append(out, models.TradeRecord{
-			GUID:        resp[i].Guid.Bytes,
-			UserID:      resp[i].UserID,
-			InstID:      resp[i].InstID,
-			PosSide:     resp[i].PosSide,
-			Side:        resp[i].Side,
-			Timeframe:   resp[i].Timeframe,
-			Strategy:    resp[i].Strategy,
-			EntryPrice:  resp[i].EntryPrice,
-			EntrySize:   resp[i].EntrySize,
-			EntryAt:     resp[i].EntryAt.Time,
-			StopLoss:    resp[i].StopLoss,
-			TakeProfit:  resp[i].TakeProfit,
-			Leverage:    int(resp[i].Leverage),
-			OpenOrderID: resp[i].OpenOrderID,
-			AlgoID:      resp[i].AlgoID,
-			Status:      models.TradeStatus(resp[i].Status),
-			CreatedAt:   resp[i].CreatedAt.Time,
-			UpdatedAt:   resp[i].UpdatedAt.Time,
-		})
-	}
-	return out, nil
-
+	return mapTradeRow(row)
 }
 
-func (u *UserSettings) GetTradeStats(ctx context.Context, tx pgx.Tx, userID int64) (out models.TradeStats, err error) {
-	defer func() {
+func (u *UserSettings) ListRecentTrades(ctx context.Context, tx pgx.Tx, userID int64, limit int32) ([]models.TradeRecord, error) {
+	rows, err := u.sql.ListRecentTradesByUser(ctx, tx, &sql.ListRecentTradesByUserParams{
+		UserID: userID,
+		Limit:  limit,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	res := make([]models.TradeRecord, 0, len(rows))
+	for _, row := range rows {
+		tr, err := mapTradeRow(row)
 		if err != nil {
-			err = fmt.Errorf("pg.User.GetTradeStats: %w", err)
+			return nil, err
 		}
-	}()
-
-	resp, err := u.sql.GetTradeStats(ctx, tx, userID)
+		res = append(res, *tr)
+	}
+	return res, nil
+}
+func (u *UserSettings) ListClosedTradesByUser(ctx context.Context, tx pgx.Tx, userID int64, limit int32) ([]models.TradeRecord, error) {
+	rows, err := u.sql.ListClosedTradesByUser(ctx, tx, &sql.ListClosedTradesByUserParams{
+		UserID: userID,
+		Limit:  limit,
+	})
 	if err != nil {
-		return models.TradeStats{}, err
+		return nil, err
 	}
 
-	out = models.TradeStats{
-		TotalTrades:   int(resp.TotalTrades),
-		OpenTrades:    int(resp.OpenTrades),
-		ClosedTrades:  int(resp.ClosedTrades),
-		Wins:          int(resp.Wins),
-		Losses:        int(resp.Losses),
-		WinRatePct:    float64(resp.Wins),
-		TotalPnL:      resp.TotalPnl,
-		AvgPnL:        resp.AvgPnl,
-		AvgWin:        resp.AvgWin,
-		AvgLoss:       resp.AvgLoss,
-		TPCount:       int(resp.TpCount),
-		SLCount:       int(resp.SlCount),
-		TimeStopCount: int(resp.TimeStopCount),
-		PartialCount:  int(resp.PartialCount),
-		ManualCount:   int(resp.ManualCount),
-		UnknownCount:  int(resp.UnknownCount),
+	res := make([]models.TradeRecord, 0, len(rows))
+	for _, row := range rows {
+		tr, err := mapTradeRow(row)
+		if err != nil {
+			return nil, err
+		}
+		res = append(res, *tr)
 	}
+	return res, nil
+}
 
+func mapTradeRow(row *sql.TradeHistory) (*models.TradeRecord, error) {
+	payload, err := models.UnmarshalTradePayload([]byte(row.Payload))
 	if err != nil {
-		return models.TradeStats{}, err
+		return nil, err
 	}
 
-	if out.ClosedTrades > 0 {
-		out.WinRatePct = float64(out.Wins) / float64(out.ClosedTrades) * 100
-	}
-
-	return out, nil
+	return &models.TradeRecord{
+		GUID:        row.Guid,
+		UserID:      row.UserID,
+		InstID:      row.InstID,
+		Strategy:    row.Strategy,
+		Timeframe:   row.Timeframe,
+		Status:      models.TradeStatus(row.Status),
+		CloseReason: models.NormalizeCloseReason(row.CloseReason),
+		EntryAt:     row.EntryAt.Time,
+		ExitAt:      lo.ToPtr(row.ExitAt.Time),
+		Payload:     payload,
+		CreatedAt:   row.CreatedAt.Time,
+		UpdatedAt:   row.UpdatedAt.Time,
+	}, nil
 }

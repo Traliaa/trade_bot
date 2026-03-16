@@ -292,9 +292,9 @@ func (c *Client) PlaceMarket(
 	return d.OrdID, nil
 }
 
-func (c *Client) USDTBalance(ctx context.Context) (float64, error) {
+func (c *Client) USDTBalance(ctx context.Context) (*models.AccountSnapshot, error) {
 	if c.apiKey == "" || c.apiSecret == "" || c.passph == "" {
-		return 0, errors.New("okx creds empty (ключ/секрет/пасфраза)")
+		return nil, errors.New("okx creds empty (ключ/секрет/пасфраза)")
 	}
 
 	requestPath := "/api/v5/account/balance?ccy=USDT"
@@ -303,7 +303,11 @@ func (c *Client) USDTBalance(ctx context.Context) (float64, error) {
 	ts := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
 	sign := c.sign(ts, method, requestPath, bodyStr)
 
-	req, _ := http.NewRequestWithContext(ctx, method, "https://www.okx.com"+requestPath, nil)
+	req, err := http.NewRequestWithContext(ctx, method, "https://www.okx.com"+requestPath, nil)
+	if err != nil {
+		return nil, err
+	}
+
 	req.Header.Set("OK-ACCESS-KEY", c.apiKey)
 	req.Header.Set("OK-ACCESS-SIGN", sign)
 	req.Header.Set("OK-ACCESS-TIMESTAMP", ts)
@@ -311,13 +315,13 @@ func (c *Client) USDTBalance(ctx context.Context) (float64, error) {
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	defer resp.Body.Close()
 
 	rb, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode/100 != 2 {
-		return 0, fmt.Errorf("http %d (balance): %s", resp.StatusCode, string(rb))
+		return nil, fmt.Errorf("http %d (balance): %s", resp.StatusCode, string(rb))
 	}
 
 	var wrap struct {
@@ -326,43 +330,65 @@ func (c *Client) USDTBalance(ctx context.Context) (float64, error) {
 		Data []struct {
 			TotalEq string `json:"totalEq"`
 			Details []struct {
-				Ccy     string `json:"ccy"`
-				Eq      string `json:"eq"`
-				AvailEq string `json:"availEq"`
+				Ccy       string `json:"ccy"`
+				Eq        string `json:"eq"`
+				AvailEq   string `json:"availEq"`
+				FrozenBal string `json:"frozenBal"`
+				Upl       string `json:"upl"`
 			} `json:"details"`
 		} `json:"data"`
 	}
+
 	if err := json.Unmarshal(rb, &wrap); err != nil {
-		return 0, err
+		return nil, err
 	}
 	if wrap.Code != "0" || len(wrap.Data) == 0 {
-		return 0, fmt.Errorf("okx balance error: code=%s msg=%s", wrap.Code, wrap.Msg)
+		return nil, fmt.Errorf("okx balance error: code=%s msg=%s", wrap.Code, wrap.Msg)
 	}
 
-	// сначала пытаемся взять availEq по USDT
+	parse := func(v string) float64 {
+		if v == "" {
+			return 0
+		}
+		f, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return 0
+		}
+		return f
+	}
+
+	snap := &models.AccountSnapshot{
+		TotalEquity: parse(wrap.Data[0].TotalEq),
+		UpdatedAt:   time.Now().UTC(),
+	}
+
 	for _, d := range wrap.Data[0].Details {
-		if d.Ccy != "USDT" {
+		if !strings.EqualFold(d.Ccy, "USDT") {
 			continue
 		}
-		if d.AvailEq != "" {
-			if v, err := strconv.ParseFloat(d.AvailEq, 64); err == nil {
-				return v, nil
-			}
+
+		snap.AvailableBalance = parse(d.AvailEq)
+		if snap.AvailableBalance == 0 {
+			snap.AvailableBalance = parse(d.Eq)
 		}
-		if d.Eq != "" {
-			if v, err := strconv.ParseFloat(d.Eq, 64); err == nil {
-				return v, nil
-			}
+
+		snap.FrozenBalance = parse(d.FrozenBal)
+		snap.UnrealizedPnL = parse(d.Upl)
+
+		// если totalEq пустой/нулевой, fallback на eq
+		if snap.TotalEquity == 0 {
+			snap.TotalEquity = parse(d.Eq)
 		}
+
+		return snap, nil
 	}
 
-	// fallback: totalEq
-	if wrap.Data[0].TotalEq != "" {
-		if v, err := strconv.ParseFloat(wrap.Data[0].TotalEq, 64); err == nil {
-			return v, nil
-		}
+	// fallback: если details без USDT, но totalEq есть
+	if snap.TotalEquity > 0 {
+		return snap, nil
 	}
-	return 0, errors.New("okx balance: USDT not found")
+
+	return nil, errors.New("okx balance: USDT not found")
 }
 
 func formatPrice(p float64) string {

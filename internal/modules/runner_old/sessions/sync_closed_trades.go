@@ -32,7 +32,7 @@ func (s *UserSession) syncClosedTrades(ctx context.Context) error {
 	}
 
 	for _, tr := range openTrades {
-		key := tradeKey(tr.InstID, tr.PosSide)
+		key := tradeKey(tr.InstID, tr.Payload.PosSide)
 		if _, stillOpen := okxOpen[key]; stillOpen {
 			continue
 		}
@@ -42,7 +42,7 @@ func (s *UserSession) syncClosedTrades(ctx context.Context) error {
 			s.Logger.Warn("resolve closed trade failed",
 				zap.Error(err),
 				zap.String("instId", tr.InstID),
-				zap.String("posSide", tr.PosSide),
+				zap.String("posSide", tr.Payload.PosSide),
 			)
 			continue
 		}

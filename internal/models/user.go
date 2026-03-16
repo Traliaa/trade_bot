@@ -11,12 +11,21 @@ type UserSettings struct {
 
 	TelegramID int64 `json:"telegram_id"` // Telegram chat/user ID
 
-	Name     string   `json:"name"`
-	Step     string   `json:"step"`
-	Settings Settings `json:"settings"`
-	Status   bool     `json:"Status"` // ✅ было ли "включено"
-	Premium  bool     `json:"Premium"`
-	Balance  float64  `json:"balance"`
+	Name            string          `json:"name"`
+	Step            string          `json:"step"`
+	Settings        Settings        `json:"settings"`
+	Status          bool            `json:"Status"` // ✅ было ли "включено"
+	Premium         bool            `json:"Premium"`
+	AccountSnapshot AccountSnapshot `json:"AccountSnapshot"`
+}
+
+type AccountSnapshot struct {
+	TotalEquity      float64
+	AvailableBalance float64
+	FrozenBalance    float64
+	UnrealizedPnL    float64
+	RealizedPnL      float64
+	UpdatedAt        time.Time
 }
 type Settings struct {
 	TradingSettings TradingSettings

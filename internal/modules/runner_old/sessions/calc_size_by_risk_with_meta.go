@@ -7,15 +7,6 @@ import (
 	"trade_bot/internal/models"
 )
 
-func (s *UserSession) USDTBalance(ctx context.Context) {
-	var err error
-	s.User.Balance, err = s.Okx.USDTBalance(ctx)
-	if err != nil {
-		s.Logger.Error(fmt.Sprintf("get equity: %w", err.Error()))
-	}
-
-}
-
 // calcSizeByRiskWithMeta считает размер позиции в КОНТРАКТАХ (sz),
 // исходя из:
 //   - целевого риска в USDT (RiskPct * equity),
@@ -41,14 +32,8 @@ func (s *UserSession) calcSizeByRiskWithMeta(
 	if entryPrice <= 0 || slPrice <= 0 {
 		return 0, fmt.Errorf("entry/sl <= 0")
 	}
-	//equity := s.User.Balance
-	equity, err := s.Okx.USDTBalance(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("get equity: %w", err)
-	}
-	if equity <= 0 {
-		return 0, fmt.Errorf("equity <= 0")
-	}
+
+	equity := s.RiskEquity()
 
 	riskFraction := ts.RiskPct / 100.0
 	if riskFraction <= 0 {
@@ -78,7 +63,6 @@ func (s *UserSession) calcSizeByRiskWithMeta(
 		szRisk = riskUSDT / (stopDist * ctVal)
 
 	case models.ContractInverseCoin:
-		// pnl_coin_per_sz = ctVal * abs(1/entry - 1/sl)
 		a := 1.0 / entryPrice
 		b := 1.0 / slPrice
 		d := math.Abs(a - b)
@@ -91,7 +75,6 @@ func (s *UserSession) calcSizeByRiskWithMeta(
 			return 0, fmt.Errorf("settle px: %w", err)
 		}
 
-		// riskUSDT = sz * ctVal * d * settlePxUSDT
 		szRisk = riskUSDT / (ctVal * d * settlePxUSDT)
 
 	default:
@@ -107,13 +90,9 @@ func (s *UserSession) calcSizeByRiskWithMeta(
 	var maxSzByMargin float64
 	switch meta.Kind {
 	case models.ContractLinearUSDT:
-		// margin ≈ entry * ctVal * sz / lev
 		maxSzByMargin = (equity * lev) / (entryPrice * ctVal)
 
 	case models.ContractInverseCoin:
-		// для inverse это приблизительно, потому что маржа в coin,
-		// но как safe-cap можно так же ограничить через USDT оценку.
-		// marginUSDT ≈ entry * ctVal * sz / lev (оценка)
 		maxSzByMargin = (equity * lev) / (entryPrice * ctVal)
 	}
 
@@ -144,7 +123,6 @@ func (s *UserSession) calcSizeByRiskWithMeta(
 		sz = minSz
 	}
 
-	// после поднятия до minSz — ещё раз проверим MaxMktSz
 	if meta.MaxMktSz > 0 && sz > meta.MaxMktSz {
 		return 0, fmt.Errorf("minSz > maxMktSz: minSz=%.8f maxMktSz=%.8f", minSz, meta.MaxMktSz)
 	}
