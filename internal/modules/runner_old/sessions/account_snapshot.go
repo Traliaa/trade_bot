@@ -11,7 +11,7 @@ import (
 
 func (s *UserSession) StartAccountRefresher(parent context.Context, interval time.Duration) {
 	if interval <= 0 {
-		interval = 30 * time.Second
+		interval = 10 * time.Minute
 	}
 
 	go func() {
@@ -51,7 +51,7 @@ func (s *UserSession) SetAccountSnapshot(snap models.AccountSnapshot) {
 func (s *UserSession) RefreshAccountSnapshot(ctx context.Context) error {
 	snap, err := s.Okx.USDTBalance(ctx)
 	if err != nil {
-		return err
+		return fmt.Errorf("account snapshot error: %w", err)
 	}
 	if snap == nil {
 		return fmt.Errorf("account snapshot is nil")
@@ -79,5 +79,5 @@ func (s *UserSession) RiskEquity() float64 {
 		return snap.TotalEquity
 	}
 
-	return 0
+	return 100
 }
