@@ -64,8 +64,11 @@ type TradePayload struct {
 	ExitPrice float64 `json:"exit_price,omitempty"`
 	ExitSize  float64 `json:"exit_size,omitempty"`
 
-	RealizedPnL    float64 `json:"realized_pnl,omitempty"`
-	RealizedPnLPct float64 `json:"realized_pnl_pct,omitempty"`
+	CurrentPrice     float64 `json:"current_price,omitempty"`
+	UnrealizedPnL    float64 `json:"unrealized_pnl,omitempty"`
+	UnrealizedPnLPct float64 `json:"unrealized_pnl_pct,omitempty"`
+	RealizedPnL      float64 `json:"realized_pnl,omitempty"`
+	RealizedPnLPct   float64 `json:"realized_pnl_pct,omitempty"`
 
 	RiskDist    float64 `json:"risk_dist,omitempty"`
 	RMultiple   float64 `json:"r_multiple,omitempty"`

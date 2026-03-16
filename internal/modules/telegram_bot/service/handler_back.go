@@ -327,8 +327,8 @@ func (t *Telegram) handleStatus(ctx context.Context, user *models.UserSettings) 
 		qty := p.Size
 		entry := p.EntryPrice
 		last := p.LastPrice
-		upnl := fixNegZero(p.UnrealizedPnl)
-		upnlPct := fixNegZero(p.UnrealizedPnlPct)
+		upnl := fixNegZero(p.UnrealizedPnL)
+		upnlPct := fixNegZero(p.UnrealizedPct)
 
 		totalPnl += upnl
 

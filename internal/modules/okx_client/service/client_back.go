@@ -72,19 +72,25 @@ func (c *Client) OpenPositions(ctx context.Context) ([]models.OpenPosition, erro
 			pt = 2
 		}
 
+		AvgPx, _ := strconv.ParseFloat(d.AvgPx, 64)
+		MarkPx, _ := strconv.ParseFloat(d.MarkPx, 64)
+		Last, _ := strconv.ParseFloat(d.Last, 64)
 		res = append(res, models.OpenPosition{
-			Symbol:           d.InstId,
-			PositionType:     pt,
-			HoldVol:          pos,
-			HoldAvgPrice:     avgPx,
-			Leverage:         lev,
-			Realised:         realised,
-			Size:             pos, // для удобства — то же, что HoldVol
-			EntryPrice:       avgPx,
-			LastPrice:        lastPx,
-			UnrealizedPnl:    upl,
-			UnrealizedPnlPct: uplPct, // в процентах
-			Side:             side,   // "long" / "short"
+			Symbol:        d.InstId,
+			PositionType:  pt,
+			HoldVol:       pos,
+			HoldAvgPrice:  avgPx,
+			Leverage:      lev,
+			Realised:      realised,
+			Size:          pos, // для удобства — то же, что HoldVol
+			EntryPrice:    avgPx,
+			LastPrice:     lastPx,
+			UnrealizedPnL: upl,
+			UnrealizedPct: uplPct, // в процентах
+			Side:          side,   // "long" / "short"
+			AvgPx:         AvgPx,
+			MarkPx:        MarkPx,
+			Last:          Last,
 		})
 	}
 	return res, nil

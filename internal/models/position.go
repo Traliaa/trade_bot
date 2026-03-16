@@ -38,12 +38,15 @@ type OpenPosition struct {
 	Leverage     int     // lever
 	Realised     float64 // пока не заполняем (0)
 
-	Size             float64
-	EntryPrice       float64
-	LastPrice        float64
-	UnrealizedPnl    float64
-	UnrealizedPnlPct float64
-	Side             string
+	Size          float64
+	EntryPrice    float64
+	LastPrice     float64
+	AvgPx         float64 `json:"avgPx,string"`
+	MarkPx        float64 `json:"markPx,string"`
+	Last          float64 `json:"last,string"`
+	UnrealizedPnL float64 `json:"upl,string"`
+	UnrealizedPct float64 `json:"uplRatio,string"`
+	Side          string
 
 	Qty     float64
 	Entry   float64
