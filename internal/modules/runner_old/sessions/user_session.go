@@ -28,19 +28,25 @@ type UserSession struct {
 	settings atomic.Value // stores models.Settings
 	Repo     *pg.User     // ✅ добавили
 
-	mu         sync.Mutex   // можно оставить для Pending/Cooldown
-	PosMu      sync.RWMutex // 🔒 Positions (trail state)
-	PosCacheMu sync.RWMutex // 🔒 PositionsCache (OKX cache)
+	//mu         sync.Mutex   // можно оставить для Pending/Cooldown
+	//PosMu      sync.RWMutex // 🔒 Positions (trail state)
+	//PosCacheMu sync.RWMutex // 🔒 PositionsCache (OKX cache)
 
 	//настройки пользователя
 	User *models.UserSettings
 
-	// трейлинг состояние
-	Positions map[string]*models.PositionTrailState // key = instId:posSide
+	TrailMu     sync.RWMutex
+	TrailStates map[models.PosKey]*models.PositionTrailState
 
-	// кеш позиций
-	PositionsCache map[models.PosKey]models.CachedPos
-	PosCacheAt     time.Time // когда последний раз обновляли с OKX
+	ExchangeMu          sync.RWMutex
+	ExchangePositions   map[models.PosKey]models.CachedPos
+	ExchangePositionsAt time.Time
+	//// трейлинг состояние
+	//Positions map[string]*models.PositionTrailState // key = instId:posSide
+	//
+	//// кеш позиций
+	//PositionsCache map[models.PosKey]models.CachedPos
+	//PosCacheAt     time.Time // когда последний раз обновляли с OKX
 
 	//сенлдер в телеграм
 	Notifier TelegramNotifier
@@ -133,9 +139,9 @@ func (s *UserSession) Status(ctx context.Context) ([]models.OpenPosition, error)
 }
 
 func (s *UserSession) upsertTrailState(st *models.PositionTrailState) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.Positions[helper.TrailKey(st.InstID, st.PosSide)] = st
+	s.TrailMu.Lock()
+	defer s.TrailMu.Unlock()
+	s.TrailStates[helper.TrailKey(st.InstID, st.PosSide)] = st
 }
 
 func improvesEnough(oldSL, newSL float64, posSide string, min float64) bool {

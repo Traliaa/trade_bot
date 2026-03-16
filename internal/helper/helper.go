@@ -4,6 +4,7 @@ import (
 	"math"
 	"strings"
 	"time"
+	"trade_bot/internal/models"
 )
 
 func NormTF(raw string) string {
@@ -23,7 +24,12 @@ func NormTF(raw string) string {
 	}
 }
 
-func TrailKey(instId, posSide string) string { return instId + ":" + posSide }
+func TrailKey(instId, posSide string) models.PosKey {
+	return models.PosKey{
+		InstID:  instId,
+		PosSide: posSide,
+	}
+}
 
 func TrailSlot15m(t time.Time) time.Time {
 	// слот по Unix: каждые 900 секунд

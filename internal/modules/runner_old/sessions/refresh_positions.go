@@ -2,8 +2,6 @@ package sessions
 
 import (
 	"context"
-	"trade_bot/internal/helper"
-
 	"time"
 	"trade_bot/internal/models"
 )
@@ -31,24 +29,20 @@ func (s *UserSession) RefreshPositions(ctx context.Context) error {
 
 	now := time.Now()
 
-	s.PosCacheMu.Lock()
-	s.PositionsCache = next
-	s.PosCacheAt = now
-	s.PosCacheMu.Unlock()
+	s.ExchangeMu.Lock()
+	s.ExchangePositions = next
+	s.ExchangePositionsAt = now
+	s.ExchangeMu.Unlock()
 
 	// подчистим трейл-стейт для закрытых позиций
-	s.PosMu.Lock()
-	for key := range s.Positions {
-		inst, side, ok := helper.SplitTrailKey(key)
-		if !ok {
-			delete(s.Positions, key)
-			continue
-		}
+	s.TrailMu.Lock()
+	for key := range s.TrailStates {
+		inst, side := key.InstID, key.PosSide
 		if _, ok := next[models.PosKey{InstID: inst, PosSide: side}]; !ok {
-			delete(s.Positions, key)
+			delete(s.TrailStates, key)
 		}
 	}
-	s.PosMu.Unlock()
+	s.TrailMu.Unlock()
 
 	return nil
 }

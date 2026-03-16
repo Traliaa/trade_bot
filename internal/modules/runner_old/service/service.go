@@ -126,7 +126,7 @@ func (s *Service) OnSignal(ctx context.Context, sig models.Signal) {
 	for _, sess := range s.users {
 		// 1. лимит по открытым позициям
 		if sess.User.Settings.TradingSettings.MaxOpenPositions > 0 {
-			if len(sess.Positions) >= sess.User.Settings.TradingSettings.MaxOpenPositions {
+			if len(sess.TrailStates) >= sess.User.Settings.TradingSettings.MaxOpenPositions {
 				sess.Notifier.SendF(ctx, sess.User.TelegramID,
 					"⚠️ [%s] Лимит открытых позиций (%d) достигнут, сигнал пропущен",
 					sig.InstID, sess.User.Settings.TradingSettings.MaxOpenPositions,
@@ -136,9 +136,9 @@ func (s *Service) OnSignal(ctx context.Context, sig models.Signal) {
 		}
 
 		// 1.1 лимит по стороне
-		sess.PosMu.RLock()
-		longs, shorts := countOpenSides(sess.Positions)
-		sess.PosMu.RUnlock()
+		sess.TrailMu.RLock()
+		longs, shorts := countOpenSides(sess.TrailStates)
+		sess.TrailMu.RUnlock()
 
 		side := strings.ToLower(string(sig.Side))
 		isLong := side == "buy" || side == "long"
@@ -232,13 +232,13 @@ func (s *Service) OnSignal(ctx context.Context, sig models.Signal) {
 			continue
 		}
 
-		key := sig.InstID + ":" + res.PosSide
+		key := models.PosKey{sig.InstID, res.PosSide}
 
-		sess.PosMu.Lock()
-		if sess.Positions == nil {
-			sess.Positions = make(map[string]*models.PositionTrailState)
+		sess.TrailMu.Lock()
+		if sess.TrailStates == nil {
+			sess.TrailStates = make(map[models.PosKey]*models.PositionTrailState)
 		}
-		sess.Positions[key] = &models.PositionTrailState{
+		sess.TrailStates[key] = &models.PositionTrailState{
 			InstID:   sig.InstID,
 			PosSide:  res.PosSide,
 			Entry:    res.Entry,
@@ -251,7 +251,7 @@ func (s *Service) OnSignal(ctx context.Context, sig models.Signal) {
 			MFE:      res.Entry,
 			OpenedAt: now,
 		}
-		sess.PosMu.Unlock()
+		sess.TrailMu.Unlock()
 	}
 }
 

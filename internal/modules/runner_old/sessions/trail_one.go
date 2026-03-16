@@ -19,9 +19,9 @@ func (s *UserSession) trailOne(ctx context.Context, ct models.CandleTick, p mode
 	key := helper.TrailKey(ct.InstID, p.PosSide)
 
 	// trail state
-	s.PosMu.RLock()
-	st := s.Positions[key]
-	s.PosMu.RUnlock()
+	s.TrailMu.RLock()
+	st := s.TrailStates[key]
+	s.TrailMu.RUnlock()
 	if st == nil || st.AlgoID == "" || st.RiskDist <= 0 {
 		return
 	}
@@ -56,16 +56,16 @@ func (s *UserSession) trailOne(ctx context.Context, ct models.CandleTick, p mode
 
 		_, _ = s.Okx.CloseMarket(ctx, st.InstID, st.PosSide, dec.CloseSize)
 
-		s.PosMu.Lock()
+		s.TrailMu.Lock()
 		if st.Size > dec.CloseSize {
 			st.Size -= dec.CloseSize
 		} else {
-			delete(s.Positions, key)
-			s.PosMu.Unlock()
+			delete(s.TrailStates, key)
+			s.TrailMu.Unlock()
 			return
 		}
 		st.LastTrailAt = ct.End
-		s.PosMu.Unlock()
+		s.TrailMu.Unlock()
 
 		// После partial сразу защищаем остаток позиции
 		if dec.MoveSLAfterPartial && st.AlgoID != "" && st.Size > 0 {
@@ -84,10 +84,10 @@ func (s *UserSession) trailOne(ctx context.Context, ct models.CandleTick, p mode
 
 				newAlgoID, err := s.Okx.PlaceSingleAlgo(ctx, st.InstID, st.PosSide, st.Size, newSL, false)
 				if err == nil {
-					s.PosMu.Lock()
+					s.TrailMu.Lock()
 					st.SL = newSL
 					st.AlgoID = newAlgoID
-					s.PosMu.Unlock()
+					s.TrailMu.Unlock()
 				}
 			}
 		}
@@ -114,16 +114,16 @@ func (s *UserSession) trailOne(ctx context.Context, ct models.CandleTick, p mode
 
 		now := time.Now()
 
-		s.PosMu.Lock()
+		s.TrailMu.Lock()
 		st.CloseReason = dec.Reason
 		st.ClosingAt = &now
-		s.PosMu.Unlock()
+		s.TrailMu.Unlock()
 
 		_, _ = s.Okx.CloseMarket(ctx, st.InstID, st.PosSide, st.Size)
 
-		s.PosMu.Lock()
-		delete(s.Positions, key)
-		s.PosMu.Unlock()
+		s.TrailMu.Lock()
+		delete(s.TrailStates, key)
+		s.TrailMu.Unlock()
 
 		msg := dec.Note
 		if msg == "" {
@@ -158,11 +158,11 @@ func (s *UserSession) trailOne(ctx context.Context, ct models.CandleTick, p mode
 		return
 	}
 
-	s.PosMu.Lock()
+	s.TrailMu.Lock()
 	st.SL = newSL
 	st.AlgoID = newAlgoID
 	st.LastTrailAt = ct.End
-	s.PosMu.Unlock()
+	s.TrailMu.Unlock()
 
 	if s.canSend("trail:"+st.InstID+":"+st.PosSide, 15*time.Minute) {
 		msg := dec.Note

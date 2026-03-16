@@ -26,15 +26,15 @@ func (r *Service) EnableUser(ctx context.Context, user *models.UserSettings) (*s
 	u := *user
 
 	sess := &sessions.UserSession{
-		Base:           r.Base,
-		Notifier:       r.TelegramNotifier,
-		PositionsCache: make(map[models.PosKey]models.CachedPos),
-		Positions:      make(map[string]*models.PositionTrailState),
-		User:           &u,
-		Ctx:            runCtx,
-		Cancel:         cancel,
-		Repo:           r.Repository,
-		LastMsgAt:      make(map[string]time.Time),
+		Base:              r.Base,
+		Notifier:          r.TelegramNotifier,
+		ExchangePositions: make(map[models.PosKey]models.CachedPos),
+		TrailStates:       make(map[models.PosKey]*models.PositionTrailState),
+		User:              &u,
+		Ctx:               runCtx,
+		Cancel:            cancel,
+		Repo:              r.Repository,
+		LastMsgAt:         make(map[string]time.Time),
 	}
 	if err := sess.RefreshAccountSnapshot(ctx); err != nil {
 		r.Logger.Warn("initial account snapshot refresh failed",

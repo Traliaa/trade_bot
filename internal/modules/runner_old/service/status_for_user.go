@@ -32,21 +32,21 @@ func (r *Service) StatusForUser(ctx context.Context, userID int64) ([]models.Ope
 
 func buildStatusFromCache(sess *sessions.UserSession) []models.OpenPosition {
 	// 1) snapshot cache
-	sess.PosCacheMu.RLock()
-	cacheAt := sess.PosCacheAt
-	cache := make(map[models.PosKey]models.CachedPos, len(sess.PositionsCache))
-	for k, v := range sess.PositionsCache {
+	sess.ExchangeMu.RLock()
+	cacheAt := sess.ExchangePositionsAt
+	cache := make(map[models.PosKey]models.CachedPos, len(sess.ExchangePositions))
+	for k, v := range sess.ExchangePositions {
 		cache[k] = v
 	}
-	sess.PosCacheMu.RUnlock()
+	sess.ExchangeMu.RUnlock()
 
 	// 2) snapshot trails
-	sess.PosMu.RLock()
-	trails := make(map[string]*models.PositionTrailState, len(sess.Positions))
-	for k, v := range sess.Positions {
+	sess.TrailMu.RLock()
+	trails := make(map[models.PosKey]*models.PositionTrailState, len(sess.TrailStates))
+	for k, v := range sess.TrailStates {
 		trails[k] = v
 	}
-	sess.PosMu.RUnlock()
+	sess.TrailMu.RUnlock()
 
 	out := make([]models.OpenPosition, 0, len(cache))
 
@@ -76,7 +76,7 @@ func buildStatusFromCache(sess *sessions.UserSession) []models.OpenPosition {
 		}
 
 		// 3) overlay трейл-данных
-		tk := p.InstID + ":" + p.PosSide
+		tk := models.PosKey{p.InstID, p.PosSide}
 		if st := trails[tk]; st != nil {
 			op.SL = st.SL
 			op.TP = st.TP

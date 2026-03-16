@@ -2,7 +2,7 @@ package service
 
 import "trade_bot/internal/models"
 
-func countOpenSides(pos map[string]*models.PositionTrailState) (longs, shorts int) {
+func countOpenSides(pos map[models.PosKey]*models.PositionTrailState) (longs, shorts int) {
 	for _, p := range pos {
 		if p == nil {
 			continue

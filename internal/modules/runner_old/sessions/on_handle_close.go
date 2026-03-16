@@ -11,10 +11,10 @@ func (s *UserSession) OnCandleClose(ctx context.Context, ct models.CandleTick) {
 		return
 	}
 
-	s.PosCacheMu.RLock()
-	pLong, okLong := s.PositionsCache[models.PosKey{InstID: ct.InstID, PosSide: "long"}]
-	pShort, okShort := s.PositionsCache[models.PosKey{InstID: ct.InstID, PosSide: "short"}]
-	s.PosCacheMu.RUnlock()
+	s.ExchangeMu.RLock()
+	pLong, okLong := s.ExchangePositions[models.PosKey{InstID: ct.InstID, PosSide: "long"}]
+	pShort, okShort := s.ExchangePositions[models.PosKey{InstID: ct.InstID, PosSide: "short"}]
+	s.ExchangeMu.RUnlock()
 
 	if okLong {
 		s.trailOne(ctx, ct, pLong)
