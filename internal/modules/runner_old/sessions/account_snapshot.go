@@ -25,7 +25,7 @@ func (s *UserSession) StartAccountRefresher(parent context.Context, interval tim
 			case <-s.stopCh:
 				return
 			case <-ticker.C:
-				ctx, cancel := context.WithTimeout(parent, 10*time.Second)
+				ctx, cancel := context.WithTimeout(parent, 30*time.Second)
 				err := s.RefreshAccountSnapshot(ctx)
 				cancel()
 

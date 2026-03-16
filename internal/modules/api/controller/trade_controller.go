@@ -14,16 +14,16 @@ type TradeRouter interface {
 	DisableUser(ctx context.Context, userID int64) bool
 	EnableUser(ctx context.Context, user *models.UserSettings) (*sessions.UserSession, bool)
 	ApplySettings(ctx context.Context, user *models.UserSettings)
-	StatusForUser(ctx context.Context, userID int64) ([]models.OpenPosition, error)
-	GetSession(userID int64) (*sessions.UserSession, bool)
+
+	GetUserStatus(ctx context.Context, userID int64) (models.UserStatus, error)
+	GetUser(ctx context.Context, userID int64) (*models.UserSettings, error)
 
 	AutoTuneNow(ctx context.Context) (models.TuneDecision, models.RuntimeTuning, time.Time, time.Time, bool, models.TuneMode)
 	ToggleTuneMode(ctx context.Context) models.TuneMode
 	TuneMode(ctx context.Context) models.TuneMode
 	StrategyRejects(reset bool) models.RejectSnapshot
 	StrategyTuning() (models.RuntimeTuning, time.Time, time.Time)
-
-	GetUser(ctx context.Context, userID int64) (*models.UserSettings, error)
+	GetSession(userID int64) (*sessions.UserSession, bool)
 	ListRecentTrades(ctx context.Context, userID int64, limit int) ([]models.TradeRecord, error)
 	GetTradeStats(ctx context.Context, userID int64) (models.TradeStats, error)
 	ListOpenTrades(ctx context.Context, userID int64) ([]models.TradeRecord, error)
@@ -43,10 +43,6 @@ func NewTradeController() *TradeController {
 
 type applySettingsRequest struct {
 	User models.UserSettings `json:"user"`
-}
-
-type statusResponse struct {
-	Positions []models.OpenPosition `json:"positions"`
 }
 
 type settingResponse struct {
@@ -114,19 +110,29 @@ func (c *TradeController) ApplySettings(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusNoContent)
 }
 
+type statusResponse struct {
+	BotRunning bool                   `json:"bot_running"`
+	Account    models.AccountSnapshot `json:"account"`
+	OpenTrades []models.TradeListItem `json:"open_trades"`
+}
+
 func (c *TradeController) StatusForUser(w http.ResponseWriter, r *http.Request) {
 	userID, ok := mustAuthUserID(w, r)
 	if !ok {
 		return
 	}
 
-	positions, err := c.r.StatusForUser(r.Context(), userID)
+	status, err := c.r.GetUserStatus(r.Context(), userID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	writeJSON(w, statusResponse{Positions: positions})
+	writeJSON(w, statusResponse{
+		BotRunning: status.BotRunning,
+		Account:    status.Account,
+		OpenTrades: status.OpenTrades,
+	})
 }
 
 func (c *TradeController) GetSetting(w http.ResponseWriter, r *http.Request) {

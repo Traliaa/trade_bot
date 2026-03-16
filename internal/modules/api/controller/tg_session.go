@@ -34,9 +34,6 @@ func NewTgSessionController(cfg *config.Config, jwtSecret []byte) *TgSessionCont
 
 func (c *TgSessionController) CreateSession(w http.ResponseWriter, r *http.Request) {
 	var req tgSessionReq
-	log.Println("CreateSession JWT SECRET LEN:", len(c.JWTSecret))
-	log.Println("CreateSession JWT SECRET LEN:", c.JWTSecret)
-
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.InitData == "" {
 		http.Error(w, "bad request", http.StatusBadRequest)
 		return

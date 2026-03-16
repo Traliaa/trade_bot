@@ -30,27 +30,38 @@ type TradeListItem struct {
 }
 
 func NewTradeListItem(tr TradeRecord) TradeListItem {
+	p := tr.Payload
+
 	return TradeListItem{
-		GUID:           tr.GUID.String(),
-		InstID:         tr.InstID,
-		PosSide:        tr.Payload.PosSide,
-		Side:           tr.Payload.Side,
-		Timeframe:      tr.Timeframe,
-		Strategy:       tr.Strategy,
-		Status:         tr.Status,
-		EntryPrice:     tr.Payload.EntryPrice,
-		ExitPrice:      tr.Payload.ExitPrice,
-		EntryAt:        tr.EntryAt,
-		ExitAt:         tr.ExitAt,
-		RealizedPnL:    tr.Payload.RealizedPnL,
-		RealizedPnLPct: tr.Payload.RealizedPnLPct,
-		RMultiple:      tr.Payload.RMultiple,
-		DurationSec:    tr.Payload.DurationSec,
-		CloseReason:    tr.CloseReason,
-		MovedToBE:      tr.Payload.MovedToBE,
-		LockedProfit:   tr.Payload.LockedProfit,
-		TookPartial:    tr.Payload.TookPartial,
-		MFER:           tr.Payload.MFER,
-		MAER:           tr.Payload.MAER,
+		GUID:      tr.GUID.String(),
+		InstID:    tr.InstID,
+		PosSide:   p.PosSide,
+		Side:      p.Side,
+		Timeframe: tr.Timeframe,
+		Strategy:  tr.Strategy,
+		Status:    tr.Status,
+
+		EntryPrice: p.EntryPrice,
+		ExitPrice:  p.ExitPrice,
+
+		EntryAt: tr.EntryAt,
+		ExitAt:  tr.ExitAt,
+
+		RealizedPnL:    p.RealizedPnL,
+		RealizedPnLPct: p.RealizedPnLPct,
+
+		CloseReason: tr.CloseReason,
+
+		RMultiple:   p.RMultiple,
+		DurationSec: p.DurationSec,
 	}
+}
+func NewTradeListItems(records []TradeRecord) []TradeListItem {
+	out := make([]TradeListItem, 0, len(records))
+
+	for _, tr := range records {
+		out = append(out, NewTradeListItem(tr))
+	}
+
+	return out
 }

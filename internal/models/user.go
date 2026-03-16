@@ -119,3 +119,10 @@ func NewTradingSettingsFromDefaults(userID int64, cfg *config.Config) *UserSetti
 		},
 	}
 }
+
+type UserStatus struct {
+	BotRunning         bool            `json:"bot_running"`
+	Account            AccountSnapshot `json:"account"`
+	OpenTrades         []TradeListItem `json:"open_trades"`
+	OpenPositionsCount int             `json:"open_positions_count"`
+}

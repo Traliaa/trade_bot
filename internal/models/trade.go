@@ -112,29 +112,6 @@ func UnmarshalTradePayload(raw []byte) (TradePayload, error) {
 	return p, err
 }
 
-func NewOpenTrade(
-	userID int64,
-	instID string,
-	strategy string,
-	timeframe string,
-	entryAt time.Time,
-	payload TradePayload,
-) TradeRecord {
-	return TradeRecord{
-		GUID:        uuid.New(),
-		UserID:      userID,
-		InstID:      instID,
-		Strategy:    strategy,
-		Timeframe:   timeframe,
-		Status:      TradeStatusOpen,
-		CloseReason: CloseReasonUnknown,
-		EntryAt:     entryAt,
-		Payload:     payload,
-		CreatedAt:   time.Now().UTC(),
-		UpdatedAt:   time.Now().UTC(),
-	}
-}
-
 type TradeCloseInput struct {
 	ExitAt      time.Time
 	CloseReason CloseReason

@@ -63,8 +63,8 @@ func NewService(
 }
 
 // Start ...
-func (s *Service) Start(ctx context.Context, sigs chan models.Signal, candles chan models.CandleTick) error {
-	ctx, shouldStart, started, stopped := s.StartInit(ctx)
+func (r *Service) Start(ctx context.Context, sigs chan models.Signal, candles chan models.CandleTick) error {
+	ctx, shouldStart, started, stopped := r.StartInit(ctx)
 	if !shouldStart {
 		return nil
 	}
@@ -73,10 +73,10 @@ func (s *Service) Start(ctx context.Context, sigs chan models.Signal, candles ch
 		started()
 		defer stopped()
 
-		s.Logger.Debug("Цикл запуска начат")
-		defer s.Logger.Debug("Цикл запуска остановлен")
+		r.Logger.Debug("Цикл запуска начат")
+		defer r.Logger.Debug("Цикл запуска остановлен")
 
-		s.RestoreEnabled(ctx)
+		r.RestoreEnabled(ctx)
 
 		agg := NewCandleAgg()
 
@@ -99,12 +99,12 @@ func (s *Service) Start(ctx context.Context, sigs chan models.Signal, candles ch
 				if !ok {
 					return
 				}
-				s.OnSignal(ctx, sig)
+				r.OnSignal(ctx, sig)
 				// 3) periodic drain
 			case <-ticker.C:
 				batch := agg.Drain()
 				for _, ct := range batch {
-					s.OnCandleClose(ctx, ct)
+					r.OnCandleClose(ctx, ct)
 				}
 			}
 		}
@@ -112,18 +112,18 @@ func (s *Service) Start(ctx context.Context, sigs chan models.Signal, candles ch
 	return nil
 }
 
-func (s *Service) OnSignal(ctx context.Context, sig models.Signal) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+func (r *Service) OnSignal(ctx context.Context, sig models.Signal) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 
-	s.Logger.Info("signal",
+	r.Logger.Info("signal",
 		zap.String("instId", sig.InstID),
 		zap.String("tf", sig.TF),
 		zap.String("side", string(sig.Side)),
 		zap.Float64("price", sig.Price),
 	)
 
-	for _, sess := range s.users {
+	for _, sess := range r.users {
 		// 1. лимит по открытым позициям
 		if sess.User.Settings.TradingSettings.MaxOpenPositions > 0 {
 			if len(sess.TrailStates) >= sess.User.Settings.TradingSettings.MaxOpenPositions {
@@ -215,8 +215,8 @@ func (s *Service) OnSignal(ctx context.Context, sig models.Signal) {
 			},
 		}
 
-		if err := s.Repository.CreateTradeHistory(ctx, trade); err != nil {
-			s.Logger.Error("create trade history failed",
+		if err := r.Repository.CreateTradeHistory(ctx, trade); err != nil {
+			r.Logger.Error("create trade history failed",
 				zap.Error(err),
 				zap.String("instId", sig.InstID),
 				zap.Int64("userID", sess.User.TelegramID),
@@ -272,9 +272,9 @@ func (r *Service) ToggleTuneMode(ctx context.Context) models.TuneMode {
 
 	return newMode
 }
-func (s *Service) TuneMode(ctx context.Context) models.TuneMode {
+func (r *Service) TuneMode(ctx context.Context) models.TuneMode {
 	// если режим хранится в стратегии — просто toggle там
-	newMode := s.strategy.TuneMode()
+	newMode := r.strategy.TuneMode()
 
 	return newMode
 }
@@ -290,6 +290,30 @@ func (r *Service) ListRecentTrades(ctx context.Context, userID int64, limit int)
 }
 func (r *Service) ListOpenTrades(ctx context.Context, userID int64) ([]models.TradeRecord, error) {
 	return r.Repository.ListOpenTrades(ctx, userID)
+}
+
+func (r *Service) GetUserStatus(ctx context.Context, userID int64) (models.UserStatus, error) {
+	openTrades, err := r.Repository.ListOpenTrades(ctx, userID)
+	if err != nil {
+		return models.UserStatus{}, err
+	}
+
+	status := models.UserStatus{
+		BotRunning: false,
+		Account:    models.AccountSnapshot{},
+		OpenTrades: models.NewTradeListItems(openTrades),
+	}
+
+	r.mu.RLock()
+	sess, ok := r.users[userID]
+	r.mu.RUnlock()
+
+	if ok && sess != nil {
+		status.BotRunning = true
+		status.Account = sess.AccountSnapshot()
+	}
+
+	return status, nil
 }
 func (r *Service) GetTradeStats(ctx context.Context, userID int64) (models.TradeStats, error) {
 	return r.Repository.GetTradeStats(ctx, userID)
