@@ -11,7 +11,7 @@ import (
 
 func (s *UserSession) StartAccountRefresher(parent context.Context, interval time.Duration) {
 	if interval <= 0 {
-		interval = 10 * time.Minute
+		interval = 30 * time.Second
 	}
 
 	go func() {

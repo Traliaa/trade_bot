@@ -52,15 +52,15 @@ func (r *Service) EnableUser(ctx context.Context, user *models.UserSettings) (*s
 	if sess.User.Premium {
 		go sess.PositionGuardWorker(runCtx)
 	}
-
-	go sess.TradeHistoryWorker(runCtx)
-
-	sess.StartAccountRefresher(ctx, 10*time.Minute)
 	if err := sess.RefreshAccountSnapshot(ctx); err != nil {
 		r.Logger.Warn("initial account snapshot refresh failed",
 			zap.Error(err),
 			zap.Int64("userID", user.TelegramID),
 		)
 	}
+	go sess.TradeHistoryWorker(runCtx)
+
+	go sess.StartAccountRefresher(ctx, 10*time.Minute)
+
 	return sess, true
 }
