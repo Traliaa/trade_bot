@@ -238,6 +238,55 @@ func (q *Queries) GetOpenTradeByUserAndInst(ctx context.Context, db DBTX, arg *G
 	return &i, err
 }
 
+const getOpenTradeByUserAndInstSide = `-- name: GetOpenTradeByUserAndInstSide :one
+SELECT
+    guid,
+    user_id,
+    inst_id,
+    strategy,
+    timeframe,
+    status,
+    close_reason,
+    entry_at,
+    exit_at,
+    payload,
+    created_at,
+    updated_at
+FROM public.trade_history
+WHERE user_id = $1
+  AND inst_id = $2
+  AND payload->>'pos_side' = $3
+  AND status = 'open'
+ORDER BY entry_at DESC
+LIMIT 1
+`
+
+type GetOpenTradeByUserAndInstSideParams struct {
+	UserID  int64  `db:"user_id"`
+	InstID  string `db:"inst_id"`
+	Payload string `db:"payload"`
+}
+
+func (q *Queries) GetOpenTradeByUserAndInstSide(ctx context.Context, db DBTX, arg *GetOpenTradeByUserAndInstSideParams) (*TradeHistory, error) {
+	row := db.QueryRow(ctx, getOpenTradeByUserAndInstSide, arg.UserID, arg.InstID, arg.Payload)
+	var i TradeHistory
+	err := row.Scan(
+		&i.Guid,
+		&i.UserID,
+		&i.InstID,
+		&i.Strategy,
+		&i.Timeframe,
+		&i.Status,
+		&i.CloseReason,
+		&i.EntryAt,
+		&i.ExitAt,
+		&i.Payload,
+		&i.CreatedAt,
+		&i.UpdatedAt,
+	)
+	return &i, err
+}
+
 const getTradeHistoryByGUID = `-- name: GetTradeHistoryByGUID :one
 SELECT
     guid,

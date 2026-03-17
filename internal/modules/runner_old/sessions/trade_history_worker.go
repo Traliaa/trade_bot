@@ -16,7 +16,7 @@ func (s *UserSession) TradeHistoryWorker(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			if err := s.syncClosedTrades(ctx); err != nil {
+			if err := s.SyncClosedTrades(ctx); err != nil {
 				s.Logger.Error("trade history sync failed", zap.Error(err))
 			}
 		}

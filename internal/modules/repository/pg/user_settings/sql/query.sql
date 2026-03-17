@@ -114,6 +114,28 @@ WHERE user_id = @user_id
 ORDER BY entry_at DESC
 LIMIT 1;
 
+-- name: GetOpenTradeByUserAndInstSide :one
+SELECT
+    guid,
+    user_id,
+    inst_id,
+    strategy,
+    timeframe,
+    status,
+    close_reason,
+    entry_at,
+    exit_at,
+    payload,
+    created_at,
+    updated_at
+FROM public.trade_history
+WHERE user_id = @user_id
+  AND inst_id = @inst_id
+  AND payload->>'pos_side' = @payload
+  AND status = 'open'
+ORDER BY entry_at DESC
+LIMIT 1;
+
 -- name: ListRecentTradesByUser :many
 SELECT
     guid,

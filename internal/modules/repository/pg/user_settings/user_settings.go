@@ -399,6 +399,18 @@ func (u *UserSettings) FindOpenTrade(ctx context.Context, tx pgx.Tx, userID int6
 	return mapTradeRow(row)
 }
 
+func (u *UserSettings) FindOpenTradeByUserInstSide(ctx context.Context, tx pgx.Tx, userID int64, instID string, posSide string) (*models.TradeRecord, error) {
+	row, err := u.sql.GetOpenTradeByUserAndInstSide(ctx, tx, &sql.GetOpenTradeByUserAndInstSideParams{
+		UserID:  userID,
+		InstID:  instID,
+		Payload: posSide,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return mapTradeRow(row)
+}
+
 func (u *UserSettings) ListRecentTrades(ctx context.Context, tx pgx.Tx, userID int64, limit int32) ([]models.TradeRecord, error) {
 	rows, err := u.sql.ListRecentTradesByUser(ctx, tx, &sql.ListRecentTradesByUserParams{
 		UserID: userID,

@@ -58,6 +58,18 @@ func (r *Service) EnableUser(ctx context.Context, user *models.UserSettings) (*s
 			zap.Int64("userID", user.TelegramID),
 		)
 	}
+	if err := sess.RestoreTrailStates(ctx); err != nil {
+		r.Logger.Warn("restore trail states failed",
+			zap.Error(err),
+			zap.Int64("userID", user.TelegramID),
+		)
+	}
+	if err := sess.SyncClosedTrades(ctx); err != nil {
+		r.Logger.Warn("sync closed trades after restore failed",
+			zap.Error(err),
+			zap.Int64("userID", user.TelegramID),
+		)
+	}
 	go sess.TradeHistoryWorker(runCtx)
 
 	go sess.StartAccountRefresher(ctx, 10*time.Minute)

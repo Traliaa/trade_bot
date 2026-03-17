@@ -9,7 +9,7 @@ import (
 	"go.uber.org/zap"
 )
 
-func (s *UserSession) syncClosedTrades(ctx context.Context) error {
+func (s *UserSession) SyncClosedTrades(ctx context.Context) error {
 	openTrades, err := s.Repo.ListOpenTrades(ctx, s.User.TelegramID)
 	if err != nil {
 		return err
@@ -25,9 +25,9 @@ func (s *UserSession) syncClosedTrades(ctx context.Context) error {
 
 	okxOpen := make(map[string]models.OpenPosition, len(openPos))
 	for _, p := range openPos {
-		posSide := "long"
-		if strings.EqualFold(p.Side, "short") {
-			posSide = "short"
+		posSide := strings.ToLower(p.Side)
+		if posSide == "" {
+			posSide = "long"
 		}
 		okxOpen[tradeKey(p.Symbol, posSide)] = p
 	}
@@ -41,12 +41,28 @@ func (s *UserSession) syncClosedTrades(ctx context.Context) error {
 			payload := tr.Payload
 
 			currentPrice := openPositionCurrentPrice(pos, tr)
+			currentSize := openPositionSize(pos, tr)
+
 			payload.CurrentPrice = currentPrice
+			payload.CurrentSize = currentSize
 			payload.DurationSec = int64(now.Sub(tr.EntryAt).Seconds())
-			payload.ExitSize = openPositionSize(pos, tr)
 
 			payload.UnrealizedPnL = openPositionUnrealizedPnL(pos, payload, currentPrice)
 			payload.UnrealizedPnLPct = openPositionUnrealizedPnLPct(pos, payload, currentPrice)
+			payload.PriceMovePct = calcPriceMovePct(payload, currentPrice)
+
+			if pos.UnrealizedPct != 0 {
+				payload.ExchangeUPLRatio = pos.UnrealizedPct
+			}
+
+			// partial tracking
+			if payload.EntrySize > 0 && currentSize > 0 && currentSize < payload.EntrySize {
+				payload.TookPartial = true
+				payload.ClosedSize = payload.EntrySize - currentSize
+				if payload.PartialCount == 0 {
+					payload.PartialCount = 1
+				}
+			}
 
 			if payload.StopLoss > 0 && currentPrice > 0 {
 				payload.RMultiple = models.CalcRMultiple(
@@ -126,39 +142,10 @@ func (s *UserSession) syncClosedTrades(ctx context.Context) error {
 
 	return nil
 }
-
 func tradeKey(instID, posSide string) string {
 	return instID + ":" + posSide
 }
-func calcUnrealizedPnL(p models.TradePayload, currentPrice float64) float64 {
-	if p.EntryPrice <= 0 || currentPrice <= 0 || p.EntrySize <= 0 {
-		return 0
-	}
 
-	switch p.PosSide {
-	case "long":
-		return (currentPrice - p.EntryPrice) * p.EntrySize
-	case "short":
-		return (p.EntryPrice - currentPrice) * p.EntrySize
-	default:
-		return 0
-	}
-}
-
-func calcUnrealizedPnLPct(p models.TradePayload, currentPrice float64) float64 {
-	if p.EntryPrice <= 0 || currentPrice <= 0 {
-		return 0
-	}
-
-	switch p.PosSide {
-	case "long":
-		return ((currentPrice - p.EntryPrice) / p.EntryPrice) * 100
-	case "short":
-		return ((p.EntryPrice - currentPrice) / p.EntryPrice) * 100
-	default:
-		return 0
-	}
-}
 func openPositionCurrentPrice(pos models.OpenPosition, tr models.TradeRecord) float64 {
 	if pos.MarkPx > 0 {
 		return pos.MarkPx
@@ -188,7 +175,57 @@ func openPositionUnrealizedPnL(pos models.OpenPosition, payload models.TradePayl
 
 func openPositionUnrealizedPnLPct(pos models.OpenPosition, payload models.TradePayload, currentPrice float64) float64 {
 	if pos.UnrealizedPct != 0 {
-		return pos.UnrealizedPct * 100
+		payload.ExchangeUPLRatio = pos.UnrealizedPct
 	}
-	return calcUnrealizedPnLPct(payload, currentPrice)
+	return calcPriceMovePct(payload, currentPrice)
+}
+
+func calcUnrealizedPnL(p models.TradePayload, currentPrice float64) float64 {
+	if p.EntryPrice <= 0 || currentPrice <= 0 || p.EntrySize <= 0 {
+		return 0
+	}
+
+	switch p.PosSide {
+	case "long":
+		return (currentPrice - p.EntryPrice) * p.EntrySize
+	case "short":
+		return (p.EntryPrice - currentPrice) * p.EntrySize
+	default:
+		return 0
+	}
+}
+
+func calcPriceMovePct(p models.TradePayload, currentPrice float64) float64 {
+	if p.EntryPrice <= 0 || currentPrice <= 0 {
+		return 0
+	}
+
+	switch p.PosSide {
+	case "long":
+		return ((currentPrice - p.EntryPrice) / p.EntryPrice) * 100
+	case "short":
+		return ((p.EntryPrice - currentPrice) / p.EntryPrice) * 100
+	default:
+		return 0
+	}
+}
+func (s *UserSession) syncTradeCloseIntent(
+	ctx context.Context,
+	st *models.PositionTrailState,
+	reason models.CloseReason,
+) error {
+	if st == nil {
+		return nil
+	}
+
+	return s.syncTradePayloadFromTrail(ctx, st.InstID, st.PosSide, func(p *models.TradePayload) {
+		p.MovedToBE = st.MovedToBE
+		p.LockedProfit = st.LockedProfit
+		p.TookPartial = st.TookPartial
+		p.PendingCloseReason = string(reason)
+
+		if reason == models.CloseReasonTimeStopEarly || reason == models.CloseReasonTimeStopStale {
+			p.TimeStopTriggered = true
+		}
+	})
 }

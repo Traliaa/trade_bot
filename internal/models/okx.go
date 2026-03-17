@@ -86,3 +86,14 @@ type TransactionDetailRecord struct {
 	FillPnl  string `json:"fillPnl"`
 	ExecType string `json:"execType"`
 }
+type TradeFill struct {
+	InstID      string    `json:"inst_id"`
+	PosSide     string    `json:"pos_side"`
+	Side        string    `json:"side"`
+	FillPx      float64   `json:"fill_px"`
+	FillSz      float64   `json:"fill_sz"`
+	Fee         float64   `json:"fee"`
+	RealizedPnL float64   `json:"realized_pnl"`
+	TradeID     string    `json:"trade_id"`
+	FillTime    time.Time `json:"fill_time"`
+}

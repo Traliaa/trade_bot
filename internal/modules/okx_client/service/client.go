@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -390,7 +391,101 @@ func (c *Client) USDTBalance(ctx context.Context) (*models.AccountSnapshot, erro
 
 	return nil, errors.New("okx balance: USDT not found")
 }
+func (c *Client) RecentFills(ctx context.Context, instID string, limit int) ([]models.TradeFill, error) {
+	if c.apiKey == "" || c.apiSecret == "" || c.passph == "" {
+		return nil, errors.New("okx creds empty")
+	}
+	if limit <= 0 {
+		limit = 20
+	}
 
+	requestPath := fmt.Sprintf("/api/v5/trade/fills?instId=%s&limit=%d", url.QueryEscape(instID), limit)
+	method := "GET"
+	bodyStr := ""
+
+	ts := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
+	sign := c.sign(ts, method, requestPath, bodyStr)
+
+	req, err := http.NewRequestWithContext(ctx, method, "https://www.okx.com"+requestPath, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Set("OK-ACCESS-KEY", c.apiKey)
+	req.Header.Set("OK-ACCESS-SIGN", sign)
+	req.Header.Set("OK-ACCESS-TIMESTAMP", ts)
+	req.Header.Set("OK-ACCESS-PASSPHRASE", c.passph)
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	rb, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode/100 != 2 {
+		return nil, fmt.Errorf("http %d (fills): %s", resp.StatusCode, string(rb))
+	}
+
+	var wrap struct {
+		Code string `json:"code"`
+		Msg  string `json:"msg"`
+		Data []struct {
+			InstID  string `json:"instId"`
+			PosSide string `json:"posSide"`
+			Side    string `json:"side"`
+			FillPx  string `json:"fillPx"`
+			FillSz  string `json:"fillSz"`
+			Fee     string `json:"fee"`
+			FillPnl string `json:"fillPnl"`
+			TradeID string `json:"tradeId"`
+			Ts      string `json:"ts"`
+		} `json:"data"`
+	}
+
+	if err := json.Unmarshal(rb, &wrap); err != nil {
+		return nil, err
+	}
+	if wrap.Code != "0" {
+		return nil, fmt.Errorf("okx fills error: code=%s msg=%s", wrap.Code, wrap.Msg)
+	}
+
+	parseF := func(v string) float64 {
+		if v == "" {
+			return 0
+		}
+		f, _ := strconv.ParseFloat(v, 64)
+		return f
+	}
+
+	parseMs := func(v string) time.Time {
+		if v == "" {
+			return time.Time{}
+		}
+		ms, err := strconv.ParseInt(v, 10, 64)
+		if err != nil {
+			return time.Time{}
+		}
+		return time.UnixMilli(ms).UTC()
+	}
+
+	out := make([]models.TradeFill, 0, len(wrap.Data))
+	for _, d := range wrap.Data {
+		out = append(out, models.TradeFill{
+			InstID:      d.InstID,
+			PosSide:     strings.ToLower(d.PosSide),
+			Side:        strings.ToLower(d.Side),
+			FillPx:      parseF(d.FillPx),
+			FillSz:      parseF(d.FillSz),
+			Fee:         parseF(d.Fee),
+			RealizedPnL: parseF(d.FillPnl),
+			TradeID:     d.TradeID,
+			FillTime:    parseMs(d.Ts),
+		})
+	}
+
+	return out, nil
+}
 func formatPrice(p float64) string {
 	return strconv.FormatFloat(p, 'f', -1, 64)
 }
