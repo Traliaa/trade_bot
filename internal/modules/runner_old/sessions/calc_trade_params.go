@@ -18,29 +18,18 @@ func (s *UserSession) CalcTradeParams(
 	side string,
 	entry float64,
 ) (*models.TradeParams, error) {
-
 	cfg := s.SettingsSnapshot()
 	ts := cfg.TradingSettings
-	//tr := cfg.TrailingConfig
-	//ff := cfg.FeatureFlags
 
 	side = strings.ToUpper(side)
 	if side != "BUY" && side != "SELL" {
 		return nil, fmt.Errorf("unknown side %q", side)
 	}
 
-	// денежный риск
-	riskPct := ts.RiskPct / 100.0
-	if riskPct <= 0 {
-		return nil, fmt.Errorf("riskPct <= 0")
-	}
-
-	// стоп-дистанция
 	stopPct := ts.StopPct / 100.0
 	if stopPct <= 0 {
-		return nil, fmt.Errorf("stopPct <= 0 (set TradingSettings.StopPct)")
+		return nil, fmt.Errorf("stopPct <= 0")
 	}
-	// адекватный safety-guard, чтобы случайно не поставить 10% стоп
 	if stopPct > 0.20 {
 		return nil, fmt.Errorf("stopPct too big: %.4f", stopPct)
 	}
@@ -67,7 +56,6 @@ func (s *UserSession) CalcTradeParams(
 		return nil, fmt.Errorf("entry <= 0")
 	}
 
-	// 1) сырой SL от StopPct
 	var slRaw float64
 	if side == "BUY" {
 		slRaw = entry * (1 - stopPct)
@@ -75,9 +63,6 @@ func (s *UserSession) CalcTradeParams(
 		slRaw = entry * (1 + stopPct)
 	}
 
-	// 2) округляем SL "в безопасную сторону"
-	// BUY: SL ниже -> roundDown
-	// SELL: SL выше -> roundUp
 	var sl float64
 	if side == "BUY" {
 		sl = helper.RoundDownToTick(slRaw, instrument.TickSz)
@@ -90,7 +75,6 @@ func (s *UserSession) CalcTradeParams(
 		return nil, fmt.Errorf("riskDist <= 0 after rounding")
 	}
 
-	// 3) TP от 1R
 	var tpRaw float64
 	if side == "BUY" {
 		tpRaw = entry + rr*riskDist
@@ -98,8 +82,6 @@ func (s *UserSession) CalcTradeParams(
 		tpRaw = entry - rr*riskDist
 	}
 
-	// BUY: TP выше -> roundUp
-	// SELL: TP ниже -> roundDown
 	var tp float64
 	if side == "BUY" {
 		tp = helper.RoundUpToTick(tpRaw, instrument.TickSz)
@@ -107,31 +89,31 @@ func (s *UserSession) CalcTradeParams(
 		tp = helper.RoundDownToTick(tpRaw, instrument.TickSz)
 	}
 
-	log.Printf(
-		"[CREDS CHECK BEFORE calcSizeByRisk] chat=%d key=%t secret=%t pass=%t",
-		s.User.TelegramID,
-		ts.OKXAPIKey != "",
-		ts.OKXAPISecret != "",
-		ts.OKXPassphrase != "",
-	)
-
-	// 4) сайзинг по ДЕНЕЖНОМУ риску RiskPct
-	size, err := s.calcSizeByRiskWithMeta(
-		ctx,
-		instrument,
-		entry,
-		sl,
-	)
+	sizeMeta, err := s.calcSizeByRiskWithMeta(ctx, instrument, entry, sl)
 	if err != nil {
 		return nil, fmt.Errorf("calcSizeByRisk: %w", err)
 	}
+
+	size := sizeMeta.NormalizedSz
 	if size <= 0 {
 		return nil, fmt.Errorf("size <= 0")
 	}
 
-	// полезный sanity для логов:
-	// stopDistPct := riskDist / entry
-	// estROEStop := stopDistPct * float64(lev) * 100.0
+	log.Printf(
+		"[SIZE CALC] inst=%s entry=%.8f sl=%.8f riskUSDT=%.8f rawRiskSz=%.8f rawMarginSz=%.8f chosen=%.8f final=%.8f ctVal=%.8f lotSz=%.8f minSz=%.8f maxMktSz=%.8f",
+		symbol,
+		entry,
+		sl,
+		sizeMeta.RiskUSDT,
+		sizeMeta.RawRiskSz,
+		sizeMeta.RawMarginSz,
+		sizeMeta.RawChosenSz,
+		sizeMeta.NormalizedSz,
+		sizeMeta.CtVal,
+		sizeMeta.LotSz,
+		sizeMeta.MinSz,
+		sizeMeta.MaxMktSz,
+	)
 
 	return &models.TradeParams{
 		Entry:     entry,
@@ -139,10 +121,43 @@ func (s *UserSession) CalcTradeParams(
 		TP:        tp,
 		Size:      size,
 		TickSize:  instrument.TickSz,
-		RiskPct:   ts.RiskPct, // денежный риск
+		RiskPct:   ts.RiskPct,
 		RR:        rr,
 		RiskDist:  riskDist,
 		Leverage:  lev,
 		Direction: side,
+		SizeMeta:  sizeMeta,
 	}, nil
+}
+
+func normalizeSize(sz, lotSz, minSz, maxMktSz float64) (float64, error) {
+	if sz <= 0 || math.IsNaN(sz) || math.IsInf(sz, 0) {
+		return 0, fmt.Errorf("invalid raw size: %.10f", sz)
+	}
+	if lotSz <= 0 {
+		return 0, fmt.Errorf("invalid lotSz: %.10f", lotSz)
+	}
+	if minSz <= 0 {
+		return 0, fmt.Errorf("invalid minSz: %.10f", minSz)
+	}
+
+	steps := math.Floor(sz/lotSz + 1e-9)
+	norm := steps * lotSz
+
+	if norm < minSz {
+		return 0, fmt.Errorf("normalized size %.8f below minSz %.8f", norm, minSz)
+	}
+
+	if maxMktSz > 0 && norm > maxMktSz {
+		norm = math.Floor(maxMktSz/lotSz+1e-9) * lotSz
+		if norm < minSz {
+			return 0, fmt.Errorf("maxMktSz %.8f results in size below minSz %.8f", maxMktSz, minSz)
+		}
+	}
+
+	if norm <= 0 || math.IsNaN(norm) || math.IsInf(norm, 0) {
+		return 0, fmt.Errorf("invalid normalized size: %.10f", norm)
+	}
+
+	return norm, nil
 }

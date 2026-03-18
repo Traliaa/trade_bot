@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -20,25 +21,28 @@ func (c *Client) PlaceSingleAlgo(
 	size float64,
 	triggerPx float64,
 	isTP bool,
-) (string, error) { // ✅ algoId
+) (string, error) {
 
-	// 1. Сторона закрывающего ордера
+	if size <= 0 {
+		return "", fmt.Errorf("PlaceSingleAlgo: size <= 0")
+	}
+
+	if triggerPx <= 0 {
+		return "", fmt.Errorf("PlaceSingleAlgo: triggerPx <= 0")
+	}
+
 	var side string
+
 	switch strings.ToLower(posSide) {
 	case "long":
 		side = "sell"
 	case "short":
 		side = "buy"
 	default:
-		return "", fmt.Errorf("PlaceSingleAlgo: unsupported posSide=%q", posSide)
+		return "", fmt.Errorf("unsupported posSide %q", posSide)
 	}
 
-	if size <= 0 {
-		return "", fmt.Errorf("PlaceSingleAlgo: size <= 0")
-	}
-	if triggerPx <= 0 {
-		return "", fmt.Errorf("PlaceSingleAlgo: triggerPx <= 0")
-	}
+	sz := formatSize(size)
 
 	body := map[string]string{
 		"instId":  instId,
@@ -46,7 +50,7 @@ func (c *Client) PlaceSingleAlgo(
 		"side":    side,
 		"posSide": posSide,
 		"ordType": "conditional",
-		"sz":      formatSize(size),
+		"sz":      sz,
 	}
 
 	if isTP {
@@ -59,25 +63,29 @@ func (c *Client) PlaceSingleAlgo(
 		body["slTriggerPxType"] = "last"
 	}
 
-	payload, err := sonic.Marshal(body)
-	if err != nil {
-		return "", fmt.Errorf("PlaceSingleAlgo marshal: %w", err)
-	}
+	log.Printf(
+		"[OKX ALGO ORDER] inst=%s posSide=%s side=%s size=%.8f trigger=%.8f isTP=%t",
+		instId,
+		posSide,
+		side,
+		size,
+		triggerPx,
+		isTP,
+	)
+
+	payload, _ := sonic.Marshal(body)
 
 	const requestPath = "/api/v5/trade/order-algo"
 
 	ts := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
 	sign := c.sign(ts, http.MethodPost, requestPath, string(payload))
 
-	req, err := http.NewRequestWithContext(
+	req, _ := http.NewRequestWithContext(
 		ctx,
 		http.MethodPost,
 		"https://www.okx.com"+requestPath,
 		bytes.NewReader(payload),
 	)
-	if err != nil {
-		return "", fmt.Errorf("PlaceSingleAlgo new request: %w", err)
-	}
 
 	req.Header.Set("OK-ACCESS-KEY", c.apiKey)
 	req.Header.Set("OK-ACCESS-SIGN", sign)
@@ -87,14 +95,14 @@ func (c *Client) PlaceSingleAlgo(
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("PlaceSingleAlgo do: %w", err)
+		return "", err
 	}
 	defer resp.Body.Close()
 
 	data, _ := io.ReadAll(resp.Body)
 
 	if resp.StatusCode/100 != 2 {
-		return "", fmt.Errorf("PlaceSingleAlgo http %d: %s", resp.StatusCode, string(data))
+		return "", fmt.Errorf("okx http %d: %s", resp.StatusCode, string(data))
 	}
 
 	var r struct {
@@ -108,28 +116,21 @@ func (c *Client) PlaceSingleAlgo(
 	}
 
 	if err := json.Unmarshal(data, &r); err != nil {
-		return "", fmt.Errorf("PlaceSingleAlgo decode: %w; body=%s", err, string(data))
+		return "", err
 	}
 
-	// детальный статус
-	if len(r.Data) > 0 && r.Data[0].SCode != "0" {
+	if len(r.Data) == 0 {
+		return "", fmt.Errorf("empty algo response: %s", string(data))
+	}
+
+	d := r.Data[0]
+
+	if r.Code != "0" || d.SCode != "0" {
 		return "", fmt.Errorf(
-			"PlaceSingleAlgo algo rejected: sCode=%s sMsg=%s RAW=%s",
-			r.Data[0].SCode, r.Data[0].SMsg, string(data),
+			"okx algo error: code=%s msg=%s sCode=%s sMsg=%s",
+			r.Code, r.Msg, d.SCode, d.SMsg,
 		)
 	}
 
-	// общий код
-	if r.Code != "0" {
-		return "", fmt.Errorf(
-			"PlaceSingleAlgo error: code=%s msg=%s RAW=%s",
-			r.Code, r.Msg, string(data),
-		)
-	}
-
-	if len(r.Data) == 0 || r.Data[0].AlgoId == "" {
-		return "", fmt.Errorf("PlaceSingleAlgo: empty algoId RAW=%s", string(data))
-	}
-
-	return r.Data[0].AlgoId, nil
+	return d.AlgoId, nil
 }

@@ -55,8 +55,24 @@ type TradeParams struct {
 	RiskDist  float64
 	Leverage  int
 	Direction string // "BUY" или "SELL"
+	SizeMeta  *SizeCalcResult
 }
+type SizeCalcResult struct {
+	RawRiskSz    float64 `json:"raw_risk_sz"`
+	RawMarginSz  float64 `json:"raw_margin_sz"`
+	RawChosenSz  float64 `json:"raw_chosen_sz"`
+	NormalizedSz float64 `json:"normalized_sz"`
 
+	RiskUSDT   float64 `json:"risk_usdt"`
+	EntryPrice float64 `json:"entry_price"`
+	SLPrice    float64 `json:"sl_price"`
+	StopDist   float64 `json:"stop_dist"`
+
+	CtVal    float64 `json:"ct_val"`
+	LotSz    float64 `json:"lot_sz"`
+	MinSz    float64 `json:"min_sz"`
+	MaxMktSz float64 `json:"max_mkt_sz"`
+}
 type PositionInfo struct {
 	Symbol           string
 	Side             string // LONG/SHORT

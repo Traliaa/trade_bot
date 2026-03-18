@@ -3,6 +3,8 @@ package sessions
 import (
 	"context"
 	"fmt"
+	"log"
+	"math"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -62,6 +64,48 @@ type UserSession struct {
 	stopCh chan struct{}
 }
 
+func validateFinalOrderSize(finalSz float64, calc *models.SizeCalcResult) error {
+	if calc == nil {
+		return fmt.Errorf("nil size calc result")
+	}
+	if finalSz <= 0 || math.IsNaN(finalSz) || math.IsInf(finalSz, 0) {
+		return fmt.Errorf("invalid final size: %.10f", finalSz)
+	}
+
+	// нельзя больше рассчитанного нормализованного размера
+	if finalSz > calc.NormalizedSz+1e-9 {
+		return fmt.Errorf(
+			"final size exceeds normalized size: final=%.8f normalized=%.8f",
+			finalSz, calc.NormalizedSz,
+		)
+	}
+
+	// повторная проверка кратности шагу
+	steps := finalSz / calc.LotSz
+	if math.Abs(steps-math.Round(steps)) > 1e-8 {
+		return fmt.Errorf(
+			"final size is not aligned to lotSz: final=%.8f lotSz=%.8f",
+			finalSz, calc.LotSz,
+		)
+	}
+
+	if finalSz < calc.MinSz {
+		return fmt.Errorf(
+			"final size below minSz: final=%.8f minSz=%.8f",
+			finalSz, calc.MinSz,
+		)
+	}
+
+	if calc.MaxMktSz > 0 && finalSz > calc.MaxMktSz {
+		return fmt.Errorf(
+			"final size exceeds maxMktSz: final=%.8f max=%.8f",
+			finalSz, calc.MaxMktSz,
+		)
+	}
+
+	return nil
+}
+
 // OpenPositionWithTpSl открывает рыночный ордер и пытается поставить TP/SL.
 // Возвращает orderID рыночного ордера (если успешно) или ошибку.
 func (s *UserSession) OpenPositionWithTpSl(
@@ -69,32 +113,50 @@ func (s *UserSession) OpenPositionWithTpSl(
 	sig models.Signal,
 	params *models.TradeParams,
 ) (*models.OpenResult, error) {
+	if params == nil {
+		return nil, fmt.Errorf("params is nil")
+	}
+	if params.SizeMeta == nil {
+		return nil, fmt.Errorf("params.SizeMeta is nil")
+	}
+
+	if err := validateFinalOrderSize(params.Size, params.SizeMeta); err != nil {
+		return nil, fmt.Errorf("final size validation failed: %w", err)
+	}
+
 	cfg := s.SettingsSnapshot()
 	ts := cfg.TradingSettings
-	//tr := cfg.TrailingConfig
-	//ff := cfg.FeatureFlags
 
-	// 1. Маппим сторону в OKX side/openType
-	openType := 1 // 1 = open long/short
+	openType := 1
 	var sideInt int
+
 	switch strings.ToUpper(params.Direction) {
 	case "BUY":
-		sideInt = 1 // open long
+		sideInt = 1
 	case "SELL":
-		sideInt = 3 // open short
+		sideInt = 3
 	default:
 		return nil, fmt.Errorf("unknown direction: %q", params.Direction)
 	}
 
-	fmt.Printf(
-		"[CREDS CHECK INSIDE calcSizeByRisk] chat=%d keyLen=%d secretLen=%d passLen=%d",
+	log.Printf(
+		"[OPEN CHECK] inst=%s dir=%s size=%.8f normalized=%.8f riskUSDT=%.8f entry=%.8f sl=%.8f tp=%.8f lev=%d chat=%d key=%t secret=%t pass=%t",
+		sig.InstID,
+		params.Direction,
+		params.Size,
+		params.SizeMeta.NormalizedSz,
+		params.SizeMeta.RiskUSDT,
+		params.Entry,
+		params.SL,
+		params.TP,
+		params.Leverage,
 		s.User.TelegramID,
-		len(ts.OKXAPIKey),
-		len(ts.OKXAPISecret),
-		len(ts.OKXPassphrase),
+		ts.OKXAPIKey != "",
+		ts.OKXAPISecret != "",
+		ts.OKXPassphrase != "",
 	)
-	// 2. Открываем рыночный ордер
-	OrderID, err := s.Okx.PlaceMarket(
+
+	orderID, err := s.Okx.PlaceMarket(
 		ctx,
 		sig.InstID,
 		params.Size,
@@ -106,28 +168,30 @@ func (s *UserSession) OpenPositionWithTpSl(
 		return nil, fmt.Errorf("PlaceMarket: %w", err)
 	}
 
-	// 3. TP/SL (order-algo)
 	posSide := "long"
 	if strings.EqualFold(params.Direction, "SELL") {
 		posSide = "short"
 	}
 
-	// 1) Stop-loss
 	slAlgoId, err := s.Okx.PlaceSingleAlgo(ctx, sig.InstID, posSide, params.Size, params.SL, false)
 	if err != nil {
 		s.Notifier.SendF(ctx, s.User.TelegramID,
-			"⚠️ [%s] TP/SL не выставлены на OKX: %v", sig.InstID, err)
+			"⚠️ [%s] SL не выставлен на OKX: %v", sig.InstID, err)
 	}
 
-	// 2) Take-profit
 	tpAlgoId, err := s.Okx.PlaceSingleAlgo(ctx, sig.InstID, posSide, params.Size, params.TP, true)
 	if err != nil {
 		s.Notifier.SendF(ctx, s.User.TelegramID,
-			"⚠️ [%s] TP/SL не выставлены на OKX: %v", sig.InstID, err)
-
+			"⚠️ [%s] TP не выставлен на OKX: %v", sig.InstID, err)
 	}
 
-	return &models.OpenResult{PosSide: posSide, SLAlgoID: slAlgoId, TPAlgoID: tpAlgoId, Entry: params.Entry, OrderID: OrderID}, nil
+	return &models.OpenResult{
+		PosSide:  posSide,
+		SLAlgoID: slAlgoId,
+		TPAlgoID: tpAlgoId,
+		Entry:    params.Entry,
+		OrderID:  orderID,
+	}, nil
 }
 func (s *UserSession) Status(ctx context.Context) ([]models.OpenPosition, error) {
 	// просто прокидываем в OKX-клиент, который уже сконфигурен под этого юзера

@@ -24,24 +24,21 @@ func (s *UserSession) calcSizeByRiskWithMeta(
 	meta models.Instrument,
 	entryPrice float64,
 	slPrice float64,
-) (float64, error) {
-
+) (*models.SizeCalcResult, error) {
 	cfg := s.SettingsSnapshot()
 	ts := cfg.TradingSettings
 
 	if entryPrice <= 0 || slPrice <= 0 {
-		return 0, fmt.Errorf("entry/sl <= 0")
+		return nil, fmt.Errorf("entry/sl <= 0")
 	}
 
 	equity := s.RiskEquity()
-
 	riskFraction := ts.RiskPct / 100.0
 	if riskFraction <= 0 {
-		return 0, fmt.Errorf("riskFraction <= 0")
+		return nil, fmt.Errorf("riskFraction <= 0")
 	}
 	riskUSDT := equity * riskFraction
 
-	// leverage cap
 	lev := float64(ts.Leverage)
 	if lev <= 0 {
 		lev = 1
@@ -49,87 +46,70 @@ func (s *UserSession) calcSizeByRiskWithMeta(
 
 	ctVal := meta.CtVal
 	if ctVal <= 0 {
-		return 0, fmt.Errorf("ctVal <= 0")
+		return nil, fmt.Errorf("ctVal <= 0")
 	}
 
-	// 1) риск по формуле
-	var szRisk float64
+	stopDist := math.Abs(entryPrice - slPrice)
+	if stopDist <= 0 {
+		return nil, fmt.Errorf("zero stopDist")
+	}
+
+	var rawRiskSz float64
 	switch meta.Kind {
 	case models.ContractLinearUSDT:
-		stopDist := math.Abs(entryPrice - slPrice)
-		if stopDist <= 0 {
-			return 0, fmt.Errorf("zero stopDist")
-		}
-		szRisk = riskUSDT / (stopDist * ctVal)
+		rawRiskSz = riskUSDT / (stopDist * ctVal)
 
 	case models.ContractInverseCoin:
 		a := 1.0 / entryPrice
 		b := 1.0 / slPrice
 		d := math.Abs(a - b)
 		if d <= 0 {
-			return 0, fmt.Errorf("zero inverse dist")
+			return nil, fmt.Errorf("zero inverse dist")
 		}
 
 		settlePxUSDT, err := s.Okx.SettleCcyToUSDT(ctx, meta.SettleCcy)
 		if err != nil {
-			return 0, fmt.Errorf("settle px: %w", err)
+			return nil, fmt.Errorf("settle px: %w", err)
 		}
 
-		szRisk = riskUSDT / (ctVal * d * settlePxUSDT)
+		rawRiskSz = riskUSDT / (ctVal * d * settlePxUSDT)
 
 	default:
-		return 0, fmt.Errorf("unsupported contract kind: %v (ctType=%s settle=%s ctValCcy=%s)",
-			meta.Kind, meta.Kind, meta.SettleCcy, meta.CtValCcy)
+		return nil, fmt.Errorf("unsupported contract kind: %v", meta.Kind)
 	}
 
-	if szRisk <= 0 || math.IsNaN(szRisk) || math.IsInf(szRisk, 0) {
-		return 0, fmt.Errorf("szRisk invalid: %.10f", szRisk)
+	if rawRiskSz <= 0 || math.IsNaN(rawRiskSz) || math.IsInf(rawRiskSz, 0) {
+		return nil, fmt.Errorf("rawRiskSz invalid: %.10f", rawRiskSz)
 	}
 
-	// 2) ограничение по марже (приближенно)
-	var maxSzByMargin float64
-	switch meta.Kind {
-	case models.ContractLinearUSDT:
-		maxSzByMargin = (equity * lev) / (entryPrice * ctVal)
-
-	case models.ContractInverseCoin:
-		maxSzByMargin = (equity * lev) / (entryPrice * ctVal)
+	rawMarginSz := (equity * lev) / (entryPrice * ctVal)
+	if rawMarginSz <= 0 || math.IsNaN(rawMarginSz) || math.IsInf(rawMarginSz, 0) {
+		return nil, fmt.Errorf("rawMarginSz invalid: %.10f", rawMarginSz)
 	}
 
-	if maxSzByMargin <= 0 || math.IsNaN(maxSzByMargin) || math.IsInf(maxSzByMargin, 0) {
-		return 0, fmt.Errorf("maxSzByMargin invalid: %.10f", maxSzByMargin)
-	}
+	rawChosenSz := math.Min(rawRiskSz, rawMarginSz)
 
-	sz := math.Min(szRisk, maxSzByMargin)
-
-	// 3) cap по MaxMktSz (если есть)
-	if meta.MaxMktSz > 0 && sz > meta.MaxMktSz {
-		sz = meta.MaxMktSz
-	}
-
-	// 4) округление под lotSz/minSz
 	lotSz := meta.LotSz
 	minSz := meta.MinSz
-	if lotSz <= 0 {
-		lotSz = 1
-	}
-	if minSz <= 0 {
-		minSz = lotSz
+	maxMktSz := meta.MaxMktSz
+
+	normSz, err := normalizeSize(rawChosenSz, lotSz, minSz, maxMktSz)
+	if err != nil {
+		return nil, err
 	}
 
-	steps := math.Floor(sz/lotSz + 1e-9)
-	sz = steps * lotSz
-	if sz < minSz {
-		sz = minSz
-	}
-
-	if meta.MaxMktSz > 0 && sz > meta.MaxMktSz {
-		return 0, fmt.Errorf("minSz > maxMktSz: minSz=%.8f maxMktSz=%.8f", minSz, meta.MaxMktSz)
-	}
-
-	if sz <= 0 {
-		return 0, fmt.Errorf("sz <= 0 after rounding: %.10f", sz)
-	}
-
-	return sz, nil
+	return &models.SizeCalcResult{
+		RawRiskSz:    rawRiskSz,
+		RawMarginSz:  rawMarginSz,
+		RawChosenSz:  rawChosenSz,
+		NormalizedSz: normSz,
+		RiskUSDT:     riskUSDT,
+		EntryPrice:   entryPrice,
+		SLPrice:      slPrice,
+		StopDist:     stopDist,
+		CtVal:        ctVal,
+		LotSz:        lotSz,
+		MinSz:        minSz,
+		MaxMktSz:     maxMktSz,
+	}, nil
 }

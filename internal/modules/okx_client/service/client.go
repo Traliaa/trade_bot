@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -9,6 +10,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -200,32 +203,47 @@ func (c *Client) PlaceMarket(
 	vol float64,
 	side, leverage, openType int,
 ) (string, error) {
+
 	if c.apiKey == "" || c.apiSecret == "" || c.passph == "" {
-		return "", errors.New("okx creds empty (ключ/секрет/пасфраза)")
+		return "", errors.New("okx creds empty")
+	}
+
+	if vol <= 0 || math.IsNaN(vol) || math.IsInf(vol, 0) {
+		return "", fmt.Errorf("invalid volume %.8f", vol)
 	}
 
 	var sideStr, posSide string
+
 	switch side {
 	case 1:
-		sideStr, posSide = "buy", "long"
+		sideStr = "buy"
+		posSide = "long"
 	case 3:
-		sideStr, posSide = "sell", "short"
+		sideStr = "sell"
+		posSide = "short"
 	default:
 		return "", fmt.Errorf("unsupported side %d", side)
 	}
 
-	// размер: vol как количество контрактов
-	sz := fmt.Sprintf("%.0f", vol)
-	if vol < 1 {
-		sz = "1"
+	sz := formatSize(vol)
+	if sz == "" {
+		return "", fmt.Errorf("invalid size after format: %.8f", vol)
 	}
 
-	// сначала best-effort выставляем плечо
+	log.Printf(
+		"[OKX MARKET ORDER] inst=%s side=%s posSide=%s vol=%.8f sz=%s",
+		instID,
+		sideStr,
+		posSide,
+		vol,
+		sz,
+	)
+
 	if leverage > 0 {
 		_ = c.SetLeverage(ctx, instID, leverage, posSide)
 	}
 
-	bodyMap := map[string]any{
+	body := map[string]any{
 		"instId":  instID,
 		"tdMode":  "cross",
 		"side":    sideStr,
@@ -234,22 +252,20 @@ func (c *Client) PlaceMarket(
 		"sz":      sz,
 	}
 
-	// ⚠️ ВАЖНО: здесь НЕТ tp/sl полей, чтобы избежать 54070
+	payload, _ := json.Marshal(body)
 
-	bodyBytes, _ := json.Marshal(bodyMap)
-	bodyStr := string(bodyBytes)
+	const requestPath = "/api/v5/trade/order"
 
-	requestPath := "/api/v5/trade/order"
-	method := "POST"
 	ts := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
-	sign := c.sign(ts, method, requestPath, bodyStr)
+	sign := c.sign(ts, http.MethodPost, requestPath, string(payload))
 
 	req, _ := http.NewRequestWithContext(
 		ctx,
-		method,
+		http.MethodPost,
 		"https://www.okx.com"+requestPath,
-		strings.NewReader(bodyStr),
+		bytes.NewReader(payload),
 	)
+
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("OK-ACCESS-KEY", c.apiKey)
 	req.Header.Set("OK-ACCESS-SIGN", sign)
@@ -262,12 +278,13 @@ func (c *Client) PlaceMarket(
 	}
 	defer resp.Body.Close()
 
-	rb, _ := io.ReadAll(resp.Body)
+	data, _ := io.ReadAll(resp.Body)
+
 	if resp.StatusCode/100 != 2 {
-		return "", fmt.Errorf("http %d: %s", resp.StatusCode, string(rb))
+		return "", fmt.Errorf("okx http %d: %s", resp.StatusCode, string(data))
 	}
 
-	var wrap struct {
+	var r struct {
 		Code string `json:"code"`
 		Msg  string `json:"msg"`
 		Data []struct {
@@ -276,20 +293,24 @@ func (c *Client) PlaceMarket(
 			SMsg  string `json:"sMsg"`
 		} `json:"data"`
 	}
-	if err := json.Unmarshal(rb, &wrap); err != nil {
+
+	if err := json.Unmarshal(data, &r); err != nil {
 		return "", err
 	}
 
-	if len(wrap.Data) == 0 {
-		return "", fmt.Errorf("okx trade error: code=%s msg=%s (empty data)", wrap.Code, wrap.Msg)
+	if len(r.Data) == 0 {
+		return "", fmt.Errorf("okx empty response: %s", string(data))
 	}
-	d := wrap.Data[0]
-	if wrap.Code != "0" || d.SCode != "0" {
+
+	d := r.Data[0]
+
+	if r.Code != "0" || d.SCode != "0" {
 		return "", fmt.Errorf(
 			"okx trade error: code=%s msg=%s sCode=%s sMsg=%s",
-			wrap.Code, wrap.Msg, d.SCode, d.SMsg,
+			r.Code, r.Msg, d.SCode, d.SMsg,
 		)
 	}
+
 	return d.OrdID, nil
 }
 
@@ -485,13 +506,6 @@ func (c *Client) RecentFills(ctx context.Context, instID string, limit int) ([]m
 	}
 
 	return out, nil
-}
-func formatPrice(p float64) string {
-	return strconv.FormatFloat(p, 'f', -1, 64)
-}
-
-func formatSize(s float64) string {
-	return strconv.FormatFloat(s, 'f', -1, 64)
 }
 
 func (c *Client) sign(ts, method, requestPath, body string) string {
