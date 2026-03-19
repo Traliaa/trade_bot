@@ -75,5 +75,8 @@ func (r *Service) EnableUser(ctx context.Context, user *models.UserSettings) (*s
 
 	go sess.StartAccountRefresher(ctx, 10*time.Minute)
 
+	sess.User.Status = true
+
+	r.ApplySettings(ctx, sess.User)
 	return sess, true
 }

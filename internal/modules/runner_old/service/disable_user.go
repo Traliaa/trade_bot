@@ -15,6 +15,9 @@ func (r *Service) DisableUser(ctx context.Context, userID int64) bool {
 	if sess.Cancel != nil {
 		sess.Cancel()
 	}
+	sess.User.Status = false
+
+	r.ApplySettings(ctx, sess.User)
 
 	return true
 }
