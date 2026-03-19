@@ -44,6 +44,7 @@ type Service struct {
 	//v2
 	st map[string]*models.V2State
 	//v3
+	stV3             map[string]*models.V3MarketState
 	stateV3          map[string]*models.StrategyState
 	positionProvider PositionProvider
 }
@@ -72,6 +73,7 @@ func NewService(cfg *config.Config, out chan<- models.Signal, candleOut chan<- m
 			V3StrongCloseMax:          cfg.Strategy.StrongCloseMax,
 		},
 		tuneMode: models.TuneMode(cfg.Strategy.TuneMode),
+		stV3:     make(map[string]*models.V3MarketState),
 		stateV3:  make(map[string]*models.StrategyState),
 	}
 

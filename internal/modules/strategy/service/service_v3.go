@@ -3,6 +3,7 @@ package service
 import (
 	"log"
 	"time"
+	"trade_bot/internal/helper"
 	"trade_bot/internal/models"
 
 	"go.uber.org/zap"
@@ -274,53 +275,79 @@ func (e *Service) OnCandleV3(t models.CandleTick) (models.Signal, bool) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
-	return e.onCandleV3ReadyLocked(t)
+	e.lastTickAt = time.Now()
+
+	instID := t.InstID
+	mst := e.getV3MarketStateLocked(instID)
+
+	tf := helper.NormTF(t.TimeframeRaw)
+
+	switch tf {
+	case helper.NormTF(e.cfg.Strategy.HTF):
+		mst.HTFCandles = appendCappedCandles(mst.HTFCandles, t, 200)
+		return models.Signal{}, false
+
+	case helper.NormTF(e.cfg.Strategy.LTF):
+		mst.LTFCandles = appendCappedCandles(mst.LTFCandles, t, 200)
+		return e.onCandleV3ReadyLocked(t, mst)
+
+	default:
+		return models.Signal{}, false
+	}
 }
-func (e *Service) onCandleV3ReadyLocked(t models.CandleTick) (models.Signal, bool) {
+func (e *Service) getV3MarketStateLocked(instID string) *models.V3MarketState {
+	if e.stV3 == nil {
+		e.stV3 = make(map[string]*models.V3MarketState)
+	}
+
+	st, ok := e.stV3[instID]
+	if ok && st != nil {
+		return st
+	}
+
+	st = &models.V3MarketState{}
+	e.stV3[instID] = st
+	return st
+}
+func (e *Service) onCandleV3ReadyLocked(
+	t models.CandleTick,
+	mst *models.V3MarketState,
+) (models.Signal, bool) {
 	var zero models.Signal
 
 	instID := t.InstID
 	v3st := e.getStrategyStateLocked(instID)
 
-	v2st, ok := e.st[instID]
-	if !ok || v2st == nil {
-		e.rejectV3(instID, models.RejectNotReady)
+	if mst == nil {
+		e.rejectV3(instID, models.RejectStateNil)
 		return zero, false
 	}
 
-	if len(v2st.LTFCandles) < 20 || len(v2st.HTFCandles) < 10 {
+	if len(mst.LTFCandles) < 20 || len(mst.HTFCandles) < 10 {
 		e.rejectV3(instID, models.RejectNotEnoughCandles)
 		return zero, false
 	}
 
-	if !v2st.CooldownUntil.IsZero() &&
-		(t.End.Before(v2st.CooldownUntil) || t.End.Equal(v2st.CooldownUntil)) {
+	last := mst.LTFCandles[len(mst.LTFCandles)-1]
+
+	if !mst.CooldownUntil.IsZero() &&
+		(t.End.Before(mst.CooldownUntil) || t.End.Equal(mst.CooldownUntil)) {
 		e.rejectV3(instID, models.RejectCooldown)
 		return zero, false
 	}
 
-	ltf := v2st.LTFCandles
-	htf := v2st.HTFCandles
-
-	if len(ltf) < 3 || len(htf) < 3 {
-		e.rejectV3(instID, models.RejectNotEnoughCandles)
-		return zero, false
-	}
-
-	last := ltf[len(ltf)-1]
-
-	if !v2st.LastSignalEnd.IsZero() && v2st.LastSignalEnd.Equal(last.End) {
+	if !mst.LastSignalEnd.IsZero() && mst.LastSignalEnd.Equal(last.End) {
 		e.rejectV3(instID, models.RejectAlreadySignaledThisBar)
 		return zero, false
 	}
 
 	minConfirm, _, _, _, _, _ := e.effectiveV3Params()
 
-	mctx := e.buildMarketContext(ltf, htf)
-	longRetestLevel, shortRetestLevel := e.detectRetestLevelsLocked(ltf, htf)
+	mctx := e.buildMarketContext(mst.LTFCandles, mst.HTFCandles)
+	longRetestLevel, shortRetestLevel := e.detectRetestLevelsLocked(mst.LTFCandles, mst.HTFCandles)
 
-	longScore := e.buildLongScore(ltf, mctx, longRetestLevel)
-	shortScore := e.buildShortScore(ltf, mctx, shortRetestLevel)
+	longScore := e.buildLongScore(mst.LTFCandles, mctx, longRetestLevel)
+	shortScore := e.buildShortScore(mst.LTFCandles, mctx, shortRetestLevel)
 
 	e.Logger.Debug("v3 score",
 		zap.String("instId", instID),
@@ -338,21 +365,8 @@ func (e *Service) onCandleV3ReadyLocked(t models.CandleTick) (models.Signal, boo
 		v3st.LastRetestLevel = longRetestLevel
 		v3st.LastRejectReason = ""
 
-		v2st.LastSignalEnd = last.End
+		mst.LastSignalEnd = last.End
 		e.lastSignalAt = time.Now()
-
-		e.Logger.Info("v3 signal accepted",
-			zap.String("instId", instID),
-			zap.String("side", "BUY"),
-			zap.Int("score", longScore.Score),
-			zap.Int("min_confirm", minConfirm),
-			zap.String("bias", string(mctx.Bias)),
-			zap.Float64("price", last.Close),
-			zap.Float64("retest_level", longRetestLevel),
-			zap.Float64("channel_width_pct", mctx.ChannelWidthPct),
-			zap.Float64("distance_to_mid_pct", mctx.DistanceToMidPct),
-			zap.Strings("reasons", rejectReasonsToStrings(longScore.Reasons)),
-		)
 
 		return models.Signal{
 			InstID:     instID,
@@ -362,8 +376,8 @@ func (e *Service) onCandleV3ReadyLocked(t models.CandleTick) (models.Signal, boo
 			Strategy:   models.StrategyDonchianV3,
 			Reason:     buildV3Reason("v3_long", longScore.Score, mctx.Bias, longRetestLevel, mctx.ChannelWidthPct, mctx.Compressed),
 			CreatedAt:  time.Now(),
-			LTFCandles: lastNCandles(ltf, 30),
-			HTFCandles: lastNCandles(htf, 30),
+			LTFCandles: lastNCandles(mst.LTFCandles, 30),
+			HTFCandles: lastNCandles(mst.HTFCandles, 30),
 		}, true
 	}
 
@@ -372,21 +386,8 @@ func (e *Service) onCandleV3ReadyLocked(t models.CandleTick) (models.Signal, boo
 		v3st.LastRetestLevel = shortRetestLevel
 		v3st.LastRejectReason = ""
 
-		v2st.LastSignalEnd = last.End
+		mst.LastSignalEnd = last.End
 		e.lastSignalAt = time.Now()
-
-		e.Logger.Info("v3 signal accepted",
-			zap.String("instId", instID),
-			zap.String("side", "SELL"),
-			zap.Int("score", shortScore.Score),
-			zap.Int("min_confirm", minConfirm),
-			zap.String("bias", string(mctx.Bias)),
-			zap.Float64("price", last.Close),
-			zap.Float64("retest_level", shortRetestLevel),
-			zap.Float64("channel_width_pct", mctx.ChannelWidthPct),
-			zap.Float64("distance_to_mid_pct", mctx.DistanceToMidPct),
-			zap.Strings("reasons", rejectReasonsToStrings(shortScore.Reasons)),
-		)
 
 		return models.Signal{
 			InstID:     instID,
@@ -396,8 +397,8 @@ func (e *Service) onCandleV3ReadyLocked(t models.CandleTick) (models.Signal, boo
 			Strategy:   models.StrategyDonchianV3,
 			Reason:     buildV3Reason("v3_short", shortScore.Score, mctx.Bias, shortRetestLevel, mctx.ChannelWidthPct, mctx.Compressed),
 			CreatedAt:  time.Now(),
-			LTFCandles: lastNCandles(ltf, 30),
-			HTFCandles: lastNCandles(htf, 30),
+			LTFCandles: lastNCandles(mst.LTFCandles, 30),
+			HTFCandles: lastNCandles(mst.HTFCandles, 30),
 		}, true
 	}
 
@@ -409,6 +410,7 @@ func (e *Service) onCandleV3ReadyLocked(t models.CandleTick) (models.Signal, boo
 
 	return zero, false
 }
+
 func (e *Service) AutoTuneV3Now(mode models.TuneMode) models.TuneDecision {
 	now := time.Now()
 

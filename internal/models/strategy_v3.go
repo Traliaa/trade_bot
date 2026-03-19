@@ -77,3 +77,10 @@ type StrategyState struct {
 
 	LastUpdate time.Time
 }
+type V3MarketState struct {
+	LTFCandles []CandleTick
+	HTFCandles []CandleTick
+
+	LastSignalEnd time.Time
+	CooldownUntil time.Time
+}
