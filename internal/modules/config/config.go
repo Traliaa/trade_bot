@@ -53,8 +53,25 @@ type Config struct {
 }
 
 type StrategyConfig struct {
-	LTF string `yaml:"ltf"` // напр "15m"
-	HTF string `yaml:"htf"` // напр "1h"
+	Name string `yaml:"name"`
+
+	LTF string `yaml:"ltf"`
+	HTF string `yaml:"htf"`
+
+	MinConfirmScore         int     `yaml:"min_confirm_score"`
+	AddonMinScore           int     `yaml:"addon_min_score"`
+	MaxAdds                 int     `yaml:"max_adds"`
+	AddonCooldownBars       int     `yaml:"addon_cooldown_bars"`
+	RecoveryWatchBars       int     `yaml:"recovery_watch_bars"`
+	CompressionThresholdPct float64 `yaml:"compression_threshold_pct"`
+	MaxDistanceFromLevelPct float64 `yaml:"max_distance_from_level_pct"`
+
+	StrongCloseMin        float64 `yaml:"strong_close_min"`
+	StrongCloseMax        float64 `yaml:"strong_close_max"`
+	ImpulseBodyMinPct     float64 `yaml:"impulse_body_min_pct"`
+	RetestTolerancePct    float64 `yaml:"retest_tolerance_pct"`
+	ReclaimTolerancePct   float64 `yaml:"reclaim_tolerance_pct"`
+	StructureLookbackBars int     `yaml:"structure_lookback_bars"`
 
 	DonchianPeriod int     `yaml:"donchian_period"`
 	MinChannelPct  float64 `yaml:"min_channel_pct"`
@@ -83,6 +100,20 @@ type StrategyConfig struct {
 
 	MaxRetestBars     int     `yaml:"max_retest_bars"`
 	MaxRetestStretchR float64 `yaml:"max_retest_stretch_r"`
+	WorkingMovePct    float64 `yaml:"working_move_pct"`
+	RecoveryMovePct   float64 `yaml:"recovery_move_pct"`
+
+	MinRR              float64 `yaml:"min_rr"`
+	SLBufferPct        float64 `yaml:"sl_buffer_pct"`
+	SwingLookbackBars  int     `yaml:"swing_lookback_bars"`
+	TargetLookbackBars int     `yaml:"target_lookback_bars"`
+
+	UsePercentFallback bool    `yaml:"use_percent_fallback"`
+	FallbackStopPct    float64 `yaml:"fallback_stop_pct"`
+
+	ATRPeriod   int     `mapstructure:"atr_period"`
+	ATRStopMult float64 `mapstructure:"atr_stop_mult"`
+	UseATRGuard bool    `mapstructure:"use_atr_guard"`
 }
 
 type UserDefaultsConfig struct {
@@ -168,6 +199,8 @@ func NewConfig() (*Config, error) {
 		return nil, err
 	}
 
+	cfg.Strategy.Name = "donchian_v3_smart"
+	cfg.Strategy.ApplyV3Defaults()
 	return cfg, nil
 }
 func intFromEnv(key string, def int) int {
@@ -256,4 +289,72 @@ func validateConfig(cfg *Config) error {
 	}
 
 	return nil
+}
+func (c *StrategyConfig) ApplyV3Defaults() {
+	if c.MinConfirmScore <= 0 {
+		c.MinConfirmScore = 3
+	}
+	if c.AddonMinScore <= 0 {
+		c.AddonMinScore = 4
+	}
+	if c.MaxAdds <= 0 {
+		c.MaxAdds = 1
+	}
+	if c.AddonCooldownBars <= 0 {
+		c.AddonCooldownBars = 3
+	}
+	if c.RecoveryWatchBars <= 0 {
+		c.RecoveryWatchBars = 6
+	}
+	if c.CompressionThresholdPct <= 0 {
+		c.CompressionThresholdPct = 0.012
+	}
+	if c.MaxDistanceFromLevelPct <= 0 {
+		c.MaxDistanceFromLevelPct = 0.004
+	}
+	if c.StrongCloseMin <= 0 {
+		c.StrongCloseMin = 0.70
+	}
+	if c.StrongCloseMax <= 0 {
+		c.StrongCloseMax = 0.30
+	}
+	if c.ImpulseBodyMinPct <= 0 {
+		c.ImpulseBodyMinPct = 0.003
+	}
+	if c.RetestTolerancePct <= 0 {
+		c.RetestTolerancePct = 0.0015
+	}
+	if c.ReclaimTolerancePct <= 0 {
+		c.ReclaimTolerancePct = 0.0007
+	}
+	if c.StructureLookbackBars <= 0 {
+		c.StructureLookbackBars = 5
+	}
+	if c.WorkingMovePct <= 0 {
+		c.WorkingMovePct = 0.003
+	}
+	if c.RecoveryMovePct <= 0 {
+		c.RecoveryMovePct = 0.003
+	}
+	if c.MinRR <= 0 {
+		c.MinRR = 1.5
+	}
+	if c.SLBufferPct <= 0 {
+		c.SLBufferPct = 0.001
+	}
+	if c.SwingLookbackBars <= 0 {
+		c.SwingLookbackBars = 5
+	}
+	if c.TargetLookbackBars <= 0 {
+		c.TargetLookbackBars = 20
+	}
+	if c.FallbackStopPct <= 0 {
+		c.FallbackStopPct = 0.01
+	}
+	if c.ATRPeriod <= 0 {
+		c.ATRPeriod = 14
+	}
+	if c.ATRStopMult <= 0 {
+		c.ATRStopMult = 0.8
+	}
 }

@@ -16,16 +16,20 @@ type V2State struct {
 	ReadyHTF bool
 	Trend    Trend
 
-	// anti-spam: одна LTF свеча -> максимум 1 сигнал
+	// anti-spam
 	LastSignalEnd time.Time
 
-	// --- NEW: ожидание входа по ретесту ---
+	// ожидание входа по ретесту
 	Pending       PendingEntry
 	CooldownUntil time.Time
-	// --- NEW: простые “индикаторы силы”, без TA-библиотек ---
-	BodyEma float64 // EMA(bodyPct)
-	AtrEma  float64 // EMA(rangePct) = (high-low)/close
 
+	// простые индикаторы силы
+	BodyEma float64
+	AtrEma  float64
+
+	// NEW: последние свечи для v3
+	LTFCandles []CandleTick
+	HTFCandles []CandleTick
 }
 
 // OpenPosition — приведённый вид позиций под интерфейс бота

@@ -35,6 +35,7 @@ func (r *Service) EnableUser(ctx context.Context, user *models.UserSettings) (*s
 		Cancel:            cancel,
 		Repo:              r.Repository,
 		LastMsgAt:         make(map[string]time.Time),
+		Config:            r.config,
 	}
 
 	//sess.USDTBalance(ctx)

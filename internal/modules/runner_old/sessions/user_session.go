@@ -12,6 +12,7 @@ import (
 	"trade_bot/internal/base"
 	"trade_bot/internal/helper"
 	"trade_bot/internal/models"
+	"trade_bot/internal/modules/config"
 	okx_client "trade_bot/internal/modules/okx_client/service"
 	"trade_bot/internal/modules/repository/pg"
 
@@ -25,8 +26,10 @@ type TelegramNotifier interface {
 
 type UserSession struct {
 	base.Base
-	Ctx      context.Context
-	Cancel   context.CancelFunc
+	Ctx    context.Context
+	Cancel context.CancelFunc
+
+	Config   *config.Config
 	settings atomic.Value // stores models.Settings
 	Repo     *pg.User     // ✅ добавили
 

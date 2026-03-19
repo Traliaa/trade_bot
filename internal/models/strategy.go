@@ -8,16 +8,19 @@ const (
 	StrategyEMARSI     StrategyType = "emarsi"
 	StrategyDonchian   StrategyType = "donchian"
 	StrategyDonchianV2 StrategyType = "donchianV2"
+	StrategyDonchianV3 StrategyType = "donchian_v3_smart"
 )
 
 type Signal struct {
-	InstID    string
-	TF        string // "15m"
-	Side      Side   // "BUY" / "SELL"
-	Price     float64
-	Strategy  StrategyType // "donchian_v2_htf1h"
-	Reason    string
-	CreatedAt time.Time
+	InstID     string
+	TF         string // "15m"
+	Side       Side   // "BUY" / "SELL"
+	Price      float64
+	Strategy   StrategyType // "donchian_v2_htf1h"
+	Reason     string
+	CreatedAt  time.Time
+	LTFCandles []CandleTick
+	HTFCandles []CandleTick
 }
 
 // Side как у тебя в раннере: "BUY"/"SELL" или пустая строка.

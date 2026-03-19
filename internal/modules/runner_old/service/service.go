@@ -168,14 +168,29 @@ func (r *Service) OnSignal(ctx context.Context, sig models.Signal) {
 			continue
 		}
 
-		// 2. расчёт параметров сделки
-		params, err := sess.CalcTradeParams(ctx, sig.InstID, string(sig.Side), sig.Price)
-		if err != nil {
-			sess.Notifier.SendF(ctx, sess.User.TelegramID,
-				"❗️ [%s] Ошибка расчёта параметров сделки: %v",
-				sig.InstID, err,
-			)
-			continue
+		var (
+			params *models.TradeParams
+			err    error
+		)
+		switch sig.Strategy {
+		case models.StrategyDonchianV3:
+			params, err = sess.CalcTradeParamsV3(ctx, sig, sig.LTFCandles, sig.HTFCandles)
+			if err != nil {
+				sess.Notifier.SendF(ctx, sess.User.TelegramID,
+					"❗️ [%s] Ошибка расчёта параметров сделки: %v",
+					sig.InstID, err,
+				)
+				continue
+			}
+		default:
+			params, err = sess.CalcTradeParams(ctx, sig.InstID, string(sig.Side), sig.Price)
+			if err != nil {
+				sess.Notifier.SendF(ctx, sess.User.TelegramID,
+					"❗️ [%s] Ошибка расчёта параметров сделки: %v",
+					sig.InstID, err,
+				)
+				continue
+			}
 		}
 
 		// 3. открытие позиции
@@ -259,7 +274,7 @@ func (r *Service) OnSignal(ctx context.Context, sig models.Signal) {
 func (r *Service) AutoTuneNow(ctx context.Context) (models.TuneDecision, models.RuntimeTuning, time.Time, time.Time, bool, models.TuneMode) {
 	mode := r.strategy.TuneMode()   // или eng.TuneMode()
 	dec := r.strategy.AutoTuneNow() // смотри примечание ниже
-
+	r.strategy.AutoTuneV3Now(mode)
 	cur, lastSignalAt, lastTuneAt := r.strategy.CurrentTuning()
 	warmupDone := r.strategy.IsWarmupDone()
 

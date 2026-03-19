@@ -28,7 +28,6 @@ type Service struct {
 	warmupDone atomic.Bool
 
 	mu sync.Mutex
-	st map[string]*models.V2State
 
 	rejects    *models.RejectStats
 	lastTickAt time.Time
@@ -41,6 +40,15 @@ type Service struct {
 	tuneMode        models.TuneMode
 	lastTuneCheckAt time.Time
 	lastTuneAt      time.Time
+
+	//v2
+	st map[string]*models.V2State
+	//v3
+	stateV3          map[string]*models.StrategyState
+	positionProvider PositionProvider
+}
+type PositionProvider interface {
+	GetOpenPosition(instID string) (side string, entryPrice float64, ok bool)
 }
 
 func NewService(cfg *config.Config, out chan<- models.Signal, candleOut chan<- models.CandleTick) *Service {
@@ -58,6 +66,7 @@ func NewService(cfg *config.Config, out chan<- models.Signal, candleOut chan<- m
 			CloseDnMax:    0.30,
 		},
 		tuneMode: models.TuneMode(cfg.Strategy.TuneMode),
+		stateV3:  make(map[string]*models.StrategyState),
 	}
 
 	// полезные поля один раз
@@ -115,6 +124,15 @@ func (s *Service) Start(ctx context.Context, ticks <-chan models.CandleTick) err
 	return nil
 }
 
+func (e *Service) OnCandle(t models.CandleTick) (models.Signal, bool) {
+	switch e.cfg.Strategy.Name {
+	case "donchian_v3_smart":
+		return e.OnCandleV3(t)
+	default:
+		return e.OnCandleV2(t)
+	}
+}
+
 // OnTick ...
 func (e *Service) OnTick(ctx context.Context, t models.CandleTick) {
 	e.rejects.Touch(time.Now())
@@ -150,6 +168,7 @@ func (e *Service) OnTick(ctx context.Context, t models.CandleTick) {
 	}
 
 	// 2) стратегия
+
 	sig, ok := e.OnCandle(t)
 
 	// 3) блок сигналов пока warmup не done
@@ -236,7 +255,7 @@ func (e *Service) get(sym string) *models.V2State {
 //
 //	sig, ok=true  -> есть сигнал
 //	becameReady=true -> по этому символу стратегия впервые "прогрелась" (LTF/HTF)
-func (e *Service) OnCandle(t models.CandleTick) (models.Signal, bool) {
+func (e *Service) OnCandleV2(t models.CandleTick) (models.Signal, bool) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 
@@ -291,6 +310,9 @@ func (e *Service) OnCandle(t models.CandleTick) (models.Signal, bool) {
 	// ===================== HTF ===============================
 	// =========================================================
 	case helper.NormTF(e.cfg.Strategy.HTF):
+		// сохраняем последние HTF свечи для v3
+		st.HTFCandles = appendCappedCandles(st.HTFCandles, t, 200)
+
 		st.EmaFast.Update(t.Close)
 		st.EmaSlow.Update(t.Close)
 		st.WHTF++
@@ -321,6 +343,8 @@ func (e *Service) OnCandle(t models.CandleTick) (models.Signal, bool) {
 	// ===================== LTF ===============================
 	// =========================================================
 	case helper.NormTF(e.cfg.Strategy.LTF):
+		// сохраняем последние LTF свечи для v3
+		st.LTFCandles = appendCappedCandles(st.LTFCandles, t, 200)
 		var (
 			dh, dl  float64
 			haveCh  bool
@@ -677,6 +701,7 @@ func (e *Service) MaybeAutoTuneTick(now time.Time) models.TuneDecision {
 		return models.TuneDecision{Changed: false, Why: models.TuneWhyCooldown}
 	}
 	e.lastTuneCheckAt = now
+
 	return e.MaybeAutoTuneAdaptive(now, false)
 }
 func (e *Service) MaybeAutoTuneAdaptive(now time.Time, force bool) models.TuneDecision {

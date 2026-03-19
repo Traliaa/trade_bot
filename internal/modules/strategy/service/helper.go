@@ -215,3 +215,11 @@ func rejectLateRetest(
 
 	return "", false
 }
+
+func appendCappedCandles(dst []models.CandleTick, c models.CandleTick, limit int) []models.CandleTick {
+	dst = append(dst, c)
+	if len(dst) > limit {
+		dst = dst[len(dst)-limit:]
+	}
+	return dst
+}

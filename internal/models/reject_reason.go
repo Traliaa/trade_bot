@@ -10,7 +10,6 @@ type RejectReason string
 
 const (
 	RejectInvalidPrice  RejectReason = "invalid_price"
-	RejectNotReady      RejectReason = "not_ready"
 	RejectNoTrend       RejectReason = "no_trend"
 	RejectSmallChannel  RejectReason = "small_channel"
 	RejectSmallBody     RejectReason = "small_body"
@@ -30,6 +29,31 @@ const (
 	RejectPendingBadConfirmCandle RejectReason = "pending_bad_confirm_candle"
 	RejectStaleRetest             RejectReason = "stale_retest"
 	RejectLateRetestStretch       RejectReason = "late_retest_stretch"
+
+	//v3
+	RejectNotReady               RejectReason = "not_ready"
+	RejectCooldown               RejectReason = "cooldown"
+	RejectNotEnoughCandles       RejectReason = "not_enough_candles"
+	RejectAlreadySignaledThisBar RejectReason = "already_signaled_this_bar"
+
+	RejectNotEnoughLTFBars      RejectReason = "not_enough_ltf_bars"
+	RejectHTFConflict           RejectReason = "htf_conflict"
+	RejectCompressedRange       RejectReason = "compressed_range"
+	RejectOverextendedUp        RejectReason = "overextended_up"
+	RejectOverextendedDown      RejectReason = "overextended_down"
+	RejectRetestNotConfirmed    RejectReason = "retest_not_confirmed"
+	RejectReclaimFailed         RejectReason = "reclaim_failed"
+	RejectImpulseWeak           RejectReason = "impulse_weak"
+	RejectStructureNotConfirmed RejectReason = "structure_not_confirmed"
+	RejectVolatilityTooLow      RejectReason = "volatility_too_low"
+	RejectConfirmScoreLow       RejectReason = "confirm_score_low"
+
+	RejectStateNil          RejectReason = "state_nil"
+	RejectNotRecoveryWatch  RejectReason = "not_recovery_watch"
+	RejectAddonLimitReached RejectReason = "addon_limit_reached"
+	RejectAddonScoreLow     RejectReason = "addon_score_low"
+	RejectAddonCooldown     RejectReason = "addon_cooldown"
+	RejectBadSide           RejectReason = "bad_side"
 )
 
 type RejectTopItem struct {
