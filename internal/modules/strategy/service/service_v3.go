@@ -288,8 +288,8 @@ func (e *Service) onCandleV3ReadyLocked(t models.CandleTick) (models.Signal, boo
 		return zero, false
 	}
 
-	if !v2st.ReadyLTF || !v2st.ReadyHTF {
-		e.rejectV3(instID, models.RejectNotReady)
+	if len(v2st.LTFCandles) < 20 || len(v2st.HTFCandles) < 10 {
+		e.rejectV3(instID, models.RejectNotEnoughCandles)
 		return zero, false
 	}
 
