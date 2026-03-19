@@ -50,7 +50,7 @@ func (s *UserSession) SyncClosedTrades(ctx context.Context) error {
 			payload.UnrealizedPnL = openPositionUnrealizedPnL(pos, payload, currentPrice)
 			payload.UnrealizedPnLPct = openPositionUnrealizedPnLPct(pos, payload, currentPrice)
 			payload.PriceMovePct = calcPriceMovePct(payload, currentPrice)
-
+			payload.CtVal = pos.CtVal
 			if pos.UnrealizedPct != 0 {
 				payload.ExchangeUPLRatio = pos.UnrealizedPct
 			}

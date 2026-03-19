@@ -35,14 +35,16 @@ type V2State struct {
 // OpenPosition — приведённый вид позиций под интерфейс бота
 // (значения мапятся из формата OKX /api/v5/account/positions).
 type OpenPosition struct {
-	Symbol       string  // instId
-	PositionType int     // 1 = long, 2 = short
-	HoldVol      float64 // pos
-	HoldAvgPrice float64 // avgPx
-	Leverage     int     // lever
-	Realised     float64 // пока не заполняем (0)
-
-	Size          float64
+	Symbol        string  // instId
+	PositionType  int     // 1 = long, 2 = short
+	HoldVol       float64 // pos
+	HoldAvgPrice  float64 // avgPx
+	CtVal         float64
+	Leverage      int     // lever
+	Realised      float64 // пока не заполняем (0)
+	Contracts     float64
+	BaseQty       float64
+	Size          float64 // deprecated / same as contracts for now
 	EntryPrice    float64
 	LastPrice     float64
 	AvgPx         float64 `json:"avgPx,string"`

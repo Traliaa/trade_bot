@@ -43,8 +43,9 @@ func (s *UserSession) resolveClosedTrade(
 		)
 	}
 
-	realizedPnL, realizedPnLPct := calcClosedTradePnL(payload)
+	realizedPnL, priceMovePct, realizedPnLPct := calcClosedTradeMetrics(payload)
 	payload.RealizedPnL = realizedPnL
+	payload.PriceMovePct = priceMovePct
 	payload.RealizedPnLPct = realizedPnLPct
 
 	if payload.MFEPrice > 0 {
@@ -70,7 +71,6 @@ func (s *UserSession) resolveClosedTrade(
 		Payload:     payload,
 	}, nil
 }
-
 func (s *UserSession) resolveClosedTradeExecution(
 	ctx context.Context,
 	tr models.TradeRecord,
@@ -228,4 +228,48 @@ func calcClosedTradePnL(p models.TradePayload) (float64, float64) {
 	}
 
 	return pnl, pct
+}
+func calcClosedTradeMetrics(p models.TradePayload) (realizedPnL, priceMovePct, realizedPnLPct float64) {
+	if p.EntryPrice <= 0 || p.ExitPrice <= 0 || p.ExitSize <= 0 {
+		return 0, 0, 0
+	}
+
+	// Для OKX swap ExitSize приходит в контрактах.
+	// Если есть CtVal, переводим в base qty.
+	sizeBase := p.ExitSize
+	if p.CtVal > 0 {
+		sizeBase = p.ExitSize * p.CtVal
+	}
+
+	switch p.PosSide {
+	case "long":
+		realizedPnL = (p.ExitPrice - p.EntryPrice) * sizeBase
+		priceMovePct = ((p.ExitPrice - p.EntryPrice) / p.EntryPrice) * 100
+
+	case "short":
+		realizedPnL = (p.EntryPrice - p.ExitPrice) * sizeBase
+		priceMovePct = ((p.EntryPrice - p.ExitPrice) / p.EntryPrice) * 100
+
+	default:
+		return 0, 0, 0
+	}
+
+	// Выбираем базу для pnl%.
+	// Если есть плечо — считаем от margin, это ближе к OKX ROI.
+	// Иначе fallback на notional.
+	entryNotional := p.EntryPrice * sizeBase
+	if entryNotional <= 0 {
+		return realizedPnL, priceMovePct, 0
+	}
+
+	if p.Leverage > 0 {
+		margin := entryNotional / float64(p.Leverage)
+		if margin > 0 {
+			realizedPnLPct = (realizedPnL / margin) * 100
+			return realizedPnL, priceMovePct, realizedPnLPct
+		}
+	}
+
+	realizedPnLPct = (realizedPnL / entryNotional) * 100
+	return realizedPnL, priceMovePct, realizedPnLPct
 }

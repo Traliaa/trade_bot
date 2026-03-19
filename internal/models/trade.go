@@ -81,7 +81,7 @@ type TradePayload struct {
 	MAEPrice float64 `json:"mae_price,omitempty"`
 	MFER     float64 `json:"mfe_r,omitempty"`
 	MAER     float64 `json:"mae_r,omitempty"`
-
+	CtVal    float64 `json:"ct_val"`
 	// open trade runtime snapshot
 	CurrentPrice       float64 `json:"current_price,omitempty"`
 	CurrentSize        float64 `json:"current_size,omitempty"`

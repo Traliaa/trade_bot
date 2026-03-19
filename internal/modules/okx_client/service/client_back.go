@@ -28,8 +28,8 @@ func (c *Client) OpenPositions(ctx context.Context) ([]models.OpenPosition, erro
 	if resp.StatusCode/100 != 2 {
 		return nil, fmt.Errorf("http %d: %s", resp.StatusCode, string(rb))
 	}
-	respData := OpenPositionsResponse{}
 
+	respData := OpenPositionsResponse{}
 	if err := json.Unmarshal(rb, &respData); err != nil {
 		return nil, err
 	}
@@ -38,31 +38,28 @@ func (c *Client) OpenPositions(ctx context.Context) ([]models.OpenPosition, erro
 	}
 
 	res := make([]models.OpenPosition, 0, len(respData.Data))
+
 	for _, d := range respData.Data {
-		// размер позиции (контракты)
-		pos, _ := strconv.ParseFloat(d.Pos, 64)
-		// средняя цена входа
+		posContracts, _ := strconv.ParseFloat(d.Pos, 64)
 		avgPx, _ := strconv.ParseFloat(d.AvgPx, 64)
-		// последнее значение (last или mark)
+
 		lastPx, _ := strconv.ParseFloat(d.Last, 64)
 		if lastPx == 0 {
 			lastPx, _ = strconv.ParseFloat(d.MarkPx, 64)
 		}
-		// нереализованный PnL
+
 		upl, _ := strconv.ParseFloat(d.UplLastPx, 64)
 		if upl == 0 {
 			upl, _ = strconv.ParseFloat(d.Upl, 64)
 		}
-		// нереализованный PnL в доле (0.0123 → 1.23%)
+
 		uplRatio, _ := strconv.ParseFloat(d.UplRatioLastPx, 64)
 		if uplRatio == 0 {
 			uplRatio, _ = strconv.ParseFloat(d.UplRatio, 64)
 		}
 		uplPct := uplRatio * 100.0
 
-		// реализованный PnL (можно взять settledPnl + realizedPnl, но оставим одно)
 		realised, _ := strconv.ParseFloat(d.RealizedPnl, 64)
-
 		lev, _ := strconv.Atoi(d.Lever)
 
 		side := "long"
@@ -72,30 +69,48 @@ func (c *Client) OpenPositions(ctx context.Context) ([]models.OpenPosition, erro
 			pt = 2
 		}
 
-		AvgPx, _ := strconv.ParseFloat(d.AvgPx, 64)
-		MarkPx, _ := strconv.ParseFloat(d.MarkPx, 64)
-		Last, _ := strconv.ParseFloat(d.Last, 64)
+		avgPx2, _ := strconv.ParseFloat(d.AvgPx, 64)
+		markPx, _ := strconv.ParseFloat(d.MarkPx, 64)
+		last, _ := strconv.ParseFloat(d.Last, 64)
+
+		// подтягиваем ctVal
+		var ctVal float64
+		meta, err := c.GetInstrumentMeta(ctx, d.InstId)
+		if err == nil {
+			ctVal = meta.CtVal
+		}
+
+		baseQty := posContracts
+		if ctVal > 0 {
+			baseQty = posContracts * ctVal
+		}
+
 		res = append(res, models.OpenPosition{
-			Symbol:        d.InstId,
-			PositionType:  pt,
-			HoldVol:       pos,
+			Symbol:       d.InstId,
+			PositionType: pt,
+			HoldVol:      posContracts, // contracts
+			Leverage:     lev,
+			Realised:     realised,
+
+			Size:      posContracts, // оставить временно как contracts
+			Contracts: posContracts,
+			BaseQty:   baseQty,
+			CtVal:     ctVal,
+
 			HoldAvgPrice:  avgPx,
-			Leverage:      lev,
-			Realised:      realised,
-			Size:          pos, // для удобства — то же, что HoldVol
 			EntryPrice:    avgPx,
 			LastPrice:     lastPx,
 			UnrealizedPnL: upl,
-			UnrealizedPct: uplPct, // в процентах
-			Side:          side,   // "long" / "short"
-			AvgPx:         AvgPx,
-			MarkPx:        MarkPx,
-			Last:          Last,
+			UnrealizedPct: uplPct,
+			Side:          side,
+			AvgPx:         avgPx2,
+			MarkPx:        markPx,
+			Last:          last,
 		})
 	}
+
 	return res, nil
 }
-
 func (c *Client) generateRequest(ctx context.Context, method string, requestPath string, body string) *http.Request {
 	ts := time.Now().UTC().Format("2006-01-02T15:04:05.000Z")
 	msg := ts + strings.ToUpper(method) + requestPath + body
