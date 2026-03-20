@@ -83,14 +83,18 @@ type TradePayload struct {
 	MAER     float64 `json:"mae_r,omitempty"`
 	CtVal    float64 `json:"ct_val"`
 	// open trade runtime snapshot
-	CurrentPrice       float64 `json:"current_price,omitempty"`
-	CurrentSize        float64 `json:"current_size,omitempty"`
-	ClosedSize         float64 `json:"closed_size,omitempty"`
-	UnrealizedPnL      float64 `json:"unrealized_pnl,omitempty"`
-	UnrealizedPnLPct   float64 `json:"unrealized_pnl_pct,omitempty"`
-	PriceMovePct       float64 `json:"price_move_pct,omitempty"`
-	ExchangeUPLRatio   float64 `json:"exchange_upl_ratio,omitempty"`
-	PendingCloseReason string  `json:"pending_close_reason,omitempty"`
+	CurrentPrice       float64   `json:"current_price,omitempty"`
+	CurrentSize        float64   `json:"current_size,omitempty"`
+	ClosedSize         float64   `json:"closed_size,omitempty"`
+	UnrealizedPnL      float64   `json:"unrealized_pnl,omitempty"`
+	UnrealizedPnLPct   float64   `json:"unrealized_pnl_pct,omitempty"`
+	PriceMovePct       float64   `json:"price_move_pct,omitempty"`
+	ExchangeUPLRatio   float64   `json:"exchange_upl_ratio,omitempty"`
+	PendingCloseReason string    `json:"pending_close_reason,omitempty"`
+	BEPrice            float64   `json:"be_price,omitempty"`
+	IsStale            bool      `json:"is_stale,omitempty"`
+	StaleSince         time.Time `json:"stale_since,omitempty"`
+	StaleMarkedAtR     float64   `json:"stale_marked_at_r,omitempty"`
 }
 
 type TradeRecord struct {

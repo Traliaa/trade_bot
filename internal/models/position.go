@@ -87,8 +87,11 @@ type PositionTrailState struct {
 	TookPartial  bool
 
 	// 👇 НОВОЕ
-	CloseReason CloseReason
-	ClosingAt   *time.Time
+	CloseReason    CloseReason
+	ClosingAt      *time.Time
+	IsStale        bool      `json:"is_stale,omitempty"`
+	StaleSince     time.Time `json:"stale_since,omitempty"`
+	StaleMarkedAtR float64   `json:"stale_marked_at_r,omitempty"`
 }
 
 func (st *PositionTrailState) UpdateMFE(high, low float64) {

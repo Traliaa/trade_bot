@@ -2,7 +2,6 @@ package sessions
 
 import (
 	"context"
-	"fmt"
 
 	"time"
 
@@ -12,15 +11,9 @@ import (
 	"go.uber.org/zap"
 )
 
-const (
-	minTrailGap = 3 * time.Minute
-	minImproveR = 0.10
-)
-
 func (s *UserSession) trailOne(ctx context.Context, ct models.CandleTick, p models.CachedPos) {
 	key := helper.TrailKey(ct.InstID, p.PosSide)
 
-	// trail state
 	s.TrailMu.RLock()
 	st := s.TrailStates[key]
 	s.TrailMu.RUnlock()
@@ -28,7 +21,12 @@ func (s *UserSession) trailOne(ctx context.Context, ct models.CandleTick, p mode
 		return
 	}
 
-	// sync from cache
+	var (
+		dec         models.TrailDecision
+		currentSize float64
+	)
+
+	// decideTrail15m теперь не pure: он может пометить позицию stale.
 	s.TrailMu.Lock()
 	if p.Size > 0 {
 		st.Size = p.Size
@@ -36,20 +34,31 @@ func (s *UserSession) trailOne(ctx context.Context, ct models.CandleTick, p mode
 	if p.Entry > 0 {
 		st.Entry = p.Entry
 	}
-	// 1m MFE update
 	st.UpdateMFE(ct.High, ct.Low)
+
+	dec = decideTrail15m(st, s.User.Settings, ct.Close, ct.End)
+	currentSize = st.Size
 	s.TrailMu.Unlock()
 
-	// Решение только на 15m слот
-	dec := decideTrail15m(st, s.User.Settings, ct.Close, ct.End)
+	// Даже если торгового действия нет, stale/BE/partial флаги могут измениться.
+	if err := s.syncTradeFlagsFromState(ctx, st, currentSize); err != nil {
+		s.Logger.Warn("sync trail state failed",
+			zap.Error(err),
+			zap.String("instId", st.InstID),
+			zap.String("posSide", st.PosSide),
+		)
+	}
+
 	if !dec.MoveSL && !dec.Close && dec.CloseSize <= 0 {
 		return
 	}
 
-	// rate limit по времени
+	// Дополнительный rate limit
 	if !st.LastTrailAt.IsZero() && ct.End.Sub(st.LastTrailAt) < 60*time.Second {
 		return
 	}
+
+	slot := helper.TrailSlot15m(ct.End)
 
 	// --- PARTIAL CLOSE ---
 	if dec.CloseSize > 0 {
@@ -75,8 +84,8 @@ func (s *UserSession) trailOne(ctx context.Context, ct models.CandleTick, p mode
 			st.Size -= dec.CloseSize
 			st.TookPartial = true
 			st.LastTrailAt = ct.End
+			st.LastTrailEnd = slot
 		} else {
-			// Если фактически закрыли всё, удаляем state и выходим
 			delete(s.TrailStates, key)
 			s.TrailMu.Unlock()
 
@@ -99,9 +108,12 @@ func (s *UserSession) trailOne(ctx context.Context, ct models.CandleTick, p mode
 			)
 		}
 
-		// После partial сразу защищаем остаток позиции
+		// После partial защищаем остаток
 		if dec.MoveSLAfterPartial && st.AlgoID != "" && newSize > 0 {
 			newSL := dec.NewSLAfterPartial
+			if newSL <= 0 {
+				newSL = calcBEPrice(st, s.User.Settings)
+			}
 
 			if shouldImproveSL(st, newSL) {
 				if st.TickSz > 0 {
@@ -127,11 +139,11 @@ func (s *UserSession) trailOne(ctx context.Context, ct models.CandleTick, p mode
 					s.TrailMu.Lock()
 					st.SL = newSL
 					st.AlgoID = newAlgoID
-					// после успешного сдвига стопа к BE считаем это moved to BE
-					if approxAtOrBeyondBE(st, newSL) {
+					if approxAtOrBeyondBE(st, s.User.Settings, newSL) {
 						st.MovedToBE = true
 					}
 					st.LastTrailAt = ct.End
+					st.LastTrailEnd = slot
 					s.TrailMu.Unlock()
 
 					if err := s.syncTradeFlagsFromState(ctx, st, st.Size); err != nil {
@@ -151,6 +163,7 @@ func (s *UserSession) trailOne(ctx context.Context, ct models.CandleTick, p mode
 			zap.Float64("oldSize", oldSize),
 			zap.Float64("newSize", newSize),
 			zap.Float64("closeSize", dec.CloseSize),
+			zap.Bool("isStale", st.IsStale),
 		)
 
 		if s.canSend("partial:"+st.InstID+":"+st.PosSide, 30*time.Minute) {
@@ -178,6 +191,8 @@ func (s *UserSession) trailOne(ctx context.Context, ct models.CandleTick, p mode
 		s.TrailMu.Lock()
 		st.CloseReason = dec.Reason
 		st.ClosingAt = &now
+		st.LastTrailAt = ct.End
+		st.LastTrailEnd = slot
 		s.TrailMu.Unlock()
 
 		if err := s.syncTradeCloseIntent(ctx, st, dec.Reason); err != nil {
@@ -195,6 +210,8 @@ func (s *UserSession) trailOne(ctx context.Context, ct models.CandleTick, p mode
 				zap.String("instId", st.InstID),
 				zap.String("posSide", st.PosSide),
 				zap.Float64("size", st.Size),
+				zap.String("reason", string(dec.Reason)),
+				zap.String("note", dec.Note),
 			)
 			return
 		}
@@ -239,6 +256,8 @@ func (s *UserSession) trailOne(ctx context.Context, ct models.CandleTick, p mode
 			zap.String("posSide", st.PosSide),
 			zap.Float64("newSL", newSL),
 			zap.Float64("size", st.Size),
+			zap.String("reason", string(dec.Reason)),
+			zap.String("note", dec.Note),
 		)
 		return
 	}
@@ -248,15 +267,14 @@ func (s *UserSession) trailOne(ctx context.Context, ct models.CandleTick, p mode
 	st.SL = newSL
 	st.AlgoID = newAlgoID
 	st.LastTrailAt = ct.End
+	st.LastTrailEnd = slot
 
-	// Флаги выставляем после успешного исполнения
-	if !st.MovedToBE && approxAtOrBeyondBE(st, newSL) {
+	if !st.MovedToBE && approxAtOrBeyondBE(st, s.User.Settings, newSL) {
 		st.MovedToBE = true
 	}
 	if !st.LockedProfit && approxLocksProfit(st, prevSL, newSL) {
 		st.LockedProfit = true
 	}
-
 	s.TrailMu.Unlock()
 
 	if err := s.syncTradeFlagsFromState(ctx, st, st.Size); err != nil {
@@ -279,195 +297,6 @@ func (s *UserSession) trailOne(ctx context.Context, ct models.CandleTick, p mode
 		)
 	}
 }
-
-func shouldImproveSL(st *models.PositionTrailState, candidate float64) bool {
-	if st == nil || candidate <= 0 || st.SL <= 0 {
-		return false
-	}
-
-	if st.PosSide == "long" {
-		return candidate > st.SL
-	}
-
-	return candidate < st.SL
-}
-
-func approxAtOrBeyondBE(st *models.PositionTrailState, sl float64) bool {
-	if st == nil || sl <= 0 || st.Entry <= 0 {
-		return false
-	}
-
-	const eps = 1e-12
-
-	if st.PosSide == "long" {
-		return sl >= st.Entry-eps
-	}
-	return sl <= st.Entry+eps
-}
-
-func approxLocksProfit(st *models.PositionTrailState, prevSL, newSL float64) bool {
-	if st == nil || newSL <= 0 || st.Entry <= 0 {
-		return false
-	}
-
-	switch st.PosSide {
-	case "long":
-		return newSL > st.Entry && newSL > prevSL
-	case "short":
-		return newSL < st.Entry && newSL < prevSL
-	default:
-		return false
-	}
-}
-
-func decideTrail15m(
-	st *models.PositionTrailState,
-	cfg models.Settings,
-	lastPrice float64,
-	slotEnd time.Time,
-) models.TrailDecision {
-	R := st.RiskDist
-	if R <= 0 || st.Entry <= 0 || st.SL <= 0 {
-		return models.TrailDecision{}
-	}
-
-	slot := helper.TrailSlot15m(slotEnd)
-	if !st.LastTrailEnd.IsZero() && st.LastTrailEnd.Equal(slot) {
-		return models.TrailDecision{}
-	}
-
-	improves := func(candidate float64) bool {
-		if st.PosSide == "long" {
-			return candidate > st.SL
-		}
-		return candidate < st.SL
-	}
-
-	minImprove := 0.10 * R
-	improvesEnough := func(candidate float64) bool {
-		if st.PosSide == "long" {
-			return candidate-st.SL >= minImprove
-		}
-		return st.SL-candidate >= minImprove
-	}
-
-	var mfeR float64
-	if st.PosSide == "long" {
-		mfeR = (st.MFE - st.Entry) / R
-	} else {
-		mfeR = (st.Entry - st.MFE) / R
-	}
-
-	var currentR float64
-	if lastPrice > 0 {
-		if st.PosSide == "long" {
-			currentR = (lastPrice - st.Entry) / R
-		} else {
-			currentR = (st.Entry - lastPrice) / R
-		}
-	}
-
-	// --- EARLY FAIL ---
-	if cfg.TrailingConfig.EarlyTimeStopBars > 0 &&
-		cfg.TrailingConfig.EarlyTimeStopMinMFER > 0 &&
-		!st.OpenedAt.IsZero() {
-
-		earlyDur := time.Duration(cfg.TrailingConfig.EarlyTimeStopBars) * 15 * time.Minute
-		if slotEnd.Sub(st.OpenedAt) >= earlyDur && mfeR < cfg.TrailingConfig.EarlyTimeStopMinMFER {
-			return models.TrailDecision{
-				Close:  true,
-				Reason: models.CloseReasonTimeStopEarly,
-				Note:   "TIME_STOP_EARLY",
-			}
-		}
-	}
-
-	// --- STALE EXIT ---
-	if cfg.TrailingConfig.TimeStopBars > 0 && !st.OpenedAt.IsZero() {
-		maxDur := time.Duration(cfg.TrailingConfig.TimeStopBars) * 15 * time.Minute
-		if slotEnd.Sub(st.OpenedAt) >= maxDur &&
-			currentR < cfg.TrailingConfig.TimeStopMinCurrentR {
-			return models.TrailDecision{
-				Close:  true,
-				Reason: models.CloseReasonTimeStopStale,
-				Note:   "TIME_STOP_STALE",
-			}
-		}
-	}
-
-	// --- BE ---
-	if !st.MovedToBE && mfeR >= cfg.TrailingConfig.BETriggerR {
-		cand := st.Entry
-		if cfg.TrailingConfig.BEOffsetR != 0 {
-			if st.PosSide == "long" {
-				cand = st.Entry + cfg.TrailingConfig.BEOffsetR*R
-			} else {
-				cand = st.Entry - cfg.TrailingConfig.BEOffsetR*R
-			}
-		}
-
-		if improves(cand) && improvesEnough(cand) {
-			return models.TrailDecision{
-				NewSL:  cand,
-				MoveSL: true,
-				Reason: models.CloseReasonBreakEven,
-				Note:   "BE",
-			}
-		}
-	}
-
-	// --- PARTIAL ---
-	if cfg.TrailingConfig.PartialEnabled &&
-		!st.TookPartial &&
-		mfeR >= cfg.TrailingConfig.PartialTriggerR &&
-		st.Size > 0 {
-
-		closeSz := st.Size * cfg.TrailingConfig.PartialCloseFrac
-		if closeSz > 0 {
-			newSL := st.Entry
-			if cfg.TrailingConfig.BEOffsetR != 0 {
-				if st.PosSide == "long" {
-					newSL = st.Entry + cfg.TrailingConfig.BEOffsetR*R
-				} else {
-					newSL = st.Entry - cfg.TrailingConfig.BEOffsetR*R
-				}
-			}
-
-			return models.TrailDecision{
-				CloseSize: closeSz,
-				Reason:    models.CloseReasonPartialExit,
-				Note: fmt.Sprintf(
-					"PARTIAL@%.2fR (%.0f%%) + SL->BE",
-					cfg.TrailingConfig.PartialTriggerR,
-					cfg.TrailingConfig.PartialCloseFrac*100,
-				),
-				MoveSLAfterPartial: true,
-				NewSLAfterPartial:  newSL,
-			}
-		}
-	}
-
-	// --- LOCK ---
-	if !st.LockedProfit && mfeR >= cfg.TrailingConfig.LockTriggerR {
-		var cand float64
-		if st.PosSide == "long" {
-			cand = st.Entry + cfg.TrailingConfig.LockOffsetR*R
-		} else {
-			cand = st.Entry - cfg.TrailingConfig.LockOffsetR*R
-		}
-
-		if improves(cand) && improvesEnough(cand) {
-			return models.TrailDecision{
-				NewSL:  cand,
-				MoveSL: true,
-				Reason: models.CloseReasonLockProfit,
-				Note:   "LOCK",
-			}
-		}
-	}
-
-	return models.TrailDecision{}
-}
 func (s *UserSession) syncTradePayloadFromTrail(
 	ctx context.Context,
 	instID string,
@@ -489,31 +318,4 @@ func (s *UserSession) syncTradePayloadFromTrail(
 	patch(&payload)
 
 	return s.Repo.UpdatePayload(ctx, tr.GUID, payload)
-}
-
-func (s *UserSession) syncTradeFlagsFromState(
-	ctx context.Context,
-	st *models.PositionTrailState,
-	currentSize float64,
-) error {
-	if st == nil {
-		return nil
-	}
-
-	return s.syncTradePayloadFromTrail(ctx, st.InstID, st.PosSide, func(p *models.TradePayload) {
-		p.MovedToBE = st.MovedToBE
-		p.LockedProfit = st.LockedProfit
-		p.TookPartial = st.TookPartial
-
-		if currentSize > 0 {
-			p.CurrentSize = currentSize
-			if p.EntrySize > 0 && currentSize < p.EntrySize {
-				p.TookPartial = true
-				p.ClosedSize = p.EntrySize - currentSize
-				if p.PartialCount == 0 {
-					p.PartialCount = 1
-				}
-			}
-		}
-	})
 }

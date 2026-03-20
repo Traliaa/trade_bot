@@ -3,8 +3,8 @@ package sessions
 import (
 	"context"
 	"fmt"
-	"math"
 	"time"
+	"trade_bot/internal/helper"
 
 	"trade_bot/internal/models"
 )
@@ -13,7 +13,11 @@ func (s *UserSession) resolveClosedTrade(
 	ctx context.Context,
 	tr models.TradeRecord,
 ) (models.TradeCloseInput, error) {
-	_ = ctx
+	// Берём самую свежую версию трейда, чтобы не словить гонку:
+	// PendingCloseReason / TimeStopTriggered / BEPrice могли обновиться уже после ListOpenTrades.
+	if fresh, err := s.Repo.GetByGUID(ctx, tr.GUID); err == nil && fresh != nil {
+		tr = *fresh
+	}
 
 	p := tr.Payload
 
@@ -65,6 +69,9 @@ func (s *UserSession) resolveClosedTrade(
 		)
 	}
 
+	// Закрытие уже финализировано, pending больше не нужен.
+	payload.PendingCloseReason = ""
+
 	return models.TradeCloseInput{
 		ExitAt:      exitAt,
 		CloseReason: reason,
@@ -109,10 +116,7 @@ func (s *UserSession) resolveClosedTradeExecution(
 }
 
 func (s *UserSession) getTrailStateForTrade(tr models.TradeRecord) (*models.PositionTrailState, bool) {
-	key := models.PosKey{
-		InstID:  tr.InstID,
-		PosSide: tr.Payload.PosSide,
-	}
+	key := helper.TrailKey(tr.InstID, tr.Payload.PosSide)
 
 	s.TrailMu.RLock()
 	defer s.TrailMu.RUnlock()
@@ -127,7 +131,6 @@ func classifyCloseReason(
 	state *models.PositionTrailState,
 	exitPrice float64,
 ) models.CloseReason {
-
 	if payload.PendingCloseReason != "" {
 		return models.NormalizeCloseReason(payload.PendingCloseReason)
 	}
@@ -138,23 +141,51 @@ func classifyCloseReason(
 	if riskDist <= 0 {
 		riskDist = models.CalcRiskDist(payload.EntryPrice, payload.StopLoss, payload.PosSide)
 	}
-	if riskDist <= 0 {
-		return models.CloseReasonUnknown
-	}
 
-	eps := riskDist * epsMul
+	if riskDist > 0 {
+		eps := riskDist * epsMul
 
-	// 1. TP / SL по близости к уровням
-	if payload.TakeProfit > 0 && math.Abs(exitPrice-payload.TakeProfit) <= eps {
-		return models.CloseReasonTP
-	}
-	if payload.StopLoss > 0 && math.Abs(exitPrice-payload.StopLoss) <= eps {
-		return models.CloseReasonSL
-	}
+		// 1. TP / SL по близости к уровням
+		if payload.TakeProfit > 0 && approxLevel(exitPrice, payload.TakeProfit, eps) {
+			return models.CloseReasonTP
+		}
+		if payload.StopLoss > 0 && approxLevel(exitPrice, payload.StopLoss, eps) {
+			return models.CloseReasonSL
+		}
 
-	// 2. Runtime flags
-	if state != nil {
-		if state.LockedProfit {
+		// 2. Runtime flags
+		if state != nil {
+			if state.LockedProfit {
+				switch payload.PosSide {
+				case "long":
+					if exitPrice > payload.EntryPrice {
+						return models.CloseReasonLockProfit
+					}
+				case "short":
+					if exitPrice < payload.EntryPrice {
+						return models.CloseReasonLockProfit
+					}
+				}
+			}
+
+			// если есть сохранённый фактический BEPrice в payload — используем его
+			if payload.MovedToBE {
+				if payload.BEPrice > 0 && approxLevel(exitPrice, payload.BEPrice, eps) {
+					return models.CloseReasonBreakEven
+				}
+				// fallback на entry для старых сделок
+				if payload.BEPrice <= 0 && approxLevel(exitPrice, payload.EntryPrice, eps) {
+					return models.CloseReasonBreakEven
+				}
+			}
+
+			if state.TookPartial {
+				return models.CloseReasonPartialExit
+			}
+		}
+
+		// 3. Payload flags
+		if payload.LockedProfit {
 			switch payload.PosSide {
 			case "long":
 				if exitPrice > payload.EntryPrice {
@@ -167,67 +198,36 @@ func classifyCloseReason(
 			}
 		}
 
-		if state.MovedToBE && math.Abs(exitPrice-payload.EntryPrice) <= eps {
-			return models.CloseReasonBreakEven
+		if payload.MovedToBE {
+			if payload.BEPrice > 0 && approxLevel(exitPrice, payload.BEPrice, eps) {
+				return models.CloseReasonBreakEven
+			}
+			if payload.BEPrice <= 0 && approxLevel(exitPrice, payload.EntryPrice, eps) {
+				return models.CloseReasonBreakEven
+			}
 		}
 
-		if state.TookPartial {
+		if payload.TookPartial {
+			return models.CloseReasonPartialExit
+		}
+	} else {
+		// Даже без riskDist не валимся сразу в unknown
+		if payload.LockedProfit {
+			return models.CloseReasonLockProfit
+		}
+		if payload.MovedToBE {
+			return models.CloseReasonBreakEven
+		}
+		if payload.TookPartial {
 			return models.CloseReasonPartialExit
 		}
 	}
 
-	// 3. Payload flags как fallback
-	if payload.LockedProfit {
-		switch payload.PosSide {
-		case "long":
-			if exitPrice > payload.EntryPrice {
-				return models.CloseReasonLockProfit
-			}
-		case "short":
-			if exitPrice < payload.EntryPrice {
-				return models.CloseReasonLockProfit
-			}
-		}
-	}
-
-	if payload.MovedToBE && math.Abs(exitPrice-payload.EntryPrice) <= eps {
-		return models.CloseReasonBreakEven
-	}
-
-	if payload.TookPartial {
-		return models.CloseReasonPartialExit
+	if payload.TimeStopTriggered {
+		return models.CloseReasonTimeStopStale
 	}
 
 	return models.CloseReasonUnknown
-}
-
-func calcClosedTradePnL(p models.TradePayload) (float64, float64) {
-	if p.EntryPrice <= 0 || p.ExitPrice <= 0 || p.ExitSize <= 0 {
-		return 0, 0
-	}
-
-	var pnl float64
-	switch p.PosSide {
-	case "long":
-		pnl = (p.ExitPrice - p.EntryPrice) * p.ExitSize
-	case "short":
-		pnl = (p.EntryPrice - p.ExitPrice) * p.ExitSize
-	default:
-		return 0, 0
-	}
-
-	// Человеческий percent move, а не uplRatio OKX
-	pct := 0.0
-	if p.EntryPrice > 0 {
-		switch p.PosSide {
-		case "long":
-			pct = ((p.ExitPrice - p.EntryPrice) / p.EntryPrice) * 100
-		case "short":
-			pct = ((p.EntryPrice - p.ExitPrice) / p.EntryPrice) * 100
-		}
-	}
-
-	return pnl, pct
 }
 func calcClosedTradeMetrics(p models.TradePayload) (realizedPnL, priceMovePct, realizedPnLPct float64) {
 	if p.EntryPrice <= 0 || p.ExitPrice <= 0 || p.ExitSize <= 0 {

@@ -85,10 +85,18 @@ type TrailingConfig struct {
 	PartialTriggerR  float64 `yaml:"partial_trigger_r"`  // 0.9
 	PartialCloseFrac float64 `yaml:"partial_close_frac"` // 0.5
 
+	StaleAfterBars    int     `json:"stale_after_bars,omitempty"`
+	StaleMinMFER      float64 `json:"stale_min_mfe_r,omitempty"`
+	StaleExitProfitR  float64 `json:"stale_exit_profit_r,omitempty"`
+	StaleNearBER      float64 `json:"stale_near_be_r,omitempty"`
+	StaleMaxAdverseR  float64 `json:"stale_max_adverse_r,omitempty"`
+	StaleGraceBars    int     `json:"stale_grace_bars,omitempty"`
+	StaleWorseByR     float64 `json:"stale_worse_by_r,omitempty"`
+	StaleTightenToBER float64 `json:"stale_tighten_to_be_r,omitempty"`
 }
 
 func NewTradingSettingsFromDefaults(userID int64, cfg *config.Config) *UserSettings {
-	return &UserSettings{
+	config := &UserSettings{
 		TelegramID: userID,
 		Settings: Settings{
 			TradingSettings: TradingSettings{
@@ -118,6 +126,8 @@ func NewTradingSettingsFromDefaults(userID int64, cfg *config.Config) *UserSetti
 			},
 		},
 	}
+
+	return config
 }
 
 type UserStatus struct {
@@ -125,4 +135,56 @@ type UserStatus struct {
 	Account            AccountSnapshot `json:"account"`
 	OpenTrades         []TradeRecord   `json:"open_trades"`
 	OpenPositionsCount int             `json:"open_positions_count"`
+}
+type staleConfig struct {
+	AfterBars    int
+	MinMFER      float64
+	ExitProfitR  float64
+	NearBER      float64
+	MaxAdverseR  float64
+	GraceBars    int
+	WorseByR     float64
+	TightenToBER float64
+}
+
+func GetStaleConfig(cfg Settings) staleConfig {
+	tc := cfg.TrailingConfig
+
+	sc := staleConfig{
+		AfterBars:    tc.StaleAfterBars,
+		MinMFER:      tc.StaleMinMFER,
+		ExitProfitR:  tc.StaleExitProfitR,
+		NearBER:      tc.StaleNearBER,
+		MaxAdverseR:  tc.StaleMaxAdverseR,
+		GraceBars:    tc.StaleGraceBars,
+		WorseByR:     tc.StaleWorseByR,
+		TightenToBER: tc.StaleTightenToBER,
+	}
+
+	if sc.AfterBars <= 0 {
+		sc.AfterBars = 12
+	}
+	if sc.MinMFER <= 0 {
+		sc.MinMFER = 0.50
+	}
+	if sc.ExitProfitR <= 0 {
+		sc.ExitProfitR = 0.15
+	}
+	if sc.NearBER == 0 {
+		sc.NearBER = -0.05
+	}
+	if sc.MaxAdverseR == 0 {
+		sc.MaxAdverseR = -0.50
+	}
+	if sc.GraceBars <= 0 {
+		sc.GraceBars = 4
+	}
+	if sc.WorseByR <= 0 {
+		sc.WorseByR = 0.20
+	}
+	if sc.TightenToBER == 0 {
+		sc.TightenToBER = 0.02
+	}
+
+	return sc
 }

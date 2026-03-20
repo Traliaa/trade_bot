@@ -2,6 +2,7 @@ package sessions
 
 import (
 	"context"
+	"math"
 	"strings"
 	"time"
 	"trade_bot/internal/models"
@@ -173,13 +174,6 @@ func openPositionUnrealizedPnL(pos models.OpenPosition, payload models.TradePayl
 	return calcUnrealizedPnL(payload, currentPrice)
 }
 
-func openPositionUnrealizedPnLPct(pos models.OpenPosition, payload models.TradePayload, currentPrice float64) float64 {
-	if pos.UnrealizedPct != 0 {
-		payload.ExchangeUPLRatio = pos.UnrealizedPct
-	}
-	return calcPriceMovePct(payload, currentPrice)
-}
-
 func calcUnrealizedPnL(p models.TradePayload, currentPrice float64) float64 {
 	if p.EntryPrice <= 0 || currentPrice <= 0 || p.EntrySize <= 0 {
 		return 0
@@ -194,7 +188,12 @@ func calcUnrealizedPnL(p models.TradePayload, currentPrice float64) float64 {
 		return 0
 	}
 }
-
+func approxLevel(exitPrice, level, eps float64) bool {
+	if exitPrice <= 0 || level <= 0 || eps <= 0 {
+		return false
+	}
+	return math.Abs(exitPrice-level) <= eps
+}
 func calcPriceMovePct(p models.TradePayload, currentPrice float64) float64 {
 	if p.EntryPrice <= 0 || currentPrice <= 0 {
 		return 0
@@ -224,8 +223,47 @@ func (s *UserSession) syncTradeCloseIntent(
 		p.TookPartial = st.TookPartial
 		p.PendingCloseReason = string(reason)
 
+		if st.MovedToBE && st.SL > 0 {
+			p.BEPrice = st.SL
+		}
+
 		if reason == models.CloseReasonTimeStopEarly || reason == models.CloseReasonTimeStopStale {
 			p.TimeStopTriggered = true
+		}
+	})
+}
+
+func (s *UserSession) syncTradeFlagsFromState(
+	ctx context.Context,
+	st *models.PositionTrailState,
+	currentSize float64,
+) error {
+	if st == nil {
+		return nil
+	}
+
+	return s.syncTradePayloadFromTrail(ctx, st.InstID, st.PosSide, func(p *models.TradePayload) {
+		p.MovedToBE = st.MovedToBE
+		p.LockedProfit = st.LockedProfit
+		p.TookPartial = st.TookPartial
+
+		p.IsStale = st.IsStale
+		p.StaleSince = st.StaleSince
+		p.StaleMarkedAtR = st.StaleMarkedAtR
+
+		if st.MovedToBE && st.SL > 0 {
+			p.BEPrice = st.SL
+		}
+
+		if currentSize > 0 {
+			p.CurrentSize = currentSize
+			if p.EntrySize > 0 && currentSize < p.EntrySize {
+				p.TookPartial = true
+				p.ClosedSize = p.EntrySize - currentSize
+				if p.PartialCount == 0 {
+					p.PartialCount = 1
+				}
+			}
 		}
 	})
 }
