@@ -133,12 +133,12 @@ func (s *Service) Start(ctx context.Context, ticks <-chan models.CandleTick) err
 }
 
 func (e *Service) OnCandle(t models.CandleTick) (models.Signal, bool) {
-	switch e.cfg.Strategy.Name {
-	case "donchian_v3_smart":
-		return e.OnCandleV3(t)
-	default:
-		return e.OnCandleV2(t)
-	}
+	//switch e.cfg.Strategy.Name {
+	//case "donchian_v3_smart":
+	//	return e.OnCandleV3(t)
+	//default:
+	return e.OnCandleV2(t)
+	//}
 }
 
 // OnTick ...
