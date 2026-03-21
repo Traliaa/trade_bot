@@ -149,6 +149,7 @@ func (e *Service) buildLongScore(
 		s.Reasons = append(s.Reasons, models.RejectCompressedRange)
 	}
 	if mctx.OverextendedUp {
+		contextOK = false
 		s.Reasons = append(s.Reasons, models.RejectOverextendedUp)
 	}
 
@@ -231,6 +232,7 @@ func (e *Service) buildShortScore(
 		s.Reasons = append(s.Reasons, models.RejectCompressedRange)
 	}
 	if mctx.OverextendedDown {
+		contextOK = false
 		s.Reasons = append(s.Reasons, models.RejectOverextendedDown)
 	}
 
@@ -320,6 +322,12 @@ func (e *Service) onCandleV3ReadyLocked(
 
 	if mst == nil {
 		e.rejectV3(instID, models.RejectStateNil)
+		return zero, false
+	}
+	// Уже есть активная позиция/сделка по инструменту — новый вход не даём.
+	// Иначе стратегия может набрать несколько входов подряд по одному instID.
+	if v3st.EntryPrice > 0 && v3st.InitialRisk > 0 {
+		e.rejectV3(instID, models.RejectNotReady)
 		return zero, false
 	}
 
