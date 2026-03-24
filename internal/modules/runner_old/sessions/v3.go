@@ -104,8 +104,11 @@ func (s *UserSession) CalcTradeParamsV3(
 	}
 
 	rrReal := rewardDist / riskDist
-	if rrReal < sc.MinRR {
-		return nil, fmt.Errorf("rr too low: got %.4f want >= %.4f", rrReal, sc.MinRR)
+
+	const rrEps = 1e-6
+
+	if rrReal < sc.MinRR-rrEps {
+		return nil, fmt.Errorf("rr too low: got %.8f want >= %.8f", rrReal, sc.MinRR)
 	}
 
 	sizeMeta, err := s.calcSizeByRiskWithMeta(ctx, instrument, entry, sl)

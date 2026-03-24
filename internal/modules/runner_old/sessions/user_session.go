@@ -111,6 +111,8 @@ func validateFinalOrderSize(finalSz float64, calc *models.SizeCalcResult) error 
 
 // OpenPositionWithTpSl открывает рыночный ордер и пытается поставить TP/SL.
 // Возвращает orderID рыночного ордера (если успешно) или ошибку.
+// OpenPositionWithTpSl открывает рыночный ордер и пытается поставить TP/SL.
+// Возвращает orderID рыночного ордера (если успешно) или ошибку.
 func (s *UserSession) OpenPositionWithTpSl(
 	ctx context.Context,
 	sig models.Signal,
@@ -125,6 +127,33 @@ func (s *UserSession) OpenPositionWithTpSl(
 
 	if err := validateFinalOrderSize(params.Size, params.SizeMeta); err != nil {
 		return nil, fmt.Errorf("final size validation failed: %w", err)
+	}
+
+	posSide := "long"
+	switch strings.ToUpper(params.Direction) {
+	case "BUY":
+		posSide = "long"
+	case "SELL":
+		posSide = "short"
+	default:
+		return nil, fmt.Errorf("unknown direction: %q", params.Direction)
+	}
+
+	// Антидубль: не открываем новую сделку, если уже есть открытая по тому же инструменту и направлению.
+	openTrades, err := s.Repo.ListOpenTrades(ctx, s.User.TelegramID)
+	if err != nil {
+		return nil, fmt.Errorf("list open trades: %w", err)
+	}
+	for _, tr := range openTrades {
+		if tr.InstID == sig.InstID && strings.EqualFold(tr.Payload.PosSide, posSide) {
+			return nil, fmt.Errorf(
+				"open trade already exists: inst=%s pos_side=%s guid=%s entry_at=%s",
+				tr.InstID,
+				tr.Payload.PosSide,
+				tr.GUID,
+				tr.EntryAt.UTC().Format(time.RFC3339),
+			)
+		}
 	}
 
 	cfg := s.SettingsSnapshot()
@@ -143,9 +172,10 @@ func (s *UserSession) OpenPositionWithTpSl(
 	}
 
 	log.Printf(
-		"[OPEN CHECK] inst=%s dir=%s size=%.8f normalized=%.8f riskUSDT=%.8f entry=%.8f sl=%.8f tp=%.8f lev=%d chat=%d key=%t secret=%t pass=%t",
+		"[OPEN CHECK] inst=%s dir=%s posSide=%s size=%.8f normalized=%.8f riskUSDT=%.8f entry=%.8f sl=%.8f tp=%.8f lev=%d chat=%d key=%t secret=%t pass=%t",
 		sig.InstID,
 		params.Direction,
+		posSide,
 		params.Size,
 		params.SizeMeta.NormalizedSz,
 		params.SizeMeta.RiskUSDT,
@@ -169,11 +199,6 @@ func (s *UserSession) OpenPositionWithTpSl(
 	)
 	if err != nil {
 		return nil, fmt.Errorf("PlaceMarket: %w", err)
-	}
-
-	posSide := "long"
-	if strings.EqualFold(params.Direction, "SELL") {
-		posSide = "short"
 	}
 
 	slAlgoId, err := s.Okx.PlaceSingleAlgo(ctx, sig.InstID, posSide, params.Size, params.SL, false)
