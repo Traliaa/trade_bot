@@ -324,6 +324,7 @@ func (e *Service) onCandleV3ReadyLocked(
 		e.rejectV3(instID, models.RejectStateNil)
 		return zero, false
 	}
+
 	// Уже есть активная позиция/сделка по инструменту — новый вход не даём.
 	// Иначе стратегия может набрать несколько входов подряд по одному instID.
 	if v3st.EntryPrice > 0 && v3st.InitialRisk > 0 {
@@ -368,7 +369,19 @@ func (e *Service) onCandleV3ReadyLocked(
 		zap.Strings("short_reasons", rejectReasonsToStrings(shortScore.Reasons)),
 	)
 
-	if longScore.SetupOK && longScore.ContextOK && longScore.Score >= minConfirm {
+	const minEdge = 2
+
+	longReady := longScore.SetupOK &&
+		longScore.ContextOK &&
+		longScore.Score >= minConfirm &&
+		longScore.Score >= shortScore.Score+minEdge
+
+	shortReady := shortScore.SetupOK &&
+		shortScore.ContextOK &&
+		shortScore.Score >= minConfirm &&
+		shortScore.Score >= longScore.Score+minEdge
+
+	if longReady {
 		v3st.LastSignalScore = longScore.Score
 		v3st.LastRetestLevel = longRetestLevel
 		v3st.LastRejectReason = ""
@@ -389,7 +402,7 @@ func (e *Service) onCandleV3ReadyLocked(
 		}, true
 	}
 
-	if shortScore.SetupOK && shortScore.ContextOK && shortScore.Score >= minConfirm {
+	if shortReady {
 		v3st.LastSignalScore = shortScore.Score
 		v3st.LastRetestLevel = shortRetestLevel
 		v3st.LastRejectReason = ""
