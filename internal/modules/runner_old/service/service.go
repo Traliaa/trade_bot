@@ -135,15 +135,41 @@ func (r *Service) OnSignal(ctx context.Context, sig models.Signal) {
 			}
 		}
 
-		// 1.1 лимит по стороне
 		sess.TrailMu.RLock()
 		longs, shorts := countOpenSides(sess.TrailStates)
-		sess.TrailMu.RUnlock()
 
 		side := strings.ToLower(string(sig.Side))
 		isLong := side == "buy" || side == "long"
 		isShort := side == "sell" || side == "short"
 
+		posSide := "long"
+		if isShort {
+			posSide = "short"
+		}
+		hasSameInst := hasOpenInstID(sess.TrailStates, sig.InstID)
+		hasSameInstSide := hasOpenInstIDSide(sess.TrailStates, sig.InstID, posSide)
+		sess.TrailMu.RUnlock()
+
+		// 1.05 Один инструмент = одна открытая позиция.
+		if hasSameInst {
+			sess.Notifier.SendF(ctx, sess.User.TelegramID,
+				"⚠️ [%s] Уже есть открытая позиция по инструменту, сигнал пропущен",
+				sig.InstID,
+			)
+			continue
+		}
+
+		// Дополнительный guard на ту же сторону.
+		if hasSameInstSide {
+			sess.Notifier.SendF(ctx, sess.User.TelegramID,
+				"⚠️ [%s] Уже есть открытая %s позиция, сигнал пропущен",
+				sig.InstID,
+				strings.ToUpper(posSide),
+			)
+			continue
+		}
+
+		// 1.1 лимит по стороне
 		if isLong &&
 			sess.User.Settings.TradingSettings.MaxLongPositions > 0 &&
 			longs >= sess.User.Settings.TradingSettings.MaxLongPositions {

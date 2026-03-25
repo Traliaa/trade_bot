@@ -369,7 +369,7 @@ func (e *Service) onCandleV3ReadyLocked(
 		zap.Strings("short_reasons", rejectReasonsToStrings(shortScore.Reasons)),
 	)
 
-	const minEdge = 2
+	const minEdge = 3
 
 	longReady := longScore.SetupOK &&
 		longScore.ContextOK &&
@@ -387,6 +387,10 @@ func (e *Service) onCandleV3ReadyLocked(
 		v3st.LastRejectReason = ""
 
 		mst.LastSignalEnd = last.End
+
+		ltfDur := tfDuration(helper.NormTF(e.cfg.Strategy.LTF))
+		mst.CooldownUntil = last.End.Add(4 * ltfDur)
+
 		e.lastSignalAt = time.Now()
 
 		return models.Signal{
@@ -408,6 +412,10 @@ func (e *Service) onCandleV3ReadyLocked(
 		v3st.LastRejectReason = ""
 
 		mst.LastSignalEnd = last.End
+
+		ltfDur := tfDuration(helper.NormTF(e.cfg.Strategy.LTF))
+		mst.CooldownUntil = last.End.Add(4 * ltfDur)
+
 		e.lastSignalAt = time.Now()
 
 		return models.Signal{

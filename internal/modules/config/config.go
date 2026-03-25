@@ -292,7 +292,7 @@ func validateConfig(cfg *Config) error {
 }
 func (c *StrategyConfig) ApplyV3Defaults() {
 	if c.MinConfirmScore <= 0 {
-		c.MinConfirmScore = 3
+		c.MinConfirmScore = 4
 	}
 	if c.AddonMinScore <= 0 {
 		c.AddonMinScore = 4
