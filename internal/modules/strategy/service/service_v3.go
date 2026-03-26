@@ -57,7 +57,6 @@ func (e *Service) detectRetestLevelsLocked(
 	ltf []models.CandleTick,
 	htf []models.CandleTick,
 ) (float64, float64) {
-
 	if len(htf) < 2 || len(ltf) < 3 {
 		return 0, 0
 	}
@@ -71,35 +70,28 @@ func (e *Service) detectRetestLevelsLocked(
 	var longLevel float64
 	var shortLevel float64
 
+	// Ищем breakout только в последних нескольких LTF барах.
+	start := maxInt(1, len(ltf)-4)
+
 	// --- LONG retest ---
-	for i := len(ltf) - 1; i >= 1; i-- {
+	for i := len(ltf) - 1; i >= start; i-- {
 		c := ltf[i]
 		prev := ltf[i-1]
 
-		// breakout вверх
+		// Только реальный breakout вверх через уровень.
 		if prev.Close <= htfHigh && c.Close > htfHigh {
-			longLevel = htfHigh
-			break
-		}
-
-		// fallback: если уже выше уровня
-		if c.Close > htfHigh {
 			longLevel = htfHigh
 			break
 		}
 	}
 
 	// --- SHORT retest ---
-	for i := len(ltf) - 1; i >= 1; i-- {
+	for i := len(ltf) - 1; i >= start; i-- {
 		c := ltf[i]
 		prev := ltf[i-1]
 
+		// Только реальный breakout вниз через уровень.
 		if prev.Close >= htfLow && c.Close < htfLow {
-			shortLevel = htfLow
-			break
-		}
-
-		if c.Close < htfLow {
 			shortLevel = htfLow
 			break
 		}

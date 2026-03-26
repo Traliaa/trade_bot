@@ -178,3 +178,9 @@ func buildV3Reason(
 		compressed,
 	)
 }
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
