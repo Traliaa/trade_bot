@@ -253,6 +253,7 @@ func (r *Service) OnSignal(ctx context.Context, sig models.Signal) {
 				OpenOrderID: res.OrderID,
 				AlgoID:      res.SLAlgoID,
 				RiskDist:    params.RiskDist,
+				TPAlgoID:    res.TPAlgoID,
 			},
 		}
 

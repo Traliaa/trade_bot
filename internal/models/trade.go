@@ -58,11 +58,11 @@ type TradePayload struct {
 	TakeProfit float64 `json:"take_profit"`
 	Leverage   int64   `json:"leverage"`
 
-	OpenOrderID string `json:"open_order_id,omitempty"`
-	AlgoID      string `json:"algo_id,omitempty"`
-
-	ExitPrice float64 `json:"exit_price,omitempty"`
-	ExitSize  float64 `json:"exit_size,omitempty"`
+	OpenOrderID string  `json:"open_order_id,omitempty"`
+	AlgoID      string  `json:"algo_id,omitempty"`    // Тут ID Стоп-Лосса
+	TPAlgoID    string  `json:"tp_algo_id,omitempty"` // НОВОЕ ПОЛЕ
+	ExitPrice   float64 `json:"exit_price,omitempty"`
+	ExitSize    float64 `json:"exit_size,omitempty"`
 
 	RealizedPnL    float64 `json:"realized_pnl,omitempty"`
 	RealizedPnLPct float64 `json:"realized_pnl_pct,omitempty"`

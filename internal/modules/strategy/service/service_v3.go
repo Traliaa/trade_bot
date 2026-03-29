@@ -361,7 +361,7 @@ func (e *Service) onCandleV3ReadyLocked(
 		zap.Strings("short_reasons", rejectReasonsToStrings(shortScore.Reasons)),
 	)
 
-	const minEdge = 3
+	const minEdge = 2
 
 	longReady := longScore.SetupOK &&
 		longScore.ContextOK &&
@@ -702,6 +702,17 @@ func (e *Service) buildMarketContext(
 
 	if htfLow > 0 && htfHigh > htfLow {
 		ctx.ChannelWidthPct = (htfHigh - htfLow) / htfLow
+
+		// Рассчитываем относительное положение цены в канале (0.0 - 1.0)
+		posInChannel := (lastHTF.Close - htfLow) / (htfHigh - htfLow)
+
+		if posInChannel > 0.6 {
+			ctx.Bias = models.MarketBiasBull
+		} else if posInChannel < 0.4 {
+			ctx.Bias = models.MarketBiasBear
+		} else {
+			ctx.Bias = models.MarketBiasNeutral
+		}
 	}
 	if htfMid > 0 {
 		ctx.DistanceToMidPct = abs(lastLTF.Close-htfMid) / htfMid
