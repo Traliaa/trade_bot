@@ -162,28 +162,28 @@ func GetStaleConfig(cfg Settings) staleConfig {
 	}
 
 	if sc.AfterBars <= 0 {
-		sc.AfterBars = 12
+		sc.AfterBars = 16
 	}
 	if sc.MinMFER <= 0 {
-		sc.MinMFER = 0.50
+		sc.MinMFER = 0.35
 	}
 	if sc.ExitProfitR <= 0 {
-		sc.ExitProfitR = 0.15
+		sc.ExitProfitR = 0.25
 	}
 	if sc.NearBER == 0 {
-		sc.NearBER = -0.05
+		sc.NearBER = -0.03
 	}
 	if sc.MaxAdverseR == 0 {
-		sc.MaxAdverseR = -0.50
+		sc.MaxAdverseR = -0.65
 	}
 	if sc.GraceBars <= 0 {
-		sc.GraceBars = 4
+		sc.GraceBars = 6
 	}
 	if sc.WorseByR <= 0 {
-		sc.WorseByR = 0.20
+		sc.WorseByR = 0.30
 	}
 	if sc.TightenToBER == 0 {
-		sc.TightenToBER = 0.02
+		sc.TightenToBER = 0.05
 	}
 
 	return sc
