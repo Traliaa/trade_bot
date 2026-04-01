@@ -735,10 +735,18 @@ func (e *Service) buildMarketContext(
 		ctx.DistanceToMidPct = abs(lastLTF.Close-htfMid) / htfMid
 	}
 
-	if lastHTF.Close > htfMid {
-		ctx.Bias = models.MarketBiasBull
-	} else if lastHTF.Close < htfMid {
-		ctx.Bias = models.MarketBiasBear
+	// Не форсируем bull/bear только по факту нахождения выше/ниже mid.
+	// Иначе bias почти никогда не бывает neutral, и стратегия получает
+	// слишком много htf_conflict на пограничных участках канала.
+	if htfMid > 0 {
+		midDeadZonePct := 0.003
+		if ctx.DistanceToMidPct <= midDeadZonePct {
+			ctx.Bias = models.MarketBiasNeutral
+		} else if lastHTF.Close > htfMid {
+			ctx.Bias = models.MarketBiasBull
+		} else if lastHTF.Close < htfMid {
+			ctx.Bias = models.MarketBiasBear
+		}
 	}
 
 	if ctx.ChannelWidthPct > 0 && ctx.ChannelWidthPct < compression {
