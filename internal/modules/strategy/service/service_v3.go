@@ -125,7 +125,17 @@ func (e *Service) buildLongScore(
 
 	closePos := closePosInRange(last)
 
-	retestOK := retestLevel > 0 && distancePct(last.Low, retestLevel) <= retestTol
+	retestOK := false
+	if retestLevel > 0 {
+		// Более мягкий retest для v3:
+		// 1) классический wick-touch к уровню
+		// 2) close достаточно близко к уровню
+		// 3) свеча телом перекрывает уровень
+		wickTouch := distancePct(last.Low, retestLevel) <= retestTol
+		closeNear := distancePct(last.Close, retestLevel) <= retestTol*0.6
+		bodyCross := last.Open <= retestLevel && last.Close >= retestLevel*(1-retestTol)
+		retestOK = wickTouch || closeNear || bodyCross
+	}
 	strongClose := closePos >= closeUpMin
 	reclaimOK := retestLevel > 0 && last.Close >= retestLevel*(1-retestTol)
 	impulseOK := bodyPct >= impulseMin && last.Close > prev.Close
@@ -208,7 +218,13 @@ func (e *Service) buildShortScore(
 
 	closePos := closePosInRange(last)
 
-	retestOK := retestLevel > 0 && distancePct(last.High, retestLevel) <= retestTol
+	retestOK := false
+	if retestLevel > 0 {
+		wickTouch := distancePct(last.High, retestLevel) <= retestTol
+		closeNear := distancePct(last.Close, retestLevel) <= retestTol*0.6
+		bodyCross := last.Open >= retestLevel && last.Close <= retestLevel*(1+retestTol)
+		retestOK = wickTouch || closeNear || bodyCross
+	}
 	strongClose := closePos <= closeDnMax
 	reclaimOK := retestLevel > 0 && last.Close <= retestLevel*(1+retestTol)
 	impulseOK := bodyPct >= impulseMin && last.Close < prev.Close
