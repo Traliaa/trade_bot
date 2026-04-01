@@ -492,10 +492,18 @@ func (e *Service) AutoTuneV3Now(mode models.TuneMode) models.TuneDecision {
 		}
 
 	case models.RejectRetestNotConfirmed:
-		newVal := clampFloat(after.V3RetestTolerancePct*1.10, 0.0008, 0.0050)
-		if !almostEqual(after.V3RetestTolerancePct, newVal) {
-			after.V3RetestTolerancePct = newVal
+		// Для v3 это один из главных душителей. Смягчаем retest аккуратно,
+		// а если tolerance уже почти раскрыт — слегка снижаем confirm score.
+		newTol := clampFloat(after.V3RetestTolerancePct*1.15, 0.0008, 0.0060)
+		if !almostEqual(after.V3RetestTolerancePct, newTol) {
+			after.V3RetestTolerancePct = newTol
 			changed = true
+		} else {
+			newScore := clampInt(after.V3MinConfirmScore-1, 3, 5)
+			if newScore != after.V3MinConfirmScore {
+				after.V3MinConfirmScore = newScore
+				changed = true
+			}
 		}
 
 	case models.RejectImpulseWeak:
@@ -526,9 +534,18 @@ func (e *Service) AutoTuneV3Now(mode models.TuneMode) models.TuneDecision {
 			changed = true
 		}
 
+	case models.RejectHTFConflict:
+		// HTF conflict не ослабляем напрямую через bias-логику,
+		// но если он доминирует, аккуратно разрешаем чуть менее идеальный сетап,
+		// чтобы не душить стратегию полностью.
+		newScore := clampInt(after.V3MinConfirmScore-1, 4, 5)
+		if newScore != after.V3MinConfirmScore {
+			after.V3MinConfirmScore = newScore
+			changed = true
+		}
+
 	// эти причины пока не тюним автоматически
-	case models.RejectHTFConflict,
-		models.RejectOverextendedUp,
+	case models.RejectOverextendedUp,
 		models.RejectOverextendedDown,
 		models.RejectStructureNotConfirmed,
 		models.RejectReclaimFailed,
