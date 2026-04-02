@@ -721,6 +721,16 @@ func (e *Service) MaybeAutoTuneAdaptive(now time.Time, force bool) models.TuneDe
 		return models.TuneDecision{Changed: false, Why: models.TuneWhyOff}
 	}
 
+	if e.cfg != nil && e.cfg.Strategy.Name == string(models.StrategyDonchianV3) {
+		if !force {
+			if !e.lastTuneCheckAt.IsZero() && now.Sub(e.lastTuneCheckAt) < 5*time.Minute {
+				return models.TuneDecision{Changed: false, Why: models.TuneWhyCooldown}
+			}
+			e.lastTuneCheckAt = now
+		}
+		return e.AutoTuneV3Now(mode)
+	}
+
 	// warmup — только для auto/safe, manual(force) пропускает
 	if !force && !e.IsWarmupDone() {
 		return models.TuneDecision{Changed: false, Why: models.TuneWhyWarmup}

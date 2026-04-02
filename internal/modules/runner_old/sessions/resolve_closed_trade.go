@@ -180,9 +180,41 @@ func classifyCloseReason(
 		return models.CloseReasonTimeStopStale
 	}
 
-	// 5. Partial оставляем только как fallback.
+	// 5. Состояния trail/state как fallback, чтобы не терять классификацию.
+	if payload.IsStale || (state != nil && state.IsStale) {
+		return models.CloseReasonTimeStopStale
+	}
 	if payload.TookPartial || (state != nil && state.TookPartial) {
 		return models.CloseReasonPartialExit
+	}
+	if payload.LockedProfit || (state != nil && state.LockedProfit) {
+		return models.CloseReasonLockProfit
+	}
+	if payload.MovedToBE || (state != nil && state.MovedToBE) {
+		return models.CloseReasonBreakEven
+	}
+
+	// 6. Последний fallback: если есть валидный exit относительно entry/stop,
+	// пытаемся классифицировать по знаку и масштабу результата вместо unknown.
+	if riskDist > 0 && payload.EntryPrice > 0 && exitPrice > 0 {
+		r := models.CalcRMultiple(
+			payload.EntryPrice,
+			exitPrice,
+			payload.StopLoss,
+			payload.PosSide,
+		)
+		if r >= 0.8 {
+			return models.CloseReasonTP
+		}
+		if r <= -0.8 {
+			return models.CloseReasonSL
+		}
+		if r > 0 {
+			return models.CloseReasonLockProfit
+		}
+		if r > -0.25 {
+			return models.CloseReasonBreakEven
+		}
 	}
 
 	return models.CloseReasonUnknown

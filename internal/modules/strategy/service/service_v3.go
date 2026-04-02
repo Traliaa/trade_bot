@@ -125,7 +125,17 @@ func (e *Service) buildLongScore(
 
 	closePos := closePosInRange(last)
 
-	retestOK := retestLevel > 0 && distancePct(last.Low, retestLevel) <= retestTol
+	retestOK := false
+	if retestLevel > 0 {
+		// Более мягкий retest для v3:
+		// 1) классический wick-touch к уровню
+		// 2) close достаточно близко к уровню
+		// 3) свеча телом перекрывает уровень
+		wickTouch := distancePct(last.Low, retestLevel) <= retestTol
+		closeNear := distancePct(last.Close, retestLevel) <= retestTol*0.6
+		bodyCross := last.Open <= retestLevel && last.Close >= retestLevel*(1-retestTol)
+		retestOK = wickTouch || closeNear || bodyCross
+	}
 	strongClose := closePos >= closeUpMin
 	reclaimOK := retestLevel > 0 && last.Close >= retestLevel*(1-retestTol)
 	impulseOK := bodyPct >= impulseMin && last.Close > prev.Close
@@ -208,7 +218,13 @@ func (e *Service) buildShortScore(
 
 	closePos := closePosInRange(last)
 
-	retestOK := retestLevel > 0 && distancePct(last.High, retestLevel) <= retestTol
+	retestOK := false
+	if retestLevel > 0 {
+		wickTouch := distancePct(last.High, retestLevel) <= retestTol
+		closeNear := distancePct(last.Close, retestLevel) <= retestTol*0.6
+		bodyCross := last.Open >= retestLevel && last.Close <= retestLevel*(1+retestTol)
+		retestOK = wickTouch || closeNear || bodyCross
+	}
 	strongClose := closePos <= closeDnMax
 	reclaimOK := retestLevel > 0 && last.Close <= retestLevel*(1+retestTol)
 	impulseOK := bodyPct >= impulseMin && last.Close < prev.Close
@@ -492,10 +508,18 @@ func (e *Service) AutoTuneV3Now(mode models.TuneMode) models.TuneDecision {
 		}
 
 	case models.RejectRetestNotConfirmed:
-		newVal := clampFloat(after.V3RetestTolerancePct*1.10, 0.0008, 0.0050)
-		if !almostEqual(after.V3RetestTolerancePct, newVal) {
-			after.V3RetestTolerancePct = newVal
+		// Для v3 это один из главных душителей. Смягчаем retest аккуратно,
+		// а если tolerance уже почти раскрыт — слегка снижаем confirm score.
+		newTol := clampFloat(after.V3RetestTolerancePct*1.15, 0.0008, 0.0060)
+		if !almostEqual(after.V3RetestTolerancePct, newTol) {
+			after.V3RetestTolerancePct = newTol
 			changed = true
+		} else {
+			newScore := clampInt(after.V3MinConfirmScore-1, 3, 5)
+			if newScore != after.V3MinConfirmScore {
+				after.V3MinConfirmScore = newScore
+				changed = true
+			}
 		}
 
 	case models.RejectImpulseWeak:
@@ -526,9 +550,18 @@ func (e *Service) AutoTuneV3Now(mode models.TuneMode) models.TuneDecision {
 			changed = true
 		}
 
+	case models.RejectHTFConflict:
+		// HTF conflict не ослабляем напрямую через bias-логику,
+		// но если он доминирует, аккуратно разрешаем чуть менее идеальный сетап,
+		// чтобы не душить стратегию полностью.
+		newScore := clampInt(after.V3MinConfirmScore-1, 4, 5)
+		if newScore != after.V3MinConfirmScore {
+			after.V3MinConfirmScore = newScore
+			changed = true
+		}
+
 	// эти причины пока не тюним автоматически
-	case models.RejectHTFConflict,
-		models.RejectOverextendedUp,
+	case models.RejectOverextendedUp,
 		models.RejectOverextendedDown,
 		models.RejectStructureNotConfirmed,
 		models.RejectReclaimFailed,
@@ -718,10 +751,18 @@ func (e *Service) buildMarketContext(
 		ctx.DistanceToMidPct = abs(lastLTF.Close-htfMid) / htfMid
 	}
 
-	if lastHTF.Close > htfMid {
-		ctx.Bias = models.MarketBiasBull
-	} else if lastHTF.Close < htfMid {
-		ctx.Bias = models.MarketBiasBear
+	// Не форсируем bull/bear только по факту нахождения выше/ниже mid.
+	// Иначе bias почти никогда не бывает neutral, и стратегия получает
+	// слишком много htf_conflict на пограничных участках канала.
+	if htfMid > 0 {
+		midDeadZonePct := 0.003
+		if ctx.DistanceToMidPct <= midDeadZonePct {
+			ctx.Bias = models.MarketBiasNeutral
+		} else if lastHTF.Close > htfMid {
+			ctx.Bias = models.MarketBiasBull
+		} else if lastHTF.Close < htfMid {
+			ctx.Bias = models.MarketBiasBear
+		}
 	}
 
 	if ctx.ChannelWidthPct > 0 && ctx.ChannelWidthPct < compression {
