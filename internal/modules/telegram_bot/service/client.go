@@ -86,7 +86,7 @@ func (t *Telegram) SendService(ctx context.Context, format string, args ...any) 
 
 	_, err := t.Send(ctx, int64(t.cfg.ServiceTelegramChatID), text)
 	if err != nil {
-		logger.Error(err.Error())
+		logger.Error("send service telegram message failed: %v", err)
 	}
 }
 

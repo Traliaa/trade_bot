@@ -17,6 +17,7 @@ type TradeRouter interface {
 
 	GetUserStatus(ctx context.Context, userID int64) (models.UserStatus, error)
 	GetUser(ctx context.Context, userID int64) (*models.UserSettings, error)
+	StatusForUser(ctx context.Context, userID int64) ([]models.OpenPosition, error)
 
 	AutoTuneNow(ctx context.Context) (models.TuneDecision, models.RuntimeTuning, time.Time, time.Time, bool, models.TuneMode)
 	ToggleTuneMode(ctx context.Context) models.TuneMode
@@ -64,6 +65,10 @@ type tradesResponse struct {
 
 type statsResponse struct {
 	Stats models.TradeStats `json:"stats"`
+}
+
+type positionsResponse struct {
+	Positions []models.OpenPosition `json:"positions"`
 }
 
 func (c *TradeController) DisableUser(w http.ResponseWriter, r *http.Request) {
@@ -227,6 +232,21 @@ func (c *TradeController) OpenTrades(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, tradesResponse{Trades: trades})
+}
+
+func (c *TradeController) Positions(w http.ResponseWriter, r *http.Request) {
+	userID, ok := mustAuthUserID(w, r)
+	if !ok {
+		return
+	}
+
+	positions, err := c.r.StatusForUser(r.Context(), userID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	writeJSON(w, positionsResponse{Positions: positions})
 }
 
 func (c *TradeController) TradeStats(w http.ResponseWriter, r *http.Request) {

@@ -95,6 +95,17 @@ type TradePayload struct {
 	IsStale            bool      `json:"is_stale,omitempty"`
 	StaleSince         time.Time `json:"stale_since,omitempty"`
 	StaleMarkedAtR     float64   `json:"stale_marked_at_r,omitempty"`
+
+	EntrySignalScore       int     `json:"entry_signal_score,omitempty"`
+	EntryOppositeScore     int     `json:"entry_opposite_score,omitempty"`
+	EntryRetestLevel       float64 `json:"entry_retest_level,omitempty"`
+	EntryRetestDistancePct float64 `json:"entry_retest_distance_pct,omitempty"`
+	EntryClosePos          float64 `json:"entry_close_pos,omitempty"`
+	EntryImpulseBodyPct    float64 `json:"entry_impulse_body_pct,omitempty"`
+	EntryHTFBias           string  `json:"entry_htf_bias,omitempty"`
+	EntryChannelWidthPct   float64 `json:"entry_channel_width_pct,omitempty"`
+	EntryCompressed        bool    `json:"entry_compressed,omitempty"`
+	EntryVolatilityOK      bool    `json:"entry_volatility_ok,omitempty"`
 }
 
 type TradeRecord struct {

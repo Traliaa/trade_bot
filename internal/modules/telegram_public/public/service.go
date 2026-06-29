@@ -5,8 +5,6 @@ import (
 	"sync"
 	"time"
 	"trade_bot/pkg/logger"
-
-	"go.uber.org/zap"
 )
 
 type Service struct {
@@ -57,7 +55,7 @@ func (s *Service) Set(ctx context.Context, st Status) {
 	s.mu.Unlock()
 
 	if err := s.SendOrEdit(ctx, st); err != nil {
-		logger.Error("public status send/edit failed", zap.Error(err))
+		logger.Error("public status send/edit failed: %v", err)
 	}
 }
 
@@ -72,7 +70,7 @@ func (s *Service) Heartbeat(ctx context.Context) {
 
 	st.UpdatedAt = time.Now()
 	if err := s.SendOrEdit(ctx, st); err != nil {
-		logger.Error("public status heartbeat failed", zap.Error(err))
+		logger.Error("public status heartbeat failed: %v", err)
 	}
 }
 

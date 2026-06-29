@@ -25,7 +25,7 @@ func main() {
 	var processID = time.Now().UnixNano()
 
 	// в NewWarmuper / Warmup / SetWarmupDone / AutoTuneNow:
-	logger.Info("[BOOT] process", zap.Int64("pid", processID))
+	logger.Info("[BOOT] process pid=%d", processID)
 	app := fx.New(
 		fx.Provide(
 			func() context.Context {

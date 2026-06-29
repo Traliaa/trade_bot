@@ -205,19 +205,6 @@ func decideTrail15m(
 		}
 	}
 
-	// --- BE ---
-	if !st.MovedToBE && mfeR >= cfg.TrailingConfig.BETriggerR {
-		cand := calcBEPrice(st, cfg)
-		if cand > 0 && improves(cand) {
-			return models.TrailDecision{
-				NewSL:  cand,
-				MoveSL: true,
-				Reason: models.CloseReasonBreakEven,
-				Note:   "BE",
-			}
-		}
-	}
-
 	// --- PARTIAL ---
 	if cfg.TrailingConfig.PartialEnabled &&
 		!st.TookPartial &&
@@ -238,6 +225,19 @@ func decideTrail15m(
 				),
 				MoveSLAfterPartial: true,
 				NewSLAfterPartial:  newSL,
+			}
+		}
+	}
+
+	// --- BE ---
+	if !st.MovedToBE && mfeR >= cfg.TrailingConfig.BETriggerR {
+		cand := calcBEPrice(st, cfg)
+		if cand > 0 && improves(cand) {
+			return models.TrailDecision{
+				NewSL:  cand,
+				MoveSL: true,
+				Reason: models.CloseReasonBreakEven,
+				Note:   "BE",
 			}
 		}
 	}
