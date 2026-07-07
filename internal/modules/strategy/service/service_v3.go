@@ -411,6 +411,14 @@ func (e *Service) onCandleV3ReadyLocked(
 			CreatedAt:  time.Now(),
 			LTFCandles: lastNCandles(mst.LTFCandles, 30),
 			HTFCandles: lastNCandles(mst.HTFCandles, 30),
+			Diagnostics: buildSignalDiagnostics(
+				models.SideBuy,
+				longScore,
+				shortScore,
+				mctx,
+				longRetestLevel,
+				mst.LTFCandles,
+			),
 		}, true
 	}
 
@@ -436,6 +444,14 @@ func (e *Service) onCandleV3ReadyLocked(
 			CreatedAt:  time.Now(),
 			LTFCandles: lastNCandles(mst.LTFCandles, 30),
 			HTFCandles: lastNCandles(mst.HTFCandles, 30),
+			Diagnostics: buildSignalDiagnostics(
+				models.SideSell,
+				shortScore,
+				longScore,
+				mctx,
+				shortRetestLevel,
+				mst.LTFCandles,
+			),
 		}, true
 	}
 

@@ -107,8 +107,9 @@ func NewTradingSettingsFromDefaults(userID int64, cfg *config.Config) *UserSetti
 				PositionPct:       cfg.UserDefaults.DefaultPositionPct,
 				RiskPct:           cfg.UserDefaults.DefaultRiskPct,
 
-				StopPct:      cfg.UserDefaults.DefaultStopPct,
-				TakeProfitRR: cfg.UserDefaults.DefaultTakeProfitRR,
+				StopPct:        cfg.UserDefaults.DefaultStopPct,
+				TakeProfitRR:   cfg.UserDefaults.DefaultTakeProfitRR,
+				ConfirmTimeout: 60 * time.Second,
 			},
 			TrailingConfig: TrailingConfig{
 				BETriggerR:          cfg.DefaultTrailing.BETriggerR,
@@ -116,7 +117,7 @@ func NewTradingSettingsFromDefaults(userID int64, cfg *config.Config) *UserSetti
 				LockTriggerR:        cfg.DefaultTrailing.LockTriggerR,
 				LockOffsetR:         cfg.DefaultTrailing.LockOffsetR,
 				TimeStopBars:        cfg.DefaultTrailing.TimeStopBars,
-				TimeStopMinCurrentR: cfg.DefaultTrailing.EarlyTimeStopMinMFER,
+				TimeStopMinCurrentR: cfg.DefaultTrailing.TimeStopMinCurrentR,
 
 				EarlyTimeStopBars:    cfg.DefaultTrailing.EarlyTimeStopBars,
 				EarlyTimeStopMinMFER: cfg.DefaultTrailing.EarlyTimeStopMinMFER,

@@ -254,6 +254,17 @@ func (r *Service) OnSignal(ctx context.Context, sig models.Signal) {
 				AlgoID:      res.SLAlgoID,
 				RiskDist:    params.RiskDist,
 				TPAlgoID:    res.TPAlgoID,
+
+				EntrySignalScore:       sig.Diagnostics.Score,
+				EntryOppositeScore:     sig.Diagnostics.OppositeScore,
+				EntryRetestLevel:       sig.Diagnostics.RetestLevel,
+				EntryRetestDistancePct: sig.Diagnostics.RetestDistancePct,
+				EntryClosePos:          sig.Diagnostics.ClosePos,
+				EntryImpulseBodyPct:    sig.Diagnostics.ImpulseBodyPct,
+				EntryHTFBias:           string(sig.Diagnostics.HTFBias),
+				EntryChannelWidthPct:   sig.Diagnostics.ChannelWidthPct,
+				EntryCompressed:        sig.Diagnostics.Compressed,
+				EntryVolatilityOK:      sig.Diagnostics.VolatilityOK,
 			},
 		}
 

@@ -184,3 +184,43 @@ func maxInt(a, b int) int {
 	}
 	return b
 }
+
+func buildSignalDiagnostics(
+	side models.Side,
+	score models.SignalScore,
+	opposite models.SignalScore,
+	mctx models.MarketContext,
+	retestLevel float64,
+	ltf []models.CandleTick,
+) models.SignalDiagnostics {
+	d := models.SignalDiagnostics{
+		Score:           score.Score,
+		OppositeScore:   opposite.Score,
+		RetestLevel:     retestLevel,
+		HTFBias:         mctx.Bias,
+		ChannelWidthPct: mctx.ChannelWidthPct,
+		Compressed:      mctx.Compressed,
+		VolatilityOK:    mctx.VolatilityOK,
+	}
+
+	if len(ltf) == 0 {
+		return d
+	}
+
+	last := ltf[len(ltf)-1]
+	if last.Close > 0 {
+		d.ImpulseBodyPct = candleBody(last) / last.Close
+	}
+	d.ClosePos = closePosInRange(last)
+
+	if retestLevel > 0 {
+		switch side {
+		case models.SideBuy:
+			d.RetestDistancePct = distancePct(last.Low, retestLevel)
+		case models.SideSell:
+			d.RetestDistancePct = distancePct(last.High, retestLevel)
+		}
+	}
+
+	return d
+}

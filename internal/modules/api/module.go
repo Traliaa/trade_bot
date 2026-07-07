@@ -85,6 +85,7 @@ func registerRoutes(
 
 			pr.Get("/status", trade.StatusForUser)
 
+			pr.Get("/positions", trade.Positions)
 			pr.Get("/open_trades", trade.OpenTrades)
 			pr.Get("/trades", trade.RecentTrades)
 			pr.Get("/stats", trade.TradeStats)
