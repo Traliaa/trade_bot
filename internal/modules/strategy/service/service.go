@@ -71,6 +71,7 @@ func NewService(cfg *config.Config, out chan<- models.Signal, candleOut chan<- m
 			V3CompressionThresholdPct: cfg.Strategy.CompressionThresholdPct,
 			V3StrongCloseMin:          cfg.Strategy.StrongCloseMin,
 			V3StrongCloseMax:          cfg.Strategy.StrongCloseMax,
+			V3VolumeMinRatio:          cfg.Strategy.V3.VolumeMinRatio,
 		},
 		tuneMode: models.TuneMode(cfg.Strategy.TuneMode),
 		stV3:     make(map[string]*models.V3MarketState),

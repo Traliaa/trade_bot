@@ -16,6 +16,7 @@ type RuntimeTuning struct {
 	V3CompressionThresholdPct float64
 	V3StrongCloseMin          float64
 	V3StrongCloseMax          float64
+	V3VolumeMinRatio          float64
 }
 
 type TuneMode int

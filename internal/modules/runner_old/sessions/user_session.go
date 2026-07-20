@@ -65,6 +65,10 @@ type UserSession struct {
 	WG sync.WaitGroup
 
 	stopCh chan struct{}
+
+	// V3PartialCheck опциональный коллбэк для проверки, зафиксировала ли V3-стратегия частичное закрытие.
+	// Устанавливается runner-сервисом.
+	V3PartialCheck func(instID string) bool
 }
 
 func validateFinalOrderSize(finalSz float64, calc *models.SizeCalcResult) error {

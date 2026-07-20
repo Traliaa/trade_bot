@@ -36,6 +36,9 @@ func (r *Service) EnableUser(ctx context.Context, user *models.UserSettings) (*s
 		Repo:              r.Repository,
 		LastMsgAt:         make(map[string]time.Time),
 		Config:            r.config,
+		V3PartialCheck: func(instID string) bool {
+			return r.strategy.CheckV3Partial(instID)
+		},
 	}
 
 	//sess.USDTBalance(ctx)

@@ -154,7 +154,8 @@ func isV3RejectReason(r models.RejectReason) bool {
 		models.RejectReclaimFailed,
 		models.RejectStructureNotConfirmed,
 		models.RejectOverextendedUp,
-		models.RejectOverextendedDown:
+		models.RejectOverextendedDown,
+		models.RejectLowVolume:
 		return true
 	default:
 		return false
@@ -178,6 +179,79 @@ func buildV3Reason(
 		compressed,
 	)
 }
+
+// weightedRetest оценивает силу retest:
+// 0 — нет retest, 1 — wick-touch, 2 — close/body overlap.
+func weightedRetest(retestOK bool, c models.CandleTick, retestLevel float64, side models.Side) int {
+	if !retestOK {
+		return 0
+	}
+
+	switch side {
+	case models.SideBuy:
+		if c.Low > retestLevel || c.Close > retestLevel {
+			return 2
+		}
+	case models.SideSell:
+		if c.High < retestLevel || c.Close < retestLevel {
+			return 2
+		}
+	}
+	return 1
+}
+
+// weightedCloseLong оценивает силу close для long:
+// 0 — close в середине, 1 — в верхней трети, 2 — у экстремума (top 10%).
+func weightedCloseLong(closePos, closeUpMin float64) int {
+	if closePos < closeUpMin {
+		return 0
+	}
+	if closePos >= closeUpMin+0.15 {
+		return 2
+	}
+	return 1
+}
+
+// weightedCloseShort оценивает силу close для short:
+// 0 — close в середине, 1 — в нижней трети, 2 — у экстремума (bottom 10%).
+func weightedCloseShort(closePos, closeDnMax float64) int {
+	if closePos > closeDnMax {
+		return 0
+	}
+	if closePos <= closeDnMax-0.15 {
+		return 2
+	}
+	return 1
+}
+
+// weightedImpulse оценивает силу импульса:
+// 0 — body < min, 1 — body > min, 2 — body > 2×min.
+func weightedImpulse(bodyPct, impulseMin float64) int {
+	if bodyPct < impulseMin {
+		return 0
+	}
+	if bodyPct >= 2*impulseMin {
+		return 2
+	}
+	return 1
+}
+
+// computeSMAVolume вычисляет SMA объёма за последние period свечей.
+func computeSMAVolume(candles []models.CandleTick, period int) float64 {
+	if len(candles) == 0 || period <= 0 {
+		return 0
+	}
+	if len(candles) < period {
+		period = len(candles)
+	}
+	start := len(candles) - period
+	var sum float64
+	for i := start; i < len(candles); i++ {
+		sum += candles[i].Volume
+	}
+	return sum / float64(period)
+}
+
 func maxInt(a, b int) int {
 	if a > b {
 		return a

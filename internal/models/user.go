@@ -124,6 +124,15 @@ func NewTradingSettingsFromDefaults(userID int64, cfg *config.Config) *UserSetti
 				PartialEnabled:       cfg.DefaultTrailing.PartialEnabled,
 				PartialTriggerR:      cfg.DefaultTrailing.PartialTriggerR,
 				PartialCloseFrac:     cfg.DefaultTrailing.PartialCloseFrac,
+
+				StaleAfterBars:    cfg.DefaultTrailing.Stale.AfterBars,
+				StaleMinMFER:      cfg.DefaultTrailing.Stale.MinMFER,
+				StaleExitProfitR:  cfg.DefaultTrailing.Stale.ExitProfitR,
+				StaleNearBER:      cfg.DefaultTrailing.Stale.NearBER,
+				StaleMaxAdverseR:  cfg.DefaultTrailing.Stale.MaxAdverseR,
+				StaleGraceBars:    cfg.DefaultTrailing.Stale.GraceBars,
+				StaleWorseByR:     cfg.DefaultTrailing.Stale.WorseByR,
+				StaleTightenToBER: cfg.DefaultTrailing.Stale.TightenToBER,
 			},
 		},
 	}

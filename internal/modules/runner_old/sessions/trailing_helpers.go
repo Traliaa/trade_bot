@@ -13,10 +13,8 @@ func calcBEPrice(st *models.PositionTrailState, cfg models.Settings) float64 {
 	}
 
 	offsetR := cfg.TrailingConfig.BEOffsetR
-	if offsetR <= 0 {
-		// Небольшой дефолтный оффсет, чтобы не ставить SL ровно в цену входа.
-		// Это не идеальный fee-aware BE, но уже лучше, чем entry.
-		offsetR = 0.10
+	if offsetR < 0 {
+		offsetR = 0
 	}
 
 	if st.PosSide == "long" {

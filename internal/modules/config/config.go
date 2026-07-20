@@ -58,6 +58,8 @@ type StrategyConfig struct {
 	LTF string `yaml:"ltf"`
 	HTF string `yaml:"htf"`
 
+	V3 V3Config `yaml:"v3"`
+
 	MinConfirmScore         int     `yaml:"min_confirm_score"`
 	AddonMinScore           int     `yaml:"addon_min_score"`
 	MaxAdds                 int     `yaml:"max_adds"`
@@ -111,9 +113,41 @@ type StrategyConfig struct {
 	UsePercentFallback bool    `yaml:"use_percent_fallback"`
 	FallbackStopPct    float64 `yaml:"fallback_stop_pct"`
 
-	ATRPeriod   int     `mapstructure:"atr_period"`
-	ATRStopMult float64 `mapstructure:"atr_stop_mult"`
-	UseATRGuard bool    `mapstructure:"use_atr_guard"`
+	ATRPeriod   int     `yaml:"atr_period"`
+	ATRStopMult float64 `yaml:"atr_stop_mult"`
+	UseATRGuard bool    `yaml:"use_atr_guard"`
+}
+
+// V3Config holds parameters specific to the V3 Donchian strategy.
+type V3Config struct {
+	MinConfirmScore         int     `yaml:"min_confirm_score"`
+	RetestTolerancePct      float64 `yaml:"retest_tolerance_pct"`
+	ImpulseBodyMinPct       float64 `yaml:"impulse_body_min_pct"`
+	CompressionThresholdPct float64 `yaml:"compression_threshold_pct"`
+	StrongCloseMin          float64 `yaml:"strong_close_min"`
+	StrongCloseMax          float64 `yaml:"strong_close_max"`
+	VolumeMinRatio          float64 `yaml:"volume_min_ratio"`
+	MinRR                   float64 `yaml:"min_rr"`
+	SLBufferPct             float64 `yaml:"sl_buffer_pct"`
+	SwingLookbackBars       int     `yaml:"swing_lookback_bars"`
+	TargetLookbackBars      int     `yaml:"target_lookback_bars"`
+	UsePercentFallback      bool    `yaml:"use_percent_fallback"`
+	FallbackStopPct         float64 `yaml:"fallback_stop_pct"`
+	ATRPeriod               int     `yaml:"atr_period"`
+	ATRStopMult             float64 `yaml:"atr_stop_mult"`
+	UseATRGuard             bool    `yaml:"use_atr_guard"`
+}
+
+// StaleConfig contains stale position parameters.
+type StaleConfig struct {
+	AfterBars    int     `yaml:"after_bars"`
+	MinMFER      float64 `yaml:"min_mfe_r"`
+	ExitProfitR  float64 `yaml:"exit_profit_r"`
+	NearBER      float64 `yaml:"near_be_r"`
+	MaxAdverseR  float64 `yaml:"max_adverse_r"`
+	GraceBars    int     `yaml:"grace_bars"`
+	WorseByR     float64 `yaml:"worse_by_r"`
+	TightenToBER float64 `yaml:"tighten_to_be_r"`
 }
 
 type UserDefaultsConfig struct {
@@ -149,6 +183,8 @@ type TrailingDefaultsConfig struct {
 	PartialEnabled   bool    `yaml:"partial_enabled"`    // true
 	PartialTriggerR  float64 `yaml:"partial_trigger_r"`  // 0.9
 	PartialCloseFrac float64 `yaml:"partial_close_frac"` // 0.5
+
+	Stale StaleConfig `yaml:"stale"`
 }
 
 func NewConfig() (*Config, error) {
@@ -356,5 +392,97 @@ func (c *StrategyConfig) ApplyV3Defaults() {
 	}
 	if c.ATRStopMult <= 0 {
 		c.ATRStopMult = 0.8
+	}
+
+	// V3Config fallback: если V3-секция пустая, копируем из родителя
+	v3 := &c.V3
+	if v3.MinConfirmScore <= 0 && c.MinConfirmScore > 0 {
+		v3.MinConfirmScore = c.MinConfirmScore
+	}
+	if v3.CompressionThresholdPct <= 0 && c.CompressionThresholdPct > 0 {
+		v3.CompressionThresholdPct = c.CompressionThresholdPct
+	}
+	if v3.StrongCloseMin <= 0 && c.StrongCloseMin > 0 {
+		v3.StrongCloseMin = c.StrongCloseMin
+	}
+	if v3.StrongCloseMax <= 0 && c.StrongCloseMax > 0 {
+		v3.StrongCloseMax = c.StrongCloseMax
+	}
+	if v3.ImpulseBodyMinPct <= 0 && c.ImpulseBodyMinPct > 0 {
+		v3.ImpulseBodyMinPct = c.ImpulseBodyMinPct
+	}
+	if v3.RetestTolerancePct <= 0 && c.RetestTolerancePct > 0 {
+		v3.RetestTolerancePct = c.RetestTolerancePct
+	}
+	if v3.MinRR <= 0 && c.MinRR > 0 {
+		v3.MinRR = c.MinRR
+	}
+	if v3.SLBufferPct <= 0 && c.SLBufferPct > 0 {
+		v3.SLBufferPct = c.SLBufferPct
+	}
+	if v3.SwingLookbackBars <= 0 && c.SwingLookbackBars > 0 {
+		v3.SwingLookbackBars = c.SwingLookbackBars
+	}
+	if v3.TargetLookbackBars <= 0 && c.TargetLookbackBars > 0 {
+		v3.TargetLookbackBars = c.TargetLookbackBars
+	}
+	if !v3.UsePercentFallback && c.UsePercentFallback {
+		v3.UsePercentFallback = c.UsePercentFallback
+	}
+	if v3.FallbackStopPct <= 0 && c.FallbackStopPct > 0 {
+		v3.FallbackStopPct = c.FallbackStopPct
+	}
+	if v3.ATRPeriod <= 0 && c.ATRPeriod > 0 {
+		v3.ATRPeriod = c.ATRPeriod
+	}
+	if v3.ATRStopMult <= 0 && c.ATRStopMult > 0 {
+		v3.ATRStopMult = c.ATRStopMult
+	}
+	if !v3.UseATRGuard && c.UseATRGuard {
+		v3.UseATRGuard = c.UseATRGuard
+	}
+
+	// собственные дефолты V3Config (если не установлены ни из YAML, ни из родителя)
+	if v3.MinConfirmScore <= 0 {
+		v3.MinConfirmScore = 5
+	}
+	if v3.CompressionThresholdPct <= 0 {
+		v3.CompressionThresholdPct = 0.012
+	}
+	if v3.StrongCloseMin <= 0 {
+		v3.StrongCloseMin = 0.70
+	}
+	if v3.StrongCloseMax <= 0 {
+		v3.StrongCloseMax = 0.30
+	}
+	if v3.ImpulseBodyMinPct <= 0 {
+		v3.ImpulseBodyMinPct = 0.003
+	}
+	if v3.RetestTolerancePct <= 0 {
+		v3.RetestTolerancePct = 0.0015
+	}
+	if v3.VolumeMinRatio <= 0 {
+		v3.VolumeMinRatio = 0.70
+	}
+	if v3.MinRR <= 0 {
+		v3.MinRR = 1.5
+	}
+	if v3.SLBufferPct <= 0 {
+		v3.SLBufferPct = 0.001
+	}
+	if v3.SwingLookbackBars <= 0 {
+		v3.SwingLookbackBars = 5
+	}
+	if v3.TargetLookbackBars <= 0 {
+		v3.TargetLookbackBars = 20
+	}
+	if v3.FallbackStopPct <= 0 {
+		v3.FallbackStopPct = 0.01
+	}
+	if v3.ATRPeriod <= 0 {
+		v3.ATRPeriod = 14
+	}
+	if v3.ATRStopMult <= 0 {
+		v3.ATRStopMult = 0.8
 	}
 }

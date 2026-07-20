@@ -47,6 +47,7 @@ const (
 	RejectStructureNotConfirmed RejectReason = "structure_not_confirmed"
 	RejectVolatilityTooLow      RejectReason = "volatility_too_low"
 	RejectConfirmScoreLow       RejectReason = "confirm_score_low"
+	RejectLowVolume             RejectReason = "low_volume"
 
 	RejectStateNil          RejectReason = "state_nil"
 	RejectNotRecoveryWatch  RejectReason = "not_recovery_watch"

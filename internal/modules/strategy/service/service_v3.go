@@ -24,6 +24,21 @@ func (e *Service) getStrategyStateLocked(instID string) *models.StrategyState {
 	return st
 }
 
+// CheckV3Partial проверяет, отметила ли V3-стратегия PartialDone для данного инструмента.
+func (e *Service) CheckV3Partial(instID string) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if e.stateV3 == nil {
+		return false
+	}
+	st, ok := e.stateV3[instID]
+	if !ok || st == nil {
+		return false
+	}
+	return st.PartialDone
+}
+
 func abs(v float64) float64 {
 	if v < 0 {
 		return -v
@@ -164,11 +179,24 @@ func (e *Service) buildLongScore(
 	s.StructureOK = structureOK
 	s.VolatilityOK = mctx.VolatilityOK
 
-	s.Score += boolScore(retestOK)
-	s.Score += boolScore(strongClose)
+	// weighted scoring
+	s.Score += weightedRetest(retestOK, last, retestLevel, models.SideBuy)
+	s.Score += weightedCloseLong(closePos, closeUpMin)
 	s.Score += boolScore(reclaimOK)
-	s.Score += boolScore(impulseOK)
+	s.Score += weightedImpulse(bodyPct, impulseMin)
 	s.Score += boolScore(structureOK)
+
+	// volume confirmation
+	volumeMinRatio := e.effectiveV3VolumeMinRatio()
+	if volumeMinRatio > 0 && last.Volume > 0 {
+		avgVol := computeSMAVolume(ltf, 20)
+		if avgVol > 0 && last.Volume < avgVol*volumeMinRatio {
+			s.Score--
+			if last.Volume < avgVol*volumeMinRatio*0.5 {
+				s.Reasons = append(s.Reasons, models.RejectLowVolume)
+			}
+		}
+	}
 
 	if !retestOK {
 		s.Reasons = append(s.Reasons, models.RejectRetestNotConfirmed)
@@ -253,11 +281,24 @@ func (e *Service) buildShortScore(
 	s.StructureOK = structureOK
 	s.VolatilityOK = mctx.VolatilityOK
 
-	s.Score += boolScore(retestOK)
-	s.Score += boolScore(strongClose)
+	// weighted scoring
+	s.Score += weightedRetest(retestOK, last, retestLevel, models.SideSell)
+	s.Score += weightedCloseShort(closePos, closeDnMax)
 	s.Score += boolScore(reclaimOK)
-	s.Score += boolScore(impulseOK)
+	s.Score += weightedImpulse(bodyPct, impulseMin)
 	s.Score += boolScore(structureOK)
+
+	// volume confirmation
+	volumeMinRatio := e.effectiveV3VolumeMinRatio()
+	if volumeMinRatio > 0 && last.Volume > 0 {
+		avgVol := computeSMAVolume(ltf, 20)
+		if avgVol > 0 && last.Volume < avgVol*volumeMinRatio {
+			s.Score--
+			if last.Volume < avgVol*volumeMinRatio*0.5 {
+				s.Reasons = append(s.Reasons, models.RejectLowVolume)
+			}
+		}
+	}
 
 	if !retestOK {
 		s.Reasons = append(s.Reasons, models.RejectRetestNotConfirmed)
@@ -377,7 +418,7 @@ func (e *Service) onCandleV3ReadyLocked(
 		zap.Strings("short_reasons", rejectReasonsToStrings(shortScore.Reasons)),
 	)
 
-	const minEdge = 2
+	const minEdge = 1
 
 	longReady := longScore.SetupOK &&
 		longScore.ContextOK &&
@@ -511,9 +552,32 @@ func (e *Service) AutoTuneV3Now(mode models.TuneMode) models.TuneDecision {
 	e.tuneMu.Lock()
 	defer e.tuneMu.Unlock()
 
-	before := e.effectiveV3TuningLocked()
+	before := e.tune
 	after := before
 	changed := false
+
+	// заполнить нулевые поля before из V3Config
+	v3 := e.cfg.Strategy.V3
+	if after.V3MinConfirmScore <= 0 {
+		after.V3MinConfirmScore = v3.MinConfirmScore
+	}
+	if after.V3RetestTolerancePct <= 0 {
+		after.V3RetestTolerancePct = v3.RetestTolerancePct
+	}
+	if after.V3ImpulseBodyMinPct <= 0 {
+		after.V3ImpulseBodyMinPct = v3.ImpulseBodyMinPct
+	}
+	if after.V3CompressionThresholdPct <= 0 {
+		after.V3CompressionThresholdPct = v3.CompressionThresholdPct
+	}
+	if after.V3StrongCloseMin <= 0 {
+		after.V3StrongCloseMin = v3.StrongCloseMin
+	}
+	if after.V3StrongCloseMax <= 0 {
+		after.V3StrongCloseMax = v3.StrongCloseMax
+	}
+
+	before = after
 
 	switch dom {
 	case models.RejectConfirmScoreLow:
@@ -576,6 +640,13 @@ func (e *Service) AutoTuneV3Now(mode models.TuneMode) models.TuneDecision {
 			changed = true
 		}
 
+	case models.RejectLowVolume:
+		newVal := clampFloat(after.V3VolumeMinRatio*0.90, 0.20, 1.0)
+		if !almostEqual(after.V3VolumeMinRatio, newVal) {
+			after.V3VolumeMinRatio = newVal
+			changed = true
+		}
+
 	// эти причины пока не тюним автоматически
 	case models.RejectOverextendedUp,
 		models.RejectOverextendedDown,
@@ -608,7 +679,7 @@ func (e *Service) AutoTuneV3Now(mode models.TuneMode) models.TuneDecision {
 	e.lastTuneAt = now
 
 	log.Printf(
-		"[TUNE V3] changed dom=%s pct=%.0f%% total=%d | score %d->%d retest %.5f->%.5f impulse %.5f->%.5f compression %.5f->%.5f closeUp %.2f->%.2f closeDn %.2f->%.2f",
+		"[TUNE V3] changed dom=%s pct=%.0f%% total=%d | score %d->%d retest %.5f->%.5f impulse %.5f->%.5f compression %.5f->%.5f closeUp %.2f->%.2f closeDn %.2f->%.2f volRatio %.2f->%.2f",
 		rejectReasonLabel(dom), domPct*100, snap.Total,
 		before.V3MinConfirmScore, after.V3MinConfirmScore,
 		before.V3RetestTolerancePct, after.V3RetestTolerancePct,
@@ -616,6 +687,7 @@ func (e *Service) AutoTuneV3Now(mode models.TuneMode) models.TuneDecision {
 		before.V3CompressionThresholdPct, after.V3CompressionThresholdPct,
 		before.V3StrongCloseMin, after.V3StrongCloseMin,
 		before.V3StrongCloseMax, after.V3StrongCloseMax,
+		before.V3VolumeMinRatio, after.V3VolumeMinRatio,
 	)
 
 	return models.TuneDecision{
@@ -653,33 +725,6 @@ func (e *Service) snapshotV3Rejects(reset bool) rejectSnapshot {
 	return out
 }
 
-func (e *Service) effectiveV3TuningLocked() models.RuntimeTuning {
-	cfg := e.cfg.Strategy
-	cfg.ApplyV3Defaults()
-
-	t := e.tune
-
-	if t.V3MinConfirmScore <= 0 {
-		t.V3MinConfirmScore = cfg.MinConfirmScore
-	}
-	if t.V3RetestTolerancePct <= 0 {
-		t.V3RetestTolerancePct = cfg.RetestTolerancePct
-	}
-	if t.V3ImpulseBodyMinPct <= 0 {
-		t.V3ImpulseBodyMinPct = cfg.ImpulseBodyMinPct
-	}
-	if t.V3CompressionThresholdPct <= 0 {
-		t.V3CompressionThresholdPct = cfg.CompressionThresholdPct
-	}
-	if t.V3StrongCloseMin <= 0 {
-		t.V3StrongCloseMin = cfg.StrongCloseMin
-	}
-	if t.V3StrongCloseMax <= 0 {
-		t.V3StrongCloseMax = cfg.StrongCloseMax
-	}
-
-	return t
-}
 func (e *Service) effectiveV3Params() (
 	minConfirm int,
 	retestTol float64,
@@ -691,8 +736,7 @@ func (e *Service) effectiveV3Params() (
 	e.tuneMu.RLock()
 	defer e.tuneMu.RUnlock()
 
-	cfg := e.cfg.Strategy
-	cfg.ApplyV3Defaults()
+	cfg := e.cfg.Strategy.V3
 
 	minConfirm = cfg.MinConfirmScore
 	retestTol = cfg.RetestTolerancePct
@@ -721,6 +765,15 @@ func (e *Service) effectiveV3Params() (
 	}
 
 	return
+}
+func (e *Service) effectiveV3VolumeMinRatio() float64 {
+	e.tuneMu.RLock()
+	defer e.tuneMu.RUnlock()
+
+	if e.tune.V3VolumeMinRatio > 0 {
+		return e.tune.V3VolumeMinRatio
+	}
+	return e.cfg.Strategy.V3.VolumeMinRatio
 }
 func (e *Service) buildMarketContext(
 	ltf []models.CandleTick,
@@ -755,9 +808,9 @@ func (e *Service) buildMarketContext(
 		// Рассчитываем относительное положение цены в канале (0.0 - 1.0)
 		posInChannel := (lastHTF.Close - htfLow) / (htfHigh - htfLow)
 
-		if posInChannel > 0.6 {
+		if posInChannel > 0.65 {
 			ctx.Bias = models.MarketBiasBull
-		} else if posInChannel < 0.4 {
+		} else if posInChannel < 0.35 {
 			ctx.Bias = models.MarketBiasBear
 		} else {
 			ctx.Bias = models.MarketBiasNeutral
@@ -826,7 +879,6 @@ func (e *Service) manageOpenPositionV3(
 				zap.Float64("price", price),
 			)
 
-			// TODO: вызвать частичное закрытие позиции
 		}
 
 	case "SELL":
