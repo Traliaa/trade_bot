@@ -15,7 +15,7 @@ func (s *UserSession) CalcTradeParamsV3(
 ) (*models.TradeParams, error) {
 	cfg := s.SettingsSnapshot()
 	ts := cfg.TradingSettings
-	sc := s.Config.Strategy
+	sc := s.Config.Strategy.V3
 
 	entry := signal.Price
 	if entry <= 0 {

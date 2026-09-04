@@ -180,16 +180,20 @@ func (e *Service) buildLongScore(
 	s.VolatilityOK = mctx.VolatilityOK
 
 	// weighted scoring
-	s.Score += weightedRetest(retestOK, last, retestLevel, models.SideBuy)
-	s.Score += weightedCloseLong(closePos, closeUpMin)
-	s.Score += boolScore(reclaimOK)
-	s.Score += weightedImpulse(bodyPct, impulseMin)
-	s.Score += boolScore(structureOK)
+	s.RetestScore = weightedRetest(retestOK, last, retestLevel, models.SideBuy)
+	s.CloseScore = weightedCloseLong(closePos, closeUpMin)
+	s.ReclaimScore = boolScore(reclaimOK)
+	s.ImpulseScore = weightedImpulse(bodyPct, impulseMin)
+	s.StructureScore = boolScore(structureOK)
+	s.Score = s.RetestScore + s.CloseScore + s.ReclaimScore + s.ImpulseScore + s.StructureScore
 
 	// volume confirmation
 	volumeMinRatio := e.effectiveV3VolumeMinRatio()
 	if volumeMinRatio > 0 && last.Volume > 0 {
 		avgVol := computeSMAVolume(ltf, 20)
+		if avgVol > 0 {
+			s.VolumeRatio = last.Volume / avgVol
+		}
 		if avgVol > 0 && last.Volume < avgVol*volumeMinRatio {
 			s.Score--
 			if last.Volume < avgVol*volumeMinRatio*0.5 {
@@ -282,16 +286,20 @@ func (e *Service) buildShortScore(
 	s.VolatilityOK = mctx.VolatilityOK
 
 	// weighted scoring
-	s.Score += weightedRetest(retestOK, last, retestLevel, models.SideSell)
-	s.Score += weightedCloseShort(closePos, closeDnMax)
-	s.Score += boolScore(reclaimOK)
-	s.Score += weightedImpulse(bodyPct, impulseMin)
-	s.Score += boolScore(structureOK)
+	s.RetestScore = weightedRetest(retestOK, last, retestLevel, models.SideSell)
+	s.CloseScore = weightedCloseShort(closePos, closeDnMax)
+	s.ReclaimScore = boolScore(reclaimOK)
+	s.ImpulseScore = weightedImpulse(bodyPct, impulseMin)
+	s.StructureScore = boolScore(structureOK)
+	s.Score = s.RetestScore + s.CloseScore + s.ReclaimScore + s.ImpulseScore + s.StructureScore
 
 	// volume confirmation
 	volumeMinRatio := e.effectiveV3VolumeMinRatio()
 	if volumeMinRatio > 0 && last.Volume > 0 {
 		avgVol := computeSMAVolume(ltf, 20)
+		if avgVol > 0 {
+			s.VolumeRatio = last.Volume / avgVol
+		}
 		if avgVol > 0 && last.Volume < avgVol*volumeMinRatio {
 			s.Score--
 			if last.Volume < avgVol*volumeMinRatio*0.5 {

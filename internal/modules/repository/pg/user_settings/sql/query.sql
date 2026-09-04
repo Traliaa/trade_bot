@@ -175,6 +175,25 @@ WHERE user_id = @user_id
 ORDER BY exit_at DESC NULLS LAST
 LIMIT $1;
 
+-- name: ListAllClosedTradesByUser :many
+SELECT
+    guid,
+    user_id,
+    inst_id,
+    strategy,
+    timeframe,
+    status,
+    close_reason,
+    entry_at,
+    exit_at,
+    payload,
+    created_at,
+    updated_at
+FROM public.trade_history
+WHERE user_id = @user_id
+  AND status = 'closed'
+ORDER BY exit_at DESC NULLS LAST;
+
 -- name: ListOpenTradesByUser :many
 SELECT
     guid,
@@ -213,3 +232,58 @@ WHERE user_id = @user_id
   AND created_at >= @date_from
   AND created_at < @date_to
 ORDER BY created_at DESC;
+
+-- name: UpsertTradeFill :exec
+INSERT INTO public.trade_fills (
+    trade_guid,
+    trade_id,
+    order_id,
+    algo_id,
+    inst_id,
+    pos_side,
+    side,
+    role,
+    fill_price,
+    fill_size,
+    fee,
+    realized_pnl,
+    filled_at
+) VALUES (
+    @trade_guid,
+    @trade_id,
+    @order_id,
+    @algo_id,
+    @inst_id,
+    @pos_side,
+    @side,
+    @role,
+    @fill_price,
+    @fill_size,
+    @fee,
+    @realized_pnl,
+    @filled_at
+)
+ON CONFLICT (trade_guid, trade_id) DO UPDATE SET
+    order_id = EXCLUDED.order_id,
+    algo_id = EXCLUDED.algo_id,
+    fee = EXCLUDED.fee,
+    realized_pnl = EXCLUDED.realized_pnl;
+
+-- name: ListTradeFills :many
+SELECT
+    trade_guid,
+    trade_id,
+    order_id,
+    algo_id,
+    inst_id,
+    pos_side,
+    side,
+    role,
+    fill_price,
+    fill_size,
+    fee,
+    realized_pnl,
+    filled_at
+FROM public.trade_fills
+WHERE trade_guid = @trade_guid
+ORDER BY filled_at ASC;

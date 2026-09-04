@@ -135,6 +135,20 @@ func decideTrail15m(
 		}
 	}
 
+	// --- REGULAR TIME STOP ---
+	// Unlike the early fail rule (which evaluates MFE), this rule exits a trade
+	// that has had enough time but still has not reached the configured current R.
+	if cfg.TrailingConfig.TimeStopBars > 0 && !st.OpenedAt.IsZero() {
+		timeStopDur := time.Duration(cfg.TrailingConfig.TimeStopBars) * 15 * time.Minute
+		if slotEnd.Sub(st.OpenedAt) >= timeStopDur && currentR < cfg.TrailingConfig.TimeStopMinCurrentR {
+			return models.TrailDecision{
+				Close:  true,
+				Reason: models.CloseReasonTimeStop,
+				Note:   "TIME_STOP",
+			}
+		}
+	}
+
 	// --- STALE MODE ---
 	sc := models.GetStaleConfig(cfg)
 

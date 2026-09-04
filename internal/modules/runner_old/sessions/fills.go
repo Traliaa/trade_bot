@@ -1,6 +1,7 @@
 package sessions
 
 import (
+	"sort"
 	"strings"
 
 	"trade_bot/internal/models"
@@ -42,4 +43,35 @@ func pickCloseFill(fills []models.TradeFill, tr models.TradeRecord) *models.Trad
 	}
 
 	return best
+}
+
+func pickCloseFills(fills []models.TradeFill, tr models.TradeRecord) []models.TradeFill {
+	wantSide := ""
+	switch tr.Payload.PosSide {
+	case "long":
+		wantSide = "sell"
+	case "short":
+		wantSide = "buy"
+	default:
+		return nil
+	}
+
+	result := make([]models.TradeFill, 0, len(fills))
+	for _, fill := range fills {
+		if fill.InstID != tr.InstID || fill.FillTime.Before(tr.EntryAt) {
+			continue
+		}
+		if strings.ToLower(fill.Side) != wantSide {
+			continue
+		}
+		if fill.PosSide != "" && fill.PosSide != tr.Payload.PosSide {
+			continue
+		}
+		result = append(result, fill)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].FillTime.Before(result[j].FillTime)
+	})
+	return result
 }

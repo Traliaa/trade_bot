@@ -29,12 +29,17 @@ func formatStatsMessage(st models.TradeStats) string {
 			"BE: %d\n"+
 			"Lock Profit: %d\n"+
 			"Partial Exit: %d\n"+
+			"TimeStop: %d\n"+
 			"TimeStop Early: %d\n"+
 			"TimeStop Stale: %d\n"+
 			"Manual: %d\n"+
 			"Recovery: %d\n"+
 			"Force Close: %d\n"+
 			"Unknown: %d\n\n"+
+			"SL replace: %d / failures %d\n"+
+			"TP replace: %d / failures %d\n"+
+			"BE replace: %d / failures %d\n"+
+			"Algo cancel failures: %d\n\n"+
 			"Best Trade: %.2fR\n"+
 			"Worst Trade: %.2fR",
 		st.TotalTrades,
@@ -63,12 +68,20 @@ func formatStatsMessage(st models.TradeStats) string {
 		st.BreakEvenCount,
 		st.LockProfitCount,
 		st.PartialExitCount,
+		st.TimeStopCount,
 		st.TimeStopEarlyCount,
 		st.TimeStopStaleCount,
 		st.ManualCloseCount,
 		st.RecoveryCloseCount,
 		st.ForceCloseCount,
 		st.UnknownCloseCount,
+		st.SLReplaceAttempts,
+		st.SLReplaceFailures,
+		st.TPReplaceAttempts,
+		st.TPReplaceFailures,
+		st.BEReplaceAttempts,
+		st.BEReplaceFailures,
+		st.AlgoCancelFailures,
 
 		st.BestTradeR,
 		st.WorstTradeR,

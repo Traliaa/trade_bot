@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -229,7 +230,10 @@ func (r *Service) OnSignal(ctx context.Context, sig models.Signal) {
 			continue
 		}
 
-		now := time.Now().UTC()
+		now := res.EntryAt
+		if now.IsZero() {
+			now = time.Now().UTC()
+		}
 
 		trade := models.TradeRecord{
 			GUID:        uuid.New(),
@@ -243,17 +247,23 @@ func (r *Service) OnSignal(ctx context.Context, sig models.Signal) {
 			CreatedAt:   now,
 			UpdatedAt:   now,
 			Payload: models.TradePayload{
-				PosSide:     res.PosSide,
-				Side:        side,
-				EntryPrice:  res.Entry,
-				EntrySize:   params.Size,
-				StopLoss:    params.SL,
-				TakeProfit:  params.TP,
-				Leverage:    int64(sess.User.Settings.TradingSettings.Leverage),
-				OpenOrderID: res.OrderID,
-				AlgoID:      res.SLAlgoID,
-				RiskDist:    params.RiskDist,
-				TPAlgoID:    res.TPAlgoID,
+				PosSide:          res.PosSide,
+				Side:             side,
+				EntryPrice:       res.Entry,
+				SignalPrice:      sig.Price,
+				EntrySize:        params.Size,
+				StopLoss:         params.SL,
+				TakeProfit:       params.TP,
+				Leverage:         int64(sess.User.Settings.TradingSettings.Leverage),
+				OpenOrderID:      res.OrderID,
+				AlgoID:           res.SLAlgoID,
+				RiskDist:         params.RiskDist,
+				PlannedRiskUSDT:  actualRiskUSDT(params),
+				CtVal:            params.SizeMeta.CtVal,
+				TPAlgoID:         res.TPAlgoID,
+				EntrySlippageBps: entrySlippageBps(sig.Price, res.Entry, res.PosSide),
+				TotalFees:        entryFillFees(res.Fills),
+				ConfigSnapshot:   tradeConfigSnapshot(sess, r.strategy),
 
 				EntrySignalScore:       sig.Diagnostics.Score,
 				EntryOppositeScore:     sig.Diagnostics.OppositeScore,
@@ -265,6 +275,12 @@ func (r *Service) OnSignal(ctx context.Context, sig models.Signal) {
 				EntryChannelWidthPct:   sig.Diagnostics.ChannelWidthPct,
 				EntryCompressed:        sig.Diagnostics.Compressed,
 				EntryVolatilityOK:      sig.Diagnostics.VolatilityOK,
+				EntryVolumeRatio:       sig.Diagnostics.VolumeRatio,
+				EntryRetestScore:       sig.Diagnostics.RetestScore,
+				EntryCloseScore:        sig.Diagnostics.CloseScore,
+				EntryReclaimScore:      sig.Diagnostics.ReclaimScore,
+				EntryImpulseScore:      sig.Diagnostics.ImpulseScore,
+				EntryStructureScore:    sig.Diagnostics.StructureScore,
 			},
 		}
 
@@ -273,6 +289,12 @@ func (r *Service) OnSignal(ctx context.Context, sig models.Signal) {
 				zap.Error(err),
 				zap.String("instId", sig.InstID),
 				zap.Int64("userID", sess.User.TelegramID),
+			)
+		} else if err := r.Repository.UpsertTradeFills(ctx, tradeFillRecords(trade, res.Fills, models.TradeFillRoleEntry)); err != nil {
+			r.Logger.Error("persist entry fills failed",
+				zap.Error(err),
+				zap.String("tradeID", trade.GUID.String()),
+				zap.String("instId", sig.InstID),
 			)
 		}
 
@@ -300,11 +322,89 @@ func (r *Service) OnSignal(ctx context.Context, sig models.Signal) {
 			RiskDist: params.RiskDist,
 			TickSz:   params.TickSize,
 			AlgoID:   res.SLAlgoID,
+			TPAlgoID: res.TPAlgoID,
 			Size:     params.Size,
 			MFE:      res.Entry,
 			OpenedAt: now,
 		}
 		sess.TrailMu.Unlock()
+	}
+}
+
+func entryFillFees(fills []models.TradeFill) float64 {
+	var total float64
+	for _, fill := range fills {
+		total += fill.Fee
+	}
+	return total
+}
+
+func actualRiskUSDT(params *models.TradeParams) float64 {
+	if params == nil || params.SizeMeta == nil || params.Size <= 0 || params.SizeMeta.RawRiskSz <= 0 {
+		return 0
+	}
+	// RawRiskSz is the contract size corresponding to the configured account
+	// risk for both linear and inverse instruments. Scaling it to the actual
+	// filled size preserves the correct risk unit without duplicating contract
+	// PnL formulas here.
+	return params.SizeMeta.RiskUSDT * params.Size / params.SizeMeta.RawRiskSz
+}
+
+func entrySlippageBps(signalPrice, fillPrice float64, posSide string) float64 {
+	if signalPrice <= 0 || fillPrice <= 0 {
+		return 0
+	}
+	if posSide == "short" {
+		return (signalPrice - fillPrice) / signalPrice * 10_000
+	}
+	return (fillPrice - signalPrice) / signalPrice * 10_000
+}
+
+func tradeFillRecords(trade models.TradeRecord, fills []models.TradeFill, role models.TradeFillRole) []models.TradeFillRecord {
+	out := make([]models.TradeFillRecord, 0, len(fills))
+	for _, fill := range fills {
+		out = append(out, models.TradeFillRecord{
+			TradeGUID:   trade.GUID,
+			TradeID:     fill.TradeID,
+			OrderID:     fill.OrderID,
+			AlgoID:      fill.AlgoID,
+			InstID:      fill.InstID,
+			PosSide:     fill.PosSide,
+			Side:        fill.Side,
+			Role:        role,
+			FillPrice:   fill.FillPx,
+			FillSize:    fill.FillSz,
+			Fee:         fill.Fee,
+			RealizedPnL: fill.RealizedPnL,
+			FilledAt:    fill.FillTime,
+		})
+	}
+	return out
+}
+
+func tradeConfigSnapshot(sess *sessions.UserSession, strategyService *strategy.Service) models.TradeConfigSnapshot {
+	settings := sess.SettingsSnapshot()
+	tuning, _, _ := strategyService.CurrentTuning()
+	trailing := settings.TrailingConfig
+	return models.TradeConfigSnapshot{
+		RiskPct:              settings.TradingSettings.RiskPct,
+		Leverage:             settings.TradingSettings.Leverage,
+		MinConfirmScore:      tuning.V3MinConfirmScore,
+		RetestTolerancePct:   tuning.V3RetestTolerancePct,
+		ImpulseBodyMinPct:    tuning.V3ImpulseBodyMinPct,
+		VolumeMinRatio:       tuning.V3VolumeMinRatio,
+		BETriggerR:           trailing.BETriggerR,
+		BEOffsetR:            trailing.BEOffsetR,
+		LockTriggerR:         trailing.LockTriggerR,
+		LockOffsetR:          trailing.LockOffsetR,
+		PartialEnabled:       trailing.PartialEnabled,
+		PartialTriggerR:      trailing.PartialTriggerR,
+		PartialCloseFrac:     trailing.PartialCloseFrac,
+		EarlyTimeStopBars:    trailing.EarlyTimeStopBars,
+		EarlyTimeStopMinMFER: trailing.EarlyTimeStopMinMFER,
+		TimeStopBars:         trailing.TimeStopBars,
+		TimeStopMinCurrentR:  trailing.TimeStopMinCurrentR,
+		StaleAfterBars:       trailing.StaleAfterBars,
 	}
 }
 
@@ -340,6 +440,16 @@ func (r *Service) StrategyTuning() (models.RuntimeTuning, time.Time, time.Time) 
 }
 func (r *Service) ListRecentTrades(ctx context.Context, userID int64, limit int) ([]models.TradeRecord, error) {
 	return r.Repository.ListRecentTrades(ctx, userID, int32(limit))
+}
+func (r *Service) ListTradeFills(ctx context.Context, userID int64, guid uuid.UUID) ([]models.TradeFillRecord, error) {
+	trade, err := r.Repository.GetByGUID(ctx, guid)
+	if err != nil {
+		return nil, err
+	}
+	if trade == nil || trade.UserID != userID {
+		return nil, fmt.Errorf("trade not found")
+	}
+	return r.Repository.ListTradeFills(ctx, guid)
 }
 func (r *Service) ListOpenTrades(ctx context.Context, userID int64) ([]models.TradeRecord, error) {
 	return r.Repository.ListOpenTrades(ctx, userID)

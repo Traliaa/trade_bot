@@ -88,6 +88,7 @@ func registerRoutes(
 			pr.Get("/positions", trade.Positions)
 			pr.Get("/open_trades", trade.OpenTrades)
 			pr.Get("/trades", trade.RecentTrades)
+			pr.Get("/trades/{guid}/fills", trade.TradeFills)
 			pr.Get("/stats", trade.TradeStats)
 
 			pr.Route("/strategy", func(sr chi.Router) {

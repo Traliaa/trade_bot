@@ -72,8 +72,9 @@ type PositionTrailState struct {
 	RiskDist float64
 	TickSz   float64
 
-	AlgoID string
-	Size   float64
+	AlgoID   string
+	TPAlgoID string
+	Size     float64
 
 	MFE float64 // long: max price; short: min price
 

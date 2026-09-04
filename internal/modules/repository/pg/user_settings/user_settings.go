@@ -337,6 +337,60 @@ func (u *UserSettings) UpdatePayload(ctx context.Context, tx pgx.Tx, guid uuid.U
 	})
 }
 
+func (u *UserSettings) UpsertTradeFills(ctx context.Context, tx pgx.Tx, fills []models.TradeFillRecord) error {
+	for _, fill := range fills {
+		if fill.TradeGUID == uuid.Nil || fill.TradeID == "" || fill.FillPrice <= 0 || fill.FillSize <= 0 {
+			continue
+		}
+
+		if err := u.sql.UpsertTradeFill(ctx, tx, &sql.UpsertTradeFillParams{
+			TradeGuid:   fill.TradeGUID,
+			TradeID:     fill.TradeID,
+			OrderID:     fill.OrderID,
+			AlgoID:      fill.AlgoID,
+			InstID:      fill.InstID,
+			PosSide:     fill.PosSide,
+			Side:        fill.Side,
+			Role:        string(fill.Role),
+			FillPrice:   fill.FillPrice,
+			FillSize:    fill.FillSize,
+			Fee:         fill.Fee,
+			RealizedPnl: fill.RealizedPnL,
+			FilledAt:    ConvertTimeToPgTimestamptz(fill.FilledAt),
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (u *UserSettings) ListTradeFills(ctx context.Context, tx pgx.Tx, guid uuid.UUID) ([]models.TradeFillRecord, error) {
+	rows, err := u.sql.ListTradeFills(ctx, tx, guid)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]models.TradeFillRecord, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, models.TradeFillRecord{
+			TradeGUID:   row.TradeGuid,
+			TradeID:     row.TradeID,
+			OrderID:     row.OrderID,
+			AlgoID:      row.AlgoID,
+			InstID:      row.InstID,
+			PosSide:     row.PosSide,
+			Side:        row.Side,
+			Role:        models.TradeFillRole(row.Role),
+			FillPrice:   row.FillPrice,
+			FillSize:    row.FillSize,
+			Fee:         row.Fee,
+			RealizedPnL: row.RealizedPnl,
+			FilledAt:    row.FilledAt.Time,
+		})
+	}
+	return result, nil
+}
+
 func (u *UserSettings) Close(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -435,6 +489,23 @@ func (u *UserSettings) ListClosedTradesByUser(ctx context.Context, tx pgx.Tx, us
 		UserID: userID,
 		Limit:  limit,
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	res := make([]models.TradeRecord, 0, len(rows))
+	for _, row := range rows {
+		tr, err := mapTradeRow(row)
+		if err != nil {
+			return nil, err
+		}
+		res = append(res, *tr)
+	}
+	return res, nil
+}
+
+func (u *UserSettings) ListAllClosedTradesByUser(ctx context.Context, tx pgx.Tx, userID int64) ([]models.TradeRecord, error) {
+	rows, err := u.sql.ListAllClosedTradesByUser(ctx, tx, userID)
 	if err != nil {
 		return nil, err
 	}

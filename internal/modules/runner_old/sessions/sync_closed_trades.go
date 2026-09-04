@@ -227,7 +227,7 @@ func (s *UserSession) syncTradeCloseIntent(
 			p.BEPrice = st.SL
 		}
 
-		if reason == models.CloseReasonTimeStopEarly || reason == models.CloseReasonTimeStopStale {
+		if reason == models.CloseReasonTimeStop || reason == models.CloseReasonTimeStopEarly || reason == models.CloseReasonTimeStopStale {
 			p.TimeStopTriggered = true
 		}
 	})

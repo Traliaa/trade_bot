@@ -23,5 +23,7 @@ type OpenResult struct {
 	TPAlgoID string  // TP algoId
 	SLAlgoID string  // SL algoId
 	Entry    float64 // если уточнил, иначе params.Entry
+	EntryAt  time.Time
 	OrderID  string
+	Fills    []TradeFill
 }

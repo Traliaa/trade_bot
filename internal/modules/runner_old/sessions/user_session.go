@@ -17,6 +17,7 @@ import (
 	"trade_bot/internal/modules/repository/pg"
 
 	tgbot "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"go.uber.org/zap"
 )
 
 type TelegramNotifier interface {
@@ -205,10 +206,34 @@ func (s *UserSession) OpenPositionWithTpSl(
 		return nil, fmt.Errorf("PlaceMarket: %w", err)
 	}
 
+	entryPrice := params.Entry
+	entryAt := time.Now().UTC()
+	entryFills, fillErr := s.Okx.WaitOrderFills(ctx, sig.InstID, orderID, params.Size, 3*time.Second)
+	if fillErr != nil {
+		s.Logger.Warn("entry fill reconciliation failed; using signal price",
+			zap.Error(fillErr),
+			zap.String("instId", sig.InstID),
+			zap.String("orderID", orderID),
+		)
+	} else if fillPrice, fillSize := fillVWAP(entryFills); fillPrice > 0 && fillSize > 0 {
+		entryPrice = fillPrice
+		entryAt = latestFillTime(entryFills, entryAt)
+		params.Entry = fillPrice
+		params.Size = fillSize
+		params.RiskDist = math.Abs(fillPrice - params.SL)
+		if params.RiskDist > 0 {
+			params.RR = math.Abs(params.TP-fillPrice) / params.RiskDist
+		}
+	}
+
 	slAlgoId, err := s.Okx.PlaceSingleAlgo(ctx, sig.InstID, posSide, params.Size, params.SL, false)
 	if err != nil {
 		s.Notifier.SendF(ctx, s.User.TelegramID,
 			"⚠️ [%s] SL не выставлен на OKX: %v", sig.InstID, err)
+		if _, closeErr := s.Okx.CloseMarket(ctx, sig.InstID, posSide, params.Size); closeErr != nil {
+			return nil, fmt.Errorf("place SL: %w; emergency close: %v", err, closeErr)
+		}
+		return nil, fmt.Errorf("place SL: %w; position closed immediately", err)
 	}
 
 	tpAlgoId, err := s.Okx.PlaceSingleAlgo(ctx, sig.InstID, posSide, params.Size, params.TP, true)
@@ -221,9 +246,39 @@ func (s *UserSession) OpenPositionWithTpSl(
 		PosSide:  posSide,
 		SLAlgoID: slAlgoId,
 		TPAlgoID: tpAlgoId,
-		Entry:    params.Entry,
+		Entry:    entryPrice,
+		EntryAt:  entryAt,
 		OrderID:  orderID,
+		Fills:    entryFills,
 	}, nil
+}
+
+func latestFillTime(fills []models.TradeFill, fallback time.Time) time.Time {
+	var latest time.Time
+	for _, fill := range fills {
+		if !fill.FillTime.IsZero() && (latest.IsZero() || fill.FillTime.After(latest)) {
+			latest = fill.FillTime
+		}
+	}
+	if latest.IsZero() {
+		return fallback
+	}
+	return latest
+}
+
+func fillVWAP(fills []models.TradeFill) (price float64, size float64) {
+	var notional float64
+	for _, fill := range fills {
+		if fill.FillPx <= 0 || fill.FillSz <= 0 {
+			continue
+		}
+		notional += fill.FillPx * fill.FillSz
+		size += fill.FillSz
+	}
+	if size <= 0 {
+		return 0, 0
+	}
+	return notional / size, size
 }
 func (s *UserSession) Status(ctx context.Context) ([]models.OpenPosition, error) {
 	// просто прокидываем в OKX-клиент, который уже сконфигурен под этого юзера

@@ -21,10 +21,11 @@ func (s *UserSession) resolveClosedTrade(
 
 	p := tr.Payload
 
-	exitPrice, exitSize, exitAt, err := s.resolveClosedTradeExecution(ctx, tr)
+	execution, err := s.resolveClosedTradeExecution(ctx, tr)
 	if err != nil {
 		return models.TradeCloseInput{}, err
 	}
+	exitPrice, exitSize, exitAt := execution.ExitPrice, execution.ExitSize, execution.ExitAt
 
 	// Защита от битого учёта закрытия.
 	if p.EntrySize > 0 && exitSize > p.EntrySize {
@@ -38,7 +39,7 @@ func (s *UserSession) resolveClosedTrade(
 	}
 
 	state, _ := s.getTrailStateForTrade(tr)
-	reason := classifyCloseReason(tr, p, state, exitPrice)
+	reason := classifyCloseReason(tr, p, state, execution.FinalFillPrice)
 
 	payload := p
 	payload.ExitPrice = exitPrice
@@ -50,18 +51,31 @@ func (s *UserSession) resolveClosedTrade(
 	}
 
 	if payload.StopLoss > 0 && exitPrice > 0 {
-		payload.RMultiple = models.CalcRMultiple(
+		payload.ExitPriceR = models.CalcRMultiple(
 			payload.EntryPrice,
 			exitPrice,
 			payload.StopLoss,
 			payload.PosSide,
 		)
+		payload.RMultiple = payload.ExitPriceR
 	}
 
 	realizedPnL, priceMovePct, realizedPnLPct := calcClosedTradeMetrics(payload)
-	payload.RealizedPnL = realizedPnL
+	payload.GrossRealizedPnL = execution.GrossRealizedPnL
+	if len(execution.Fills) == 0 {
+		payload.GrossRealizedPnL = realizedPnL
+	}
+	payload.TotalFees += execution.TotalFees
+	payload.RealizedPnL = payload.GrossRealizedPnL + payload.TotalFees
+	if payload.PlannedRiskUSDT > 0 {
+		payload.EffectiveR = payload.RealizedPnL / payload.PlannedRiskUSDT
+		payload.RMultiple = payload.EffectiveR
+	}
 	payload.PriceMovePct = priceMovePct
 	payload.RealizedPnLPct = realizedPnLPct
+	if pct := calcNetRealizedPnLPct(payload); pct != 0 {
+		payload.RealizedPnLPct = pct
+	}
 
 	if payload.MFEPrice > 0 {
 		payload.MFER = models.CalcMFER(
@@ -83,6 +97,12 @@ func (s *UserSession) resolveClosedTrade(
 	// Закрытие уже финализировано, pending больше не нужен.
 	payload.PendingCloseReason = ""
 
+	if len(execution.Fills) > 0 {
+		if err := s.Repo.UpsertTradeFills(ctx, tradeFillRecordsForSession(tr, execution.Fills, models.TradeFillRoleExit)); err != nil {
+			return models.TradeCloseInput{}, fmt.Errorf("persist exit fills: %w", err)
+		}
+	}
+
 	return models.TradeCloseInput{
 		ExitAt:      exitAt,
 		CloseReason: reason,
@@ -90,16 +110,42 @@ func (s *UserSession) resolveClosedTrade(
 	}, nil
 }
 
+type closedTradeExecution struct {
+	ExitPrice        float64
+	FinalFillPrice   float64
+	ExitSize         float64
+	ExitAt           time.Time
+	GrossRealizedPnL float64
+	TotalFees        float64
+	Fills            []models.TradeFill
+}
+
 func (s *UserSession) resolveClosedTradeExecution(
 	ctx context.Context,
 	tr models.TradeRecord,
-) (exitPrice float64, exitSize float64, exitAt time.Time, err error) {
+) (closedTradeExecution, error) {
 	p := tr.Payload
 
-	fills, ferr := s.Okx.RecentFills(ctx, tr.InstID, 20)
+	fills, ferr := s.Okx.RecentFills(ctx, tr.InstID, 100)
 	if ferr == nil {
-		if fill := pickCloseFill(fills, tr); fill != nil {
-			return fill.FillPx, fill.FillSz, fill.FillTime, nil
+		closeFills := pickCloseFills(fills, tr)
+		if len(closeFills) > 0 {
+			var execution closedTradeExecution
+			var notional float64
+			for _, fill := range closeFills {
+				notional += fill.FillPx * fill.FillSz
+				execution.ExitSize += fill.FillSz
+				execution.GrossRealizedPnL += fill.RealizedPnL
+				execution.TotalFees += fill.Fee
+			}
+			last := closeFills[len(closeFills)-1]
+			execution.FinalFillPrice = last.FillPx
+			execution.ExitAt = last.FillTime
+			execution.Fills = closeFills
+			if execution.ExitSize > 0 {
+				execution.ExitPrice = notional / execution.ExitSize
+			}
+			return execution, nil
 		}
 	}
 
@@ -107,16 +153,64 @@ func (s *UserSession) resolveClosedTradeExecution(
 	// уже сохранённый в payload. Не используем CurrentSize/CurrentPrice:
 	// они могут быть агрегированным snapshot по общей позиции символа.
 	if p.ExitPrice > 0 && p.ExitSize > 0 {
-		return p.ExitPrice, p.ExitSize, time.Now().UTC(), nil
+		return closedTradeExecution{
+			ExitPrice:      p.ExitPrice,
+			FinalFillPrice: p.ExitPrice,
+			ExitSize:       p.ExitSize,
+			ExitAt:         time.Now().UTC(),
+		}, nil
 	}
 
-	return 0, 0, time.Time{}, fmt.Errorf(
+	return closedTradeExecution{}, fmt.Errorf(
 		"close execution not resolved: guid=%s inst=%s entry_size=%.8f current_size=%.8f",
 		tr.GUID,
 		tr.InstID,
 		p.EntrySize,
 		p.CurrentSize,
 	)
+}
+
+func tradeFillRecordsForSession(trade models.TradeRecord, fills []models.TradeFill, role models.TradeFillRole) []models.TradeFillRecord {
+	out := make([]models.TradeFillRecord, 0, len(fills))
+	for _, fill := range fills {
+		out = append(out, models.TradeFillRecord{
+			TradeGUID:   trade.GUID,
+			TradeID:     fill.TradeID,
+			OrderID:     fill.OrderID,
+			AlgoID:      fill.AlgoID,
+			InstID:      fill.InstID,
+			PosSide:     fill.PosSide,
+			Side:        fill.Side,
+			Role:        role,
+			FillPrice:   fill.FillPx,
+			FillSize:    fill.FillSz,
+			Fee:         fill.Fee,
+			RealizedPnL: fill.RealizedPnL,
+			FilledAt:    fill.FillTime,
+		})
+	}
+	return out
+}
+
+func calcNetRealizedPnLPct(p models.TradePayload) float64 {
+	if p.EntryPrice <= 0 || p.EntrySize <= 0 || p.RealizedPnL == 0 {
+		return 0
+	}
+	sizeBase := p.EntrySize
+	if p.CtVal > 0 {
+		sizeBase *= p.CtVal
+	}
+	entryNotional := p.EntryPrice * sizeBase
+	if entryNotional <= 0 {
+		return 0
+	}
+	if p.Leverage > 0 {
+		entryNotional /= float64(p.Leverage)
+	}
+	if entryNotional <= 0 {
+		return 0
+	}
+	return p.RealizedPnL / entryNotional * 100
 }
 
 func (s *UserSession) getTrailStateForTrade(tr models.TradeRecord) (*models.PositionTrailState, bool) {

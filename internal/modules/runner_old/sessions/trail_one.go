@@ -68,7 +68,7 @@ func (s *UserSession) trailOne(ctx context.Context, ct models.CandleTick, p mode
 
 		oldSize := st.Size
 
-		_, err := s.Okx.CloseMarket(ctx, st.InstID, st.PosSide, dec.CloseSize)
+		closeOrderID, err := s.Okx.CloseMarket(ctx, st.InstID, st.PosSide, dec.CloseSize)
 		if err != nil {
 			s.Logger.Warn("partial close failed",
 				zap.Error(err),
@@ -79,9 +79,28 @@ func (s *UserSession) trailOne(ctx context.Context, ct models.CandleTick, p mode
 			return
 		}
 
+		actualCloseSize := dec.CloseSize
+		partialFills, fillErr := s.Okx.WaitOrderFills(ctx, st.InstID, closeOrderID, dec.CloseSize, 3*time.Second)
+		if fillErr != nil {
+			s.Logger.Warn("partial fill reconciliation failed; using requested size",
+				zap.Error(fillErr),
+				zap.String("instId", st.InstID),
+				zap.String("orderID", closeOrderID),
+			)
+		} else if _, fillSize := fillVWAP(partialFills); fillSize > 0 {
+			actualCloseSize = fillSize
+			if tr, findErr := s.Repo.FindOpenTrade(ctx, s.User.TelegramID, st.InstID); findErr != nil {
+				s.Logger.Warn("find trade for partial fills failed", zap.Error(findErr), zap.String("instId", st.InstID))
+			} else if tr != nil {
+				if persistErr := s.Repo.UpsertTradeFills(ctx, tradeFillRecordsForSession(*tr, partialFills, models.TradeFillRoleExit)); persistErr != nil {
+					s.Logger.Warn("persist partial fills failed", zap.Error(persistErr), zap.String("instId", st.InstID))
+				}
+			}
+		}
+
 		s.TrailMu.Lock()
-		if st.Size > dec.CloseSize {
-			st.Size -= dec.CloseSize
+		if st.Size > actualCloseSize {
+			st.Size -= actualCloseSize
 			st.TookPartial = true
 			st.LastTrailAt = ct.End
 			st.LastTrailEnd = slot
@@ -93,7 +112,7 @@ func (s *UserSession) trailOne(ctx context.Context, ct models.CandleTick, p mode
 				zap.String("instId", st.InstID),
 				zap.String("posSide", st.PosSide),
 				zap.Float64("oldSize", oldSize),
-				zap.Float64("closeSize", dec.CloseSize),
+				zap.Float64("closeSize", actualCloseSize),
 			)
 			return
 		}
@@ -106,6 +125,25 @@ func (s *UserSession) trailOne(ctx context.Context, ct models.CandleTick, p mode
 				zap.String("instId", st.InstID),
 				zap.String("posSide", st.PosSide),
 			)
+		}
+
+		// После partial приводим размер TP к фактическому остатку. Новый
+		// reduce-only ордер ставится до отмены старого, чтобы не создавать окно
+		// без защиты прибыли.
+		if st.TPAlgoID != "" && st.TP > 0 && newSize > 0 {
+			newTPAlgoID, err := s.replaceProtectiveAlgo(ctx, st, st.TPAlgoID, newSize, st.TP, true)
+			if err != nil {
+				s.Logger.Warn("resize post-partial TP failed",
+					zap.Error(err),
+					zap.String("instId", st.InstID),
+					zap.String("posSide", st.PosSide),
+					zap.Float64("size", newSize),
+				)
+			} else {
+				s.TrailMu.Lock()
+				st.TPAlgoID = newTPAlgoID
+				s.TrailMu.Unlock()
+			}
 		}
 
 		// После partial защищаем остаток
@@ -124,9 +162,7 @@ func (s *UserSession) trailOne(ctx context.Context, ct models.CandleTick, p mode
 					}
 				}
 
-				_ = s.Okx.CancelAlgo(ctx, st.InstID, st.AlgoID)
-
-				newAlgoID, err := s.Okx.PlaceSingleAlgo(ctx, st.InstID, st.PosSide, newSize, newSL, false)
+				newAlgoID, err := s.replaceProtectiveAlgo(ctx, st, st.AlgoID, newSize, newSL, false)
 				if err != nil {
 					s.Logger.Warn("place post-partial SL failed",
 						zap.Error(err),
@@ -162,7 +198,7 @@ func (s *UserSession) trailOne(ctx context.Context, ct models.CandleTick, p mode
 			zap.String("posSide", st.PosSide),
 			zap.Float64("oldSize", oldSize),
 			zap.Float64("newSize", newSize),
-			zap.Float64("closeSize", dec.CloseSize),
+			zap.Float64("closeSize", actualCloseSize),
 			zap.Bool("isStale", st.IsStale),
 		)
 
@@ -174,7 +210,7 @@ func (s *UserSession) trailOne(ctx context.Context, ct models.CandleTick, p mode
 
 			s.Notifier.SendF(ctx, s.User.TelegramID,
 				"💰 [%s] Частичная фиксация (%s) закрыто=%.4f | %s",
-				st.InstID, st.PosSide, dec.CloseSize, msg,
+				st.InstID, st.PosSide, actualCloseSize, msg,
 			)
 		}
 		return
@@ -246,9 +282,7 @@ func (s *UserSession) trailOne(ctx context.Context, ct models.CandleTick, p mode
 		}
 	}
 
-	_ = s.Okx.CancelAlgo(ctx, st.InstID, st.AlgoID)
-
-	newAlgoID, err := s.Okx.PlaceSingleAlgo(ctx, st.InstID, st.PosSide, st.Size, newSL, false)
+	newAlgoID, err := s.replaceProtectiveAlgo(ctx, st, st.AlgoID, st.Size, newSL, false)
 	if err != nil {
 		s.Logger.Warn("move SL failed",
 			zap.Error(err),
@@ -294,6 +328,82 @@ func (s *UserSession) trailOne(ctx context.Context, ct models.CandleTick, p mode
 		s.Notifier.SendF(ctx, s.User.TelegramID,
 			"🛡 [%s] SL обновлён (%s) -> %.6f | %s",
 			st.InstID, st.PosSide, newSL, msg,
+		)
+	}
+}
+
+// replaceProtectiveAlgo first creates a new reduce-only protective order and
+// only then cancels the old one. A failed placement therefore leaves the
+// existing protection intact. A failed cancellation is logged: keeping two
+// reduce-only orders briefly is safer than leaving the position unprotected.
+func (s *UserSession) replaceProtectiveAlgo(
+	ctx context.Context,
+	st *models.PositionTrailState,
+	oldAlgoID string,
+	size float64,
+	triggerPrice float64,
+	isTP bool,
+) (string, error) {
+	newAlgoID, err := s.Okx.PlaceSingleAlgo(ctx, st.InstID, st.PosSide, size, triggerPrice, isTP)
+	if err != nil {
+		s.recordProtectiveReplace(ctx, st, triggerPrice, isTP, false, false)
+		return "", err
+	}
+
+	cancelFailed := false
+	if oldAlgoID != "" {
+		if err := s.Okx.CancelAlgo(ctx, st.InstID, oldAlgoID); err != nil {
+			cancelFailed = true
+			s.Logger.Warn("old protective algo cancellation failed",
+				zap.Error(err),
+				zap.String("instId", st.InstID),
+				zap.String("posSide", st.PosSide),
+				zap.String("oldAlgoID", oldAlgoID),
+				zap.String("newAlgoID", newAlgoID),
+				zap.Bool("isTP", isTP),
+			)
+		}
+	}
+	s.recordProtectiveReplace(ctx, st, triggerPrice, isTP, true, cancelFailed)
+
+	return newAlgoID, nil
+}
+
+func (s *UserSession) recordProtectiveReplace(
+	ctx context.Context,
+	st *models.PositionTrailState,
+	triggerPrice float64,
+	isTP bool,
+	succeeded bool,
+	cancelFailed bool,
+) {
+	if err := s.syncTradePayloadFromTrail(ctx, st.InstID, st.PosSide, func(p *models.TradePayload) {
+		if isTP {
+			p.TPReplaceAttempts++
+			if !succeeded {
+				p.TPReplaceFailures++
+			}
+		} else {
+			p.SLReplaceAttempts++
+			if !succeeded {
+				p.SLReplaceFailures++
+			}
+			if approxAtOrBeyondBE(st, s.SettingsSnapshot(), triggerPrice) {
+				p.BEReplaceAttempts++
+				if !succeeded {
+					p.BEReplaceFailures++
+				}
+			}
+		}
+		if cancelFailed {
+			p.AlgoCancelFailures++
+		}
+	}); err != nil {
+		s.Logger.Warn("persist protective replacement telemetry failed",
+			zap.Error(err),
+			zap.String("instId", st.InstID),
+			zap.String("posSide", st.PosSide),
+			zap.Bool("isTP", isTP),
 		)
 	}
 }

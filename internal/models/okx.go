@@ -106,6 +106,8 @@ type TradeFill struct {
 	InstID      string    `json:"inst_id"`
 	PosSide     string    `json:"pos_side"`
 	Side        string    `json:"side"`
+	OrderID     string    `json:"order_id"`
+	AlgoID      string    `json:"algo_id,omitempty"`
 	FillPx      float64   `json:"fill_px"`
 	FillSz      float64   `json:"fill_sz"`
 	Fee         float64   `json:"fee"`

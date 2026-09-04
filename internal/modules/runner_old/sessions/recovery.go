@@ -65,6 +65,7 @@ func trailStateFromTrade(tr models.TradeRecord) *models.PositionTrailState {
 		TP:           p.TakeProfit,
 		RiskDist:     p.RiskDist,
 		AlgoID:       p.AlgoID,
+		TPAlgoID:     p.TPAlgoID,
 		Size:         size,
 		MovedToBE:    p.MovedToBE,
 		LockedProfit: p.LockedProfit,

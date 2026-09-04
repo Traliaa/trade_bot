@@ -45,12 +45,13 @@ func (c *Client) PlaceSingleAlgo(
 	sz := formatSize(size)
 
 	body := map[string]string{
-		"instId":  instId,
-		"tdMode":  "cross",
-		"side":    side,
-		"posSide": posSide,
-		"ordType": "conditional",
-		"sz":      sz,
+		"instId":     instId,
+		"tdMode":     "cross",
+		"side":       side,
+		"posSide":    posSide,
+		"ordType":    "conditional",
+		"sz":         sz,
+		"reduceOnly": "true",
 	}
 
 	if isTP {

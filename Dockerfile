@@ -1,5 +1,5 @@
 # Stage 1: builder
-FROM golang:1.25 AS builder
+FROM golang:1.27 AS builder
 WORKDIR /build
 
 # Скачиваем зависимости
@@ -17,7 +17,7 @@ RUN go install github.com/pressly/goose/v3/cmd/goose@latest
 
 
 # Stage 2: runtime
-FROM golang:1.25 AS runtime
+FROM golang:1.27 AS runtime
 WORKDIR /app
 
 RUN apt-get update \
@@ -42,5 +42,5 @@ EXPOSE 8080
 # При запуске контейнера:
 # 1. прогоняем миграции
 # 2. стартуем бота
-ENTRYPOINT sh -c "goose -dir ./migrations postgres \"$DATABASE_DSN\" up &&./bot"
+ENTRYPOINT sh -c "goose -dir ./migrations postgres \"$DATABASE_DSN\" up && ./bot"
 #&& river migrate-up --database-url \"$DATABASE_DSN\" &&./bot"

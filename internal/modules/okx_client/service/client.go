@@ -455,6 +455,8 @@ func (c *Client) RecentFills(ctx context.Context, instID string, limit int) ([]m
 			InstID  string `json:"instId"`
 			PosSide string `json:"posSide"`
 			Side    string `json:"side"`
+			OrdID   string `json:"ordId"`
+			AlgoID  string `json:"algoId"`
 			FillPx  string `json:"fillPx"`
 			FillSz  string `json:"fillSz"`
 			Fee     string `json:"fee"`
@@ -496,6 +498,8 @@ func (c *Client) RecentFills(ctx context.Context, instID string, limit int) ([]m
 			InstID:      d.InstID,
 			PosSide:     strings.ToLower(d.PosSide),
 			Side:        strings.ToLower(d.Side),
+			OrderID:     d.OrdID,
+			AlgoID:      d.AlgoID,
 			FillPx:      parseF(d.FillPx),
 			FillSz:      parseF(d.FillSz),
 			Fee:         parseF(d.Fee),
@@ -506,6 +510,55 @@ func (c *Client) RecentFills(ctx context.Context, instID string, limit int) ([]m
 	}
 
 	return out, nil
+}
+
+func (c *Client) WaitOrderFills(
+	ctx context.Context,
+	instID string,
+	orderID string,
+	expectedSize float64,
+	timeout time.Duration,
+) ([]models.TradeFill, error) {
+	if orderID == "" {
+		return nil, errors.New("order id is empty")
+	}
+	if timeout <= 0 {
+		timeout = 3 * time.Second
+	}
+
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	ticker := time.NewTicker(200 * time.Millisecond)
+	defer ticker.Stop()
+
+	var last []models.TradeFill
+	for {
+		fills, err := c.RecentFills(waitCtx, instID, 100)
+		if err == nil {
+			last = last[:0]
+			var totalSize float64
+			for _, fill := range fills {
+				if fill.OrderID != orderID {
+					continue
+				}
+				last = append(last, fill)
+				totalSize += fill.FillSz
+			}
+			if len(last) > 0 && (expectedSize <= 0 || totalSize+1e-9 >= expectedSize) {
+				return append([]models.TradeFill(nil), last...), nil
+			}
+		}
+
+		select {
+		case <-waitCtx.Done():
+			if len(last) > 0 {
+				return append([]models.TradeFill(nil), last...), nil
+			}
+			return nil, fmt.Errorf("wait order fills %s: %w", orderID, waitCtx.Err())
+		case <-ticker.C:
+		}
+	}
 }
 
 func (c *Client) sign(ts, method, requestPath, body string) string {

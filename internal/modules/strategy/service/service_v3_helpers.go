@@ -275,6 +275,12 @@ func buildSignalDiagnostics(
 		ChannelWidthPct: mctx.ChannelWidthPct,
 		Compressed:      mctx.Compressed,
 		VolatilityOK:    mctx.VolatilityOK,
+		VolumeRatio:     score.VolumeRatio,
+		RetestScore:     score.RetestScore,
+		CloseScore:      score.CloseScore,
+		ReclaimScore:    score.ReclaimScore,
+		ImpulseScore:    score.ImpulseScore,
+		StructureScore:  score.StructureScore,
 	}
 
 	if len(ltf) == 0 {

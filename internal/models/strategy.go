@@ -35,6 +35,12 @@ type SignalDiagnostics struct {
 	ChannelWidthPct   float64
 	Compressed        bool
 	VolatilityOK      bool
+	VolumeRatio       float64
+	RetestScore       int
+	CloseScore        int
+	ReclaimScore      int
+	ImpulseScore      int
+	StructureScore    int
 }
 
 // Side как у тебя в раннере: "BUY"/"SELL" или пустая строка.

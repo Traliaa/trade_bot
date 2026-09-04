@@ -43,8 +43,14 @@ type SignalScore struct {
 	StructureOK  bool `json:"structure_ok"`
 	VolatilityOK bool `json:"volatility_ok"`
 
-	Score   int            `json:"score"`
-	Reasons []RejectReason `json:"reasons,omitempty"`
+	Score          int            `json:"score"`
+	RetestScore    int            `json:"retest_score"`
+	CloseScore     int            `json:"close_score"`
+	ReclaimScore   int            `json:"reclaim_score"`
+	ImpulseScore   int            `json:"impulse_score"`
+	StructureScore int            `json:"structure_score"`
+	VolumeRatio    float64        `json:"volume_ratio"`
+	Reasons        []RejectReason `json:"reasons,omitempty"`
 }
 
 type PendingSignal struct {

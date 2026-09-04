@@ -8,6 +8,9 @@ import (
 	"trade_bot/internal/modules/runner_old/sessions"
 
 	"trade_bot/internal/models"
+
+	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 )
 
 type TradeRouter interface {
@@ -26,6 +29,7 @@ type TradeRouter interface {
 	StrategyTuning() (models.RuntimeTuning, time.Time, time.Time)
 	GetSession(userID int64) (*sessions.UserSession, bool)
 	ListRecentTrades(ctx context.Context, userID int64, limit int) ([]models.TradeRecord, error)
+	ListTradeFills(ctx context.Context, userID int64, guid uuid.UUID) ([]models.TradeFillRecord, error)
 	GetTradeStats(ctx context.Context, userID int64) (models.TradeStats, error)
 	ListOpenTrades(ctx context.Context, userID int64) ([]models.TradeRecord, error)
 }
@@ -65,6 +69,10 @@ type tradesResponse struct {
 
 type statsResponse struct {
 	Stats models.TradeStats `json:"stats"`
+}
+
+type tradeFillsResponse struct {
+	Fills []models.TradeFillRecord `json:"fills"`
 }
 
 type positionsResponse struct {
@@ -218,6 +226,26 @@ func (c *TradeController) RecentTrades(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, tradesResponse{Trades: trades})
+}
+
+func (c *TradeController) TradeFills(w http.ResponseWriter, r *http.Request) {
+	userID, ok := mustAuthUserID(w, r)
+	if !ok {
+		return
+	}
+
+	guid, err := uuid.Parse(chi.URLParam(r, "guid"))
+	if err != nil {
+		http.Error(w, "invalid trade guid", http.StatusBadRequest)
+		return
+	}
+
+	fills, err := c.r.ListTradeFills(r.Context(), userID, guid)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+	writeJSON(w, tradeFillsResponse{Fills: fills})
 }
 func (c *TradeController) OpenTrades(w http.ResponseWriter, r *http.Request) {
 	userID, ok := mustAuthUserID(w, r)

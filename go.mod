@@ -1,13 +1,17 @@
 module trade_bot
 
-go 1.25.0
+go 1.27.0
 
 require (
-	github.com/bytedance/sonic v1.14.1
+	github.com/bytedance/gopkg v0.1.3
+	github.com/bytedance/sonic v1.15.2
+	github.com/go-chi/chi/v5 v5.2.5
 	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1
+	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.3
 	github.com/jackc/pgx/v5 v5.7.6
 	github.com/opentracing/opentracing-go v1.2.0
+	github.com/pkg/errors v0.9.1
 	github.com/samber/lo v1.47.0
 	github.com/spf13/viper v1.21.0
 	github.com/uber/jaeger-client-go v2.30.0+incompatible
@@ -18,15 +22,8 @@ require (
 )
 
 require (
-	github.com/bytedance/gopkg v0.1.3
-	github.com/go-chi/chi/v5 v5.2.5
-	github.com/google/uuid v1.6.0
-	github.com/pkg/errors v0.9.1
-)
-
-require (
 	github.com/HdrHistogram/hdrhistogram-go v1.1.2 // indirect
-	github.com/bytedance/sonic/loader v0.3.0 // indirect
+	github.com/bytedance/sonic/loader v0.5.1 // indirect
 	github.com/cloudwego/base64x v0.1.6 // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/go-viper/mapstructure/v2 v2.4.0 // indirect
@@ -41,7 +38,6 @@ require (
 	github.com/spf13/afero v1.15.0 // indirect
 	github.com/spf13/cast v1.10.0 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
-	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
