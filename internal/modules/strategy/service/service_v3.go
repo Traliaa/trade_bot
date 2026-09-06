@@ -45,7 +45,7 @@ func abs(v float64) float64 {
 	}
 	return v
 }
-func (e *Service) rejectV3(instID string, reason models.RejectReason) {
+func (e *Service) rejectV3(instID string, reason models.RejectReason, details ...zap.Field) {
 	st := e.getStrategyStateLocked(instID)
 	st.LastRejectReason = reason
 
@@ -53,19 +53,18 @@ func (e *Service) rejectV3(instID string, reason models.RejectReason) {
 		e.rejects.Inc(reason)
 	}
 
+	fields := []zap.Field{
+		zap.String("strategy", string(e.cfg.Strategy.Name)),
+		zap.String("instId", instID),
+		zap.String("reason", string(reason)),
+	}
+	fields = append(fields, details...)
+
 	switch reason {
 	case models.RejectConfirmScoreLow, models.RejectHTFConflict, models.RejectCompressedRange:
-		e.Logger.Info("strategy reject",
-			zap.String("strategy", string(e.cfg.Strategy.Name)),
-			zap.String("instId", instID),
-			zap.String("reason", string(reason)),
-		)
+		e.Logger.Info("strategy reject", fields...)
 	default:
-		e.Logger.Debug("strategy reject",
-			zap.String("strategy", string(e.cfg.Strategy.Name)),
-			zap.String("instId", instID),
-			zap.String("reason", string(reason)),
-		)
+		e.Logger.Debug("strategy reject", fields...)
 	}
 }
 func (e *Service) detectRetestLevelsLocked(
@@ -153,7 +152,7 @@ func (e *Service) buildLongScore(
 	}
 	strongClose := closePos >= closeUpMin
 	reclaimOK := retestLevel > 0 && last.Close >= retestLevel*(1-retestTol)
-	impulseOK := bodyPct >= impulseMin && last.Close > prev.Close
+	impulseOK := directionalImpulse(last, prev, impulseMin, models.SideBuy)
 	structureOK := last.Low >= prev.Low || last.Close > prev.High
 
 	contextOK := true
@@ -183,23 +182,19 @@ func (e *Service) buildLongScore(
 	s.RetestScore = weightedRetest(retestOK, last, retestLevel, models.SideBuy)
 	s.CloseScore = weightedCloseLong(closePos, closeUpMin)
 	s.ReclaimScore = boolScore(reclaimOK)
-	s.ImpulseScore = weightedImpulse(bodyPct, impulseMin)
+	if impulseOK {
+		s.ImpulseScore = weightedImpulse(bodyPct, impulseMin)
+	}
 	s.StructureScore = boolScore(structureOK)
 	s.Score = s.RetestScore + s.CloseScore + s.ReclaimScore + s.ImpulseScore + s.StructureScore
 
 	// volume confirmation
-	volumeMinRatio := e.effectiveV3VolumeMinRatio()
-	if volumeMinRatio > 0 && last.Volume > 0 {
-		avgVol := computeSMAVolume(ltf, 20)
-		if avgVol > 0 {
-			s.VolumeRatio = last.Volume / avgVol
-		}
-		if avgVol > 0 && last.Volume < avgVol*volumeMinRatio {
-			s.Score--
-			if last.Volume < avgVol*volumeMinRatio*0.5 {
-				s.Reasons = append(s.Reasons, models.RejectLowVolume)
-			}
-		}
+	volumeRatio, volumePenalty, volumeHardReject := volumeConfirmation(ltf, 20, e.effectiveV3VolumeMinRatio())
+	s.VolumeRatio = volumeRatio
+	s.Score -= volumePenalty
+	if volumeHardReject {
+		s.ContextOK = false
+		s.Reasons = append(s.Reasons, models.RejectLowVolume)
 	}
 
 	if !retestOK {
@@ -259,7 +254,7 @@ func (e *Service) buildShortScore(
 	}
 	strongClose := closePos <= closeDnMax
 	reclaimOK := retestLevel > 0 && last.Close <= retestLevel*(1+retestTol)
-	impulseOK := bodyPct >= impulseMin && last.Close < prev.Close
+	impulseOK := directionalImpulse(last, prev, impulseMin, models.SideSell)
 	structureOK := last.High <= prev.High || last.Close < prev.Low
 
 	contextOK := true
@@ -289,23 +284,19 @@ func (e *Service) buildShortScore(
 	s.RetestScore = weightedRetest(retestOK, last, retestLevel, models.SideSell)
 	s.CloseScore = weightedCloseShort(closePos, closeDnMax)
 	s.ReclaimScore = boolScore(reclaimOK)
-	s.ImpulseScore = weightedImpulse(bodyPct, impulseMin)
+	if impulseOK {
+		s.ImpulseScore = weightedImpulse(bodyPct, impulseMin)
+	}
 	s.StructureScore = boolScore(structureOK)
 	s.Score = s.RetestScore + s.CloseScore + s.ReclaimScore + s.ImpulseScore + s.StructureScore
 
 	// volume confirmation
-	volumeMinRatio := e.effectiveV3VolumeMinRatio()
-	if volumeMinRatio > 0 && last.Volume > 0 {
-		avgVol := computeSMAVolume(ltf, 20)
-		if avgVol > 0 {
-			s.VolumeRatio = last.Volume / avgVol
-		}
-		if avgVol > 0 && last.Volume < avgVol*volumeMinRatio {
-			s.Score--
-			if last.Volume < avgVol*volumeMinRatio*0.5 {
-				s.Reasons = append(s.Reasons, models.RejectLowVolume)
-			}
-		}
+	volumeRatio, volumePenalty, volumeHardReject := volumeConfirmation(ltf, 20, e.effectiveV3VolumeMinRatio())
+	s.VolumeRatio = volumeRatio
+	s.Score -= volumePenalty
+	if volumeHardReject {
+		s.ContextOK = false
+		s.Reasons = append(s.Reasons, models.RejectLowVolume)
 	}
 
 	if !retestOK {
@@ -426,7 +417,7 @@ func (e *Service) onCandleV3ReadyLocked(
 		zap.Strings("short_reasons", rejectReasonsToStrings(shortScore.Reasons)),
 	)
 
-	const minEdge = 1
+	const minEdge = 2
 
 	longReady := longScore.SetupOK &&
 		longScore.ContextOK &&
@@ -504,11 +495,26 @@ func (e *Service) onCandleV3ReadyLocked(
 		}, true
 	}
 
-	if longScore.Score >= shortScore.Score {
-		e.rejectV3(instID, firstReasonOr(longScore.Reasons, models.RejectConfirmScoreLow))
-	} else {
-		e.rejectV3(instID, firstReasonOr(shortScore.Reasons, models.RejectConfirmScoreLow))
+	candidateSide := models.SideBuy
+	candidateScore := longScore
+	if shortScore.Score > longScore.Score {
+		candidateSide = models.SideSell
+		candidateScore = shortScore
 	}
+	e.rejectV3(
+		instID,
+		firstReasonOr(candidateScore.Reasons, models.RejectConfirmScoreLow),
+		zap.String("candidate_side", string(candidateSide)),
+		zap.String("htf_bias", string(mctx.Bias)),
+		zap.Float64("htf_channel_position", mctx.ChannelPosition),
+		zap.Float64("distance_to_mid_pct", mctx.DistanceToMidPct),
+		zap.Int("long_score", longScore.Score),
+		zap.Int("short_score", shortScore.Score),
+		zap.Float64("long_volume_ratio", longScore.VolumeRatio),
+		zap.Float64("short_volume_ratio", shortScore.VolumeRatio),
+		zap.Strings("long_reasons", rejectReasonsToStrings(longScore.Reasons)),
+		zap.Strings("short_reasons", rejectReasonsToStrings(shortScore.Reasons)),
+	)
 
 	return zero, false
 }
@@ -814,11 +820,11 @@ func (e *Service) buildMarketContext(
 		ctx.ChannelWidthPct = (htfHigh - htfLow) / htfLow
 
 		// Рассчитываем относительное положение цены в канале (0.0 - 1.0)
-		posInChannel := (lastHTF.Close - htfLow) / (htfHigh - htfLow)
+		ctx.ChannelPosition = (lastHTF.Close - htfLow) / (htfHigh - htfLow)
 
-		if posInChannel > 0.65 {
+		if ctx.ChannelPosition > 0.60 {
 			ctx.Bias = models.MarketBiasBull
-		} else if posInChannel < 0.35 {
+		} else if ctx.ChannelPosition < 0.40 {
 			ctx.Bias = models.MarketBiasBear
 		} else {
 			ctx.Bias = models.MarketBiasNeutral
@@ -826,20 +832,6 @@ func (e *Service) buildMarketContext(
 	}
 	if htfMid > 0 {
 		ctx.DistanceToMidPct = abs(lastLTF.Close-htfMid) / htfMid
-	}
-
-	// Не форсируем bull/bear только по факту нахождения выше/ниже mid.
-	// Иначе bias почти никогда не бывает neutral, и стратегия получает
-	// слишком много htf_conflict на пограничных участках канала.
-	if htfMid > 0 {
-		midDeadZonePct := 0.003
-		if ctx.DistanceToMidPct <= midDeadZonePct {
-			ctx.Bias = models.MarketBiasNeutral
-		} else if lastHTF.Close > htfMid {
-			ctx.Bias = models.MarketBiasBull
-		} else if lastHTF.Close < htfMid {
-			ctx.Bias = models.MarketBiasBear
-		}
 	}
 
 	if ctx.ChannelWidthPct > 0 && ctx.ChannelWidthPct < compression {

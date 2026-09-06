@@ -160,6 +160,71 @@ func TestWeightedImpulse(t *testing.T) {
 	}
 }
 
+func TestDirectionalImpulse(t *testing.T) {
+	t.Parallel()
+
+	prev := models.CandleTick{Close: 100}
+	tests := []struct {
+		name string
+		last models.CandleTick
+		side models.Side
+		want bool
+	}{
+		{name: "long green confirmation", last: models.CandleTick{Open: 100, Close: 101}, side: models.SideBuy, want: true},
+		{name: "long red candle is not impulse", last: models.CandleTick{Open: 102, Close: 101}, side: models.SideBuy, want: false},
+		{name: "short red confirmation", last: models.CandleTick{Open: 100, Close: 99}, side: models.SideSell, want: true},
+		{name: "short green candle is not impulse", last: models.CandleTick{Open: 98, Close: 99}, side: models.SideSell, want: false},
+		{name: "body below minimum", last: models.CandleTick{Open: 100, Close: 100.1}, side: models.SideBuy, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := directionalImpulse(tt.last, prev, 0.003, tt.side); got != tt.want {
+				t.Errorf("directionalImpulse() = %t, want %t", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestVolumeConfirmation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name           string
+		volumes        []float64
+		wantPenalty    int
+		wantHardReject bool
+	}{
+		{name: "confirmed", volumes: []float64{100, 100, 100, 100}, wantPenalty: 0, wantHardReject: false},
+		{name: "soft penalty", volumes: []float64{100, 100, 100, 50}, wantPenalty: 1, wantHardReject: false},
+		{name: "hard reject", volumes: []float64{100, 100, 100, 10}, wantPenalty: 1, wantHardReject: true},
+		{name: "zero volume is hard reject", volumes: []float64{100, 100, 100, 0}, wantPenalty: 1, wantHardReject: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			candles := make([]models.CandleTick, len(tt.volumes))
+			for i, volume := range tt.volumes {
+				candles[i].Volume = volume
+			}
+
+			ratio, penalty, hardReject := volumeConfirmation(candles, 20, 0.7)
+			if ratio < 0 {
+				t.Fatalf("volumeConfirmation() ratio = %f, want non-negative", ratio)
+			}
+			if penalty != tt.wantPenalty || hardReject != tt.wantHardReject {
+				t.Errorf(
+					"volumeConfirmation() penalty = %d, hardReject = %t; want %d, %t",
+					penalty,
+					hardReject,
+					tt.wantPenalty,
+					tt.wantHardReject,
+				)
+			}
+		})
+	}
+}
+
 func TestComputeSMAVolume(t *testing.T) {
 	t.Parallel()
 

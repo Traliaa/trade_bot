@@ -30,6 +30,7 @@ type MarketContext struct {
 
 	TrendStrength    float64 `json:"trend_strength"`
 	ChannelWidthPct  float64 `json:"channel_width_pct"`
+	ChannelPosition  float64 `json:"channel_position"`
 	DistanceToMidPct float64 `json:"distance_to_mid_pct"`
 }
 

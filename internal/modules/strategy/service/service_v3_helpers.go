@@ -236,6 +236,52 @@ func weightedImpulse(bodyPct, impulseMin float64) int {
 	return 1
 }
 
+func directionalImpulse(
+	last models.CandleTick,
+	prev models.CandleTick,
+	impulseMin float64,
+	side models.Side,
+) bool {
+	if last.Close <= 0 || candleBody(last)/last.Close < impulseMin {
+		return false
+	}
+
+	switch side {
+	case models.SideBuy:
+		return last.Close > last.Open && last.Close > prev.Close
+	case models.SideSell:
+		return last.Close < last.Open && last.Close < prev.Close
+	default:
+		return false
+	}
+}
+
+// volumeConfirmation returns the current/SMA ratio, a soft score penalty and
+// whether the volume is too low to allow an entry. The hard floor is half of
+// the configured confirmation ratio.
+func volumeConfirmation(
+	candles []models.CandleTick,
+	period int,
+	minRatio float64,
+) (ratio float64, penalty int, hardReject bool) {
+	if len(candles) == 0 || period <= 0 || minRatio <= 0 {
+		return 0, 0, false
+	}
+
+	avgVol := computeSMAVolume(candles, period)
+	if avgVol <= 0 {
+		return 0, 0, false
+	}
+
+	lastVolume := candles[len(candles)-1].Volume
+	ratio = lastVolume / avgVol
+	if ratio >= minRatio {
+		return ratio, 0, false
+	}
+
+	return ratio, 1, ratio < minRatio*0.5
+}
+
 // computeSMAVolume вычисляет SMA объёма за последние period свечей.
 func computeSMAVolume(candles []models.CandleTick, period int) float64 {
 	if len(candles) == 0 || period <= 0 {
