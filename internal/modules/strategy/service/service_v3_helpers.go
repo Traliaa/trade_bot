@@ -146,6 +146,7 @@ func isV3RejectReason(r models.RejectReason) bool {
 	case models.RejectConfirmScoreLow,
 		models.RejectRetestNotConfirmed,
 		models.RejectImpulseWeak,
+		models.RejectImpulseTooStrong,
 		models.RejectCompressedRange,
 		models.RejectVolatilityTooLow,
 		models.RejectWeakCloseUp,
@@ -256,9 +257,8 @@ func directionalImpulse(
 	}
 }
 
-// volumeConfirmation returns the current/SMA ratio, a soft score penalty and
-// whether the volume is too low to allow an entry. The hard floor is half of
-// the configured confirmation ratio.
+// volumeConfirmation returns the current/SMA ratio, a score penalty and
+// whether the configured minimum volume confirmation is missing.
 func volumeConfirmation(
 	candles []models.CandleTick,
 	period int,
@@ -279,7 +279,7 @@ func volumeConfirmation(
 		return ratio, 0, false
 	}
 
-	return ratio, 1, ratio < minRatio*0.5
+	return ratio, 1, true
 }
 
 // computeSMAVolume вычисляет SMA объёма за последние period свечей.

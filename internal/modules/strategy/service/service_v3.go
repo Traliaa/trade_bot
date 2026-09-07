@@ -136,6 +136,8 @@ func (e *Service) buildLongScore(
 	if last.Close > 0 {
 		bodyPct = candleBody(last) / last.Close
 	}
+	impulseTooStrong := e.cfg.Strategy.V3.ImpulseBodyMaxPct > 0 &&
+		bodyPct > e.cfg.Strategy.V3.ImpulseBodyMaxPct
 
 	closePos := closePosInRange(last)
 
@@ -152,7 +154,7 @@ func (e *Service) buildLongScore(
 	}
 	strongClose := closePos >= closeUpMin
 	reclaimOK := retestLevel > 0 && last.Close >= retestLevel*(1-retestTol)
-	impulseOK := directionalImpulse(last, prev, impulseMin, models.SideBuy)
+	impulseOK := directionalImpulse(last, prev, impulseMin, models.SideBuy) && !impulseTooStrong
 	structureOK := last.Low >= prev.Low || last.Close > prev.High
 
 	contextOK := true
@@ -206,7 +208,9 @@ func (e *Service) buildLongScore(
 	if !reclaimOK {
 		s.Reasons = append(s.Reasons, models.RejectReclaimFailed)
 	}
-	if !impulseOK {
+	if impulseTooStrong {
+		s.Reasons = append(s.Reasons, models.RejectImpulseTooStrong)
+	} else if !impulseOK {
 		s.Reasons = append(s.Reasons, models.RejectImpulseWeak)
 	}
 	if !structureOK {
@@ -242,6 +246,8 @@ func (e *Service) buildShortScore(
 	if last.Close > 0 {
 		bodyPct = candleBody(last) / last.Close
 	}
+	impulseTooStrong := e.cfg.Strategy.V3.ImpulseBodyMaxPct > 0 &&
+		bodyPct > e.cfg.Strategy.V3.ImpulseBodyMaxPct
 
 	closePos := closePosInRange(last)
 
@@ -254,7 +260,7 @@ func (e *Service) buildShortScore(
 	}
 	strongClose := closePos <= closeDnMax
 	reclaimOK := retestLevel > 0 && last.Close <= retestLevel*(1+retestTol)
-	impulseOK := directionalImpulse(last, prev, impulseMin, models.SideSell)
+	impulseOK := directionalImpulse(last, prev, impulseMin, models.SideSell) && !impulseTooStrong
 	structureOK := last.High <= prev.High || last.Close < prev.Low
 
 	contextOK := true
@@ -308,7 +314,9 @@ func (e *Service) buildShortScore(
 	if !reclaimOK {
 		s.Reasons = append(s.Reasons, models.RejectReclaimFailed)
 	}
-	if !impulseOK {
+	if impulseTooStrong {
+		s.Reasons = append(s.Reasons, models.RejectImpulseTooStrong)
+	} else if !impulseOK {
 		s.Reasons = append(s.Reasons, models.RejectImpulseWeak)
 	}
 	if !structureOK {
@@ -421,11 +429,18 @@ func (e *Service) onCandleV3ReadyLocked(
 
 	longReady := longScore.SetupOK &&
 		longScore.ContextOK &&
+		longScore.StrongClose &&
+		longScore.ImpulseOK &&
+		longScore.StructureOK &&
 		longScore.Score >= minConfirm &&
 		longScore.Score >= shortScore.Score+minEdge
 
-	shortReady := shortScore.SetupOK &&
+	shortReady := e.cfg.Strategy.V3.AllowShorts &&
+		shortScore.SetupOK &&
 		shortScore.ContextOK &&
+		shortScore.StrongClose &&
+		shortScore.ImpulseOK &&
+		shortScore.StructureOK &&
 		shortScore.Score >= minConfirm &&
 		shortScore.Score >= longScore.Score+minEdge
 
@@ -664,6 +679,7 @@ func (e *Service) AutoTuneV3Now(mode models.TuneMode) models.TuneDecision {
 	// эти причины пока не тюним автоматически
 	case models.RejectOverextendedUp,
 		models.RejectOverextendedDown,
+		models.RejectImpulseTooStrong,
 		models.RejectStructureNotConfirmed,
 		models.RejectReclaimFailed,
 		models.RejectNotReady,

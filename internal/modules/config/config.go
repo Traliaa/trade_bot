@@ -123,10 +123,14 @@ type V3Config struct {
 	MinConfirmScore         int     `yaml:"min_confirm_score"`
 	RetestTolerancePct      float64 `yaml:"retest_tolerance_pct"`
 	ImpulseBodyMinPct       float64 `yaml:"impulse_body_min_pct"`
+	ImpulseBodyMaxPct       float64 `yaml:"impulse_body_max_pct"`
 	CompressionThresholdPct float64 `yaml:"compression_threshold_pct"`
 	StrongCloseMin          float64 `yaml:"strong_close_min"`
 	StrongCloseMax          float64 `yaml:"strong_close_max"`
 	VolumeMinRatio          float64 `yaml:"volume_min_ratio"`
+	AllowShorts             bool    `yaml:"allow_shorts"`
+	MaxRiskPct              float64 `yaml:"max_risk_pct"`
+	MaxOpenPositions        int     `yaml:"max_open_positions"`
 	MinRR                   float64 `yaml:"min_rr"`
 	SLBufferPct             float64 `yaml:"sl_buffer_pct"`
 	SwingLookbackBars       int     `yaml:"swing_lookback_bars"`
@@ -444,7 +448,7 @@ func (c *StrategyConfig) ApplyV3Defaults() {
 
 	// собственные дефолты V3Config (если не установлены ни из YAML, ни из родителя)
 	if v3.MinConfirmScore <= 0 {
-		v3.MinConfirmScore = 5
+		v3.MinConfirmScore = 6
 	}
 	if v3.CompressionThresholdPct <= 0 {
 		v3.CompressionThresholdPct = 0.012
@@ -458,11 +462,20 @@ func (c *StrategyConfig) ApplyV3Defaults() {
 	if v3.ImpulseBodyMinPct <= 0 {
 		v3.ImpulseBodyMinPct = 0.003
 	}
+	if v3.ImpulseBodyMaxPct <= 0 {
+		v3.ImpulseBodyMaxPct = 0.006
+	}
 	if v3.RetestTolerancePct <= 0 {
 		v3.RetestTolerancePct = 0.0015
 	}
 	if v3.VolumeMinRatio <= 0 {
-		v3.VolumeMinRatio = 0.70
+		v3.VolumeMinRatio = 1.0
+	}
+	if v3.MaxRiskPct <= 0 {
+		v3.MaxRiskPct = 0.2
+	}
+	if v3.MaxOpenPositions <= 0 {
+		v3.MaxOpenPositions = 3
 	}
 	if v3.MinRR <= 0 {
 		v3.MinRR = 1.5

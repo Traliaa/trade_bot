@@ -21,7 +21,7 @@ strategy:
   expected_symbols: 100
   progress_every: 2m
   watch_top_n: 100
-  tune_mode: 2
+  tune_mode: 0
   min_retest_depth_pct: 0.001
   max_breakout_body_pct: 0.012
   max_breakout_range_pct: 0.018
@@ -30,13 +30,17 @@ strategy:
   max_retest_bars: 4
   max_retest_stretch_r: 1.5
   v3:
-    min_confirm_score: 5
+    min_confirm_score: 6
     retest_tolerance_pct: 0.0015
     impulse_body_min_pct: 0.003
+    impulse_body_max_pct: 0.006
     compression_threshold_pct: 0.012
     strong_close_min: 0.70
     strong_close_max: 0.30
-    volume_min_ratio: 0.7
+    volume_min_ratio: 1.0
+    allow_shorts: false
+    max_risk_pct: 0.2
+    max_open_positions: 3
     min_rr: 1.5
     sl_buffer_pct: 0.001
     swing_lookback_bars: 5
@@ -49,11 +53,11 @@ strategy:
 
 user_defaults:
   default_leverage: 15
-  default_max_open_positions: 6
+  default_max_open_positions: 3
   default_max_long_positions: 3
   default_max_short_positions: 3
   default_position_pct: 1.0
-  default_risk_pct: 0.4
+  default_risk_pct: 0.2
   default_stop_pct: 2.0
   default_take_profit_rr: 1.5
 

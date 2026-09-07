@@ -44,6 +44,7 @@ const (
 	RejectRetestNotConfirmed    RejectReason = "retest_not_confirmed"
 	RejectReclaimFailed         RejectReason = "reclaim_failed"
 	RejectImpulseWeak           RejectReason = "impulse_weak"
+	RejectImpulseTooStrong      RejectReason = "impulse_too_strong"
 	RejectStructureNotConfirmed RejectReason = "structure_not_confirmed"
 	RejectVolatilityTooLow      RejectReason = "volatility_too_low"
 	RejectConfirmScoreLow       RejectReason = "confirm_score_low"

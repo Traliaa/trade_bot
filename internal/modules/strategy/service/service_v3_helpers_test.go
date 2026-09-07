@@ -196,7 +196,7 @@ func TestVolumeConfirmation(t *testing.T) {
 		wantHardReject bool
 	}{
 		{name: "confirmed", volumes: []float64{100, 100, 100, 100}, wantPenalty: 0, wantHardReject: false},
-		{name: "soft penalty", volumes: []float64{100, 100, 100, 50}, wantPenalty: 1, wantHardReject: false},
+		{name: "below threshold is rejected", volumes: []float64{100, 100, 100, 50}, wantPenalty: 1, wantHardReject: true},
 		{name: "hard reject", volumes: []float64{100, 100, 100, 10}, wantPenalty: 1, wantHardReject: true},
 		{name: "zero volume is hard reject", volumes: []float64{100, 100, 100, 0}, wantPenalty: 1, wantHardReject: true},
 	}

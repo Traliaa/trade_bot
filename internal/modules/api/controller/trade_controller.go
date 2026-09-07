@@ -147,6 +147,7 @@ func (c *TradeController) ApplySettings(w http.ResponseWriter, r *http.Request) 
 }
 
 type statusResponse struct {
+	LastSignal *models.SignalSnapshot `json:"last_signal"`
 	BotRunning bool                   `json:"bot_running"`
 	Account    models.AccountSnapshot `json:"account"`
 	OpenTrades []models.TradeRecord   `json:"open_trades"`
@@ -165,6 +166,7 @@ func (c *TradeController) StatusForUser(w http.ResponseWriter, r *http.Request) 
 	}
 
 	writeJSON(w, statusResponse{
+		LastSignal: status.LastSignal,
 		BotRunning: status.BotRunning,
 		Account:    status.Account,
 		OpenTrades: status.OpenTrades,
@@ -195,13 +197,13 @@ func (c *TradeController) GetSetting(w http.ResponseWriter, r *http.Request) {
 }
 
 func (c *TradeController) AutoTuneNow(w http.ResponseWriter, r *http.Request) {
-	decision, runtime, from, to, changed, mode := c.r.AutoTuneNow(r.Context())
+	decision, runtime, _, _, _, mode := c.r.AutoTuneNow(r.Context())
 	writeJSON(w, autoTuneResponse{
 		Decision: decision,
 		Runtime:  runtime,
-		From:     from,
-		To:       to,
-		Changed:  changed,
+		From:     decision.From,
+		To:       decision.To,
+		Changed:  decision.Changed,
 		Mode:     mode,
 	})
 }

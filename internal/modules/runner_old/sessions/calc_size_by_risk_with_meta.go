@@ -33,7 +33,7 @@ func (s *UserSession) calcSizeByRiskWithMeta(
 	}
 
 	equity := s.RiskEquity()
-	riskFraction := ts.RiskPct / 100.0
+	riskFraction := s.EffectiveRiskPct(ts.RiskPct) / 100.0
 	if riskFraction <= 0 {
 		return nil, fmt.Errorf("riskFraction <= 0")
 	}
@@ -112,4 +112,18 @@ func (s *UserSession) calcSizeByRiskWithMeta(
 		MinSz:        minSz,
 		MaxMktSz:     maxMktSz,
 	}, nil
+}
+
+// EffectiveRiskPct applies the service-wide V3 safety cap to persisted user
+// settings. This makes the temporary risk reduction effective for existing
+// users as well as for newly created ones.
+func (s *UserSession) EffectiveRiskPct(requested float64) float64 {
+	if s.Config == nil {
+		return requested
+	}
+	capPct := s.Config.Strategy.V3.MaxRiskPct
+	if capPct > 0 && (requested <= 0 || requested > capPct) {
+		return capPct
+	}
+	return requested
 }

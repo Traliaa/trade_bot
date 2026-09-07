@@ -121,7 +121,7 @@ func (s *UserSession) CalcTradeParams(
 		TP:        tp,
 		Size:      size,
 		TickSize:  instrument.TickSz,
-		RiskPct:   ts.RiskPct,
+		RiskPct:   s.EffectiveRiskPct(ts.RiskPct),
 		RR:        rr,
 		RiskDist:  riskDist,
 		Leverage:  lev,

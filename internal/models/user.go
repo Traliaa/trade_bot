@@ -141,10 +141,19 @@ func NewTradingSettingsFromDefaults(userID int64, cfg *config.Config) *UserSetti
 }
 
 type UserStatus struct {
+	LastSignal         *SignalSnapshot `json:"last_signal"`
 	BotRunning         bool            `json:"bot_running"`
 	Account            AccountSnapshot `json:"account"`
 	OpenTrades         []TradeRecord   `json:"open_trades"`
 	OpenPositionsCount int             `json:"open_positions_count"`
+}
+
+// SignalSnapshot contains public strategy data, not a user's order or candle history.
+type SignalSnapshot struct {
+	Symbol    string    `json:"symbol"`
+	Side      Side      `json:"side"`
+	Price     float64   `json:"price"`
+	CreatedAt time.Time `json:"created_at"`
 }
 type staleConfig struct {
 	AfterBars    int

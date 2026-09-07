@@ -41,6 +41,7 @@ type Service struct {
 	base.Base
 
 	mu               sync.RWMutex
+	lastSignal       *models.SignalSnapshot
 	users            map[int64]*sessions.UserSession // userID -> сессия
 	Repository       *pg.User
 	TelegramNotifier TelegramNotifier
@@ -114,6 +115,9 @@ func (r *Service) Start(ctx context.Context, sigs chan models.Signal, candles ch
 }
 
 func (r *Service) OnSignal(ctx context.Context, sig models.Signal) {
+	r.mu.Lock()
+	r.lastSignal = &models.SignalSnapshot{Symbol: sig.InstID, Side: sig.Side, Price: sig.Price, CreatedAt: sig.CreatedAt}
+	r.mu.Unlock()
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -123,14 +127,27 @@ func (r *Service) OnSignal(ctx context.Context, sig models.Signal) {
 		zap.String("side", string(sig.Side)),
 		zap.Float64("price", sig.Price),
 	)
+	if sig.Strategy == models.StrategyDonchianV3 &&
+		sig.Side == models.SideSell &&
+		!r.config.Strategy.V3.AllowShorts {
+		r.Logger.Info("short signal blocked by v3 safety profile", zap.String("instId", sig.InstID))
+		return
+	}
 
 	for _, sess := range r.users {
 		// 1. лимит по открытым позициям
-		if sess.User.Settings.TradingSettings.MaxOpenPositions > 0 {
-			if len(sess.TrailStates) >= sess.User.Settings.TradingSettings.MaxOpenPositions {
+		maxOpenPositions := sess.User.Settings.TradingSettings.MaxOpenPositions
+		if sig.Strategy == models.StrategyDonchianV3 {
+			capPositions := r.config.Strategy.V3.MaxOpenPositions
+			if capPositions > 0 && (maxOpenPositions <= 0 || maxOpenPositions > capPositions) {
+				maxOpenPositions = capPositions
+			}
+		}
+		if maxOpenPositions > 0 {
+			if len(sess.TrailStates) >= maxOpenPositions {
 				sess.Notifier.SendF(ctx, sess.User.TelegramID,
 					"⚠️ [%s] Лимит открытых позиций (%d) достигнут, сигнал пропущен",
-					sig.InstID, sess.User.Settings.TradingSettings.MaxOpenPositions,
+					sig.InstID, maxOpenPositions,
 				)
 				continue
 			}
@@ -387,12 +404,15 @@ func tradeConfigSnapshot(sess *sessions.UserSession, strategyService *strategy.S
 	tuning, _, _ := strategyService.CurrentTuning()
 	trailing := settings.TrailingConfig
 	return models.TradeConfigSnapshot{
-		RiskPct:              settings.TradingSettings.RiskPct,
+		RiskPct:              sess.EffectiveRiskPct(settings.TradingSettings.RiskPct),
 		Leverage:             settings.TradingSettings.Leverage,
 		MinConfirmScore:      tuning.V3MinConfirmScore,
 		RetestTolerancePct:   tuning.V3RetestTolerancePct,
 		ImpulseBodyMinPct:    tuning.V3ImpulseBodyMinPct,
+		ImpulseBodyMaxPct:    sess.Config.Strategy.V3.ImpulseBodyMaxPct,
 		VolumeMinRatio:       tuning.V3VolumeMinRatio,
+		AllowShorts:          sess.Config.Strategy.V3.AllowShorts,
+		MaxOpenPositions:     sess.Config.Strategy.V3.MaxOpenPositions,
 		BETriggerR:           trailing.BETriggerR,
 		BEOffsetR:            trailing.BEOffsetR,
 		LockTriggerR:         trailing.LockTriggerR,
@@ -410,9 +430,19 @@ func tradeConfigSnapshot(sess *sessions.UserSession, strategyService *strategy.S
 
 // AutoTuneNow запускает тюн немедленно и возвращает результат для UI.
 func (r *Service) AutoTuneNow(ctx context.Context) (models.TuneDecision, models.RuntimeTuning, time.Time, time.Time, bool, models.TuneMode) {
-	mode := r.strategy.TuneMode()   // или eng.TuneMode()
-	dec := r.strategy.AutoTuneNow() // смотри примечание ниже
-	r.strategy.AutoTuneV3Now(mode)
+	mode := r.strategy.TuneMode() // или eng.TuneMode()
+	var dec models.TuneDecision
+	if r.config.Strategy.Name == "donchian_v3_smart" {
+		if mode == models.TuneOff {
+			dec.Why = models.TuneWhyOff
+		} else if !r.strategy.IsWarmupDone() {
+			dec.Why = models.TuneWhyWarmup
+		} else {
+			dec = r.strategy.AutoTuneV3Now(mode)
+		}
+	} else {
+		dec = r.strategy.AutoTuneNow()
+	}
 	cur, lastSignalAt, lastTuneAt := r.strategy.CurrentTuning()
 	warmupDone := r.strategy.IsWarmupDone()
 
@@ -469,6 +499,10 @@ func (r *Service) GetUserStatus(ctx context.Context, userID int64) (models.UserS
 
 	r.mu.RLock()
 	sess, ok := r.users[userID]
+	if r.lastSignal != nil {
+		signal := *r.lastSignal
+		status.LastSignal = &signal
+	}
 	r.mu.RUnlock()
 
 	if ok && sess != nil {

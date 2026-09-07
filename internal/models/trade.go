@@ -137,7 +137,10 @@ type TradeConfigSnapshot struct {
 	MinConfirmScore      int     `json:"min_confirm_score,omitempty"`
 	RetestTolerancePct   float64 `json:"retest_tolerance_pct,omitempty"`
 	ImpulseBodyMinPct    float64 `json:"impulse_body_min_pct,omitempty"`
+	ImpulseBodyMaxPct    float64 `json:"impulse_body_max_pct,omitempty"`
 	VolumeMinRatio       float64 `json:"volume_min_ratio,omitempty"`
+	AllowShorts          bool    `json:"allow_shorts"`
+	MaxOpenPositions     int     `json:"max_open_positions,omitempty"`
 	BETriggerR           float64 `json:"be_trigger_r,omitempty"`
 	BEOffsetR            float64 `json:"be_offset_r,omitempty"`
 	LockTriggerR         float64 `json:"lock_trigger_r,omitempty"`
