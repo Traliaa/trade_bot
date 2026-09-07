@@ -14,9 +14,11 @@ import (
 )
 
 type TradeRouter interface {
+	ManualCloseTrade(context.Context, int64, uuid.UUID, uuid.UUID, float64) (models.ManualClose, error)
+	ManualCloseStatus(context.Context, int64, uuid.UUID, uuid.UUID) (models.ManualClose, error)
 	DisableUser(ctx context.Context, userID int64) bool
 	EnableUser(ctx context.Context, user *models.UserSettings) (*sessions.UserSession, bool)
-	ApplySettings(ctx context.Context, user *models.UserSettings)
+	ApplySettings(ctx context.Context, user *models.UserSettings) error
 
 	GetUserStatus(ctx context.Context, userID int64) (models.UserStatus, error)
 	GetUser(ctx context.Context, userID int64) (*models.UserSettings, error)
@@ -47,7 +49,9 @@ func NewTradeController() *TradeController {
 }
 
 type applySettingsRequest struct {
-	User models.UserSettings `json:"user"`
+	User struct {
+		Settings *models.Settings `json:"settings"`
+	} `json:"user"`
 }
 
 type settingResponse struct {
@@ -98,9 +102,16 @@ func (c *TradeController) EnableUser(w http.ResponseWriter, r *http.Request) {
 	resp, err := c.r.GetUser(r.Context(), userID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
-
+		return
 	}
-	_, _ = c.r.EnableUser(r.Context(), resp)
+	if resp == nil {
+		http.Error(w, "user not found", http.StatusNotFound)
+		return
+	}
+	if session, _ := c.r.EnableUser(r.Context(), resp); session == nil {
+		http.Error(w, "could not start bot", http.StatusInternalServerError)
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -116,10 +127,22 @@ func (c *TradeController) ApplySettings(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// user id не доверяем клиенту
-	req.User.TelegramID = userID
-
-	c.r.ApplySettings(r.Context(), &req.User)
+	if req.User.Settings == nil {
+		http.Error(w, "user.settings is required", http.StatusBadRequest)
+		return
+	}
+	user, err := c.r.GetUser(r.Context(), userID)
+	if err != nil || user == nil {
+		http.Error(w, "could not load user", http.StatusInternalServerError)
+		return
+	}
+	// Preserve server-owned identity, subscription and bot status.
+	updated := *user
+	updated.Settings = *req.User.Settings
+	if err := c.r.ApplySettings(r.Context(), &updated); err != nil {
+		http.Error(w, "could not save settings", http.StatusInternalServerError)
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -156,12 +179,14 @@ func (c *TradeController) GetSetting(w http.ResponseWriter, r *http.Request) {
 
 	session, ok := c.r.GetSession(userID)
 	if ok && session != nil && session.User != nil {
-		writeJSON(w, settingResponse{Setting: *session.User})
+		user := *session.User
+		user.Settings = session.SettingsSnapshot()
+		writeJSON(w, settingResponse{Setting: user})
 		return
 	}
 
 	user, err := c.r.GetUser(r.Context(), userID)
-	if err != nil {
+	if err != nil || user == nil {
 		http.Error(w, "settings not found", http.StatusNotFound)
 		return
 	}

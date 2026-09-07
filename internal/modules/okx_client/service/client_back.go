@@ -41,6 +41,9 @@ func (c *Client) OpenPositions(ctx context.Context) ([]models.OpenPosition, erro
 
 	for _, d := range respData.Data {
 		posContracts, _ := strconv.ParseFloat(d.Pos, 64)
+		if posContracts == 0 {
+			continue
+		}
 		avgPx, _ := strconv.ParseFloat(d.AvgPx, 64)
 
 		lastPx, _ := strconv.ParseFloat(d.Last, 64)

@@ -2,13 +2,18 @@ package service
 
 import (
 	"context"
+	"errors"
 	"trade_bot/internal/models"
-	"trade_bot/pkg/logger"
 )
 
-func (r *Service) ApplySettings(ctx context.Context, user *models.UserSettings) {
+func (r *Service) ApplySettings(ctx context.Context, user *models.UserSettings) error {
 	if user == nil {
-		return
+		return errors.New("user is required")
+	}
+
+	// Persist even when the bot is stopped. Only publish successfully saved settings.
+	if err := r.Repository.Update(ctx, user); err != nil {
+		return err
 	}
 
 	r.mu.RLock()
@@ -16,16 +21,11 @@ func (r *Service) ApplySettings(ctx context.Context, user *models.UserSettings) 
 	r.mu.RUnlock()
 
 	if sess == nil {
-		return
+		return nil
 	}
 
 	// обновляем параметры стратегии/риска/трейлинга/фичей
 	sess.UpdateSettings(user.Settings)
-
-	if err := r.Repository.Update(ctx, user); err != nil {
-		logger.Error("⚠️ Не удалось применить пресет")
-		return
-	}
 
 	// если обновили ключи/пасфразу — обновим клиента
 	// (можно всегда обновлять — это дешево, но лучше по условию)
@@ -33,4 +33,5 @@ func (r *Service) ApplySettings(ctx context.Context, user *models.UserSettings) 
 	if ts.OKXAPIKey != "" && ts.OKXAPISecret != "" && ts.OKXPassphrase != "" {
 		sess.UpdateOKXClient(user)
 	}
+	return nil
 }

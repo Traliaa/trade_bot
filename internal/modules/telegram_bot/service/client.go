@@ -32,7 +32,7 @@ type Telegram struct {
 type Router interface {
 	DisableUser(ctx context.Context, userID int64) bool
 	EnableUser(ctx context.Context, user *models.UserSettings) (*sessions.UserSession, bool)
-	ApplySettings(ctx context.Context, user *models.UserSettings)
+	ApplySettings(ctx context.Context, user *models.UserSettings) error
 	StatusForUser(ctx context.Context, userID int64) ([]models.OpenPosition, error)
 	GetSession(userID int64) (*sessions.UserSession, bool)
 	AutoTuneNow(ctx context.Context) (models.TuneDecision, models.RuntimeTuning, time.Time, time.Time, bool, models.TuneMode)
