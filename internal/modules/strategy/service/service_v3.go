@@ -61,7 +61,8 @@ func (e *Service) rejectV3(instID string, reason models.RejectReason, details ..
 	fields = append(fields, details...)
 
 	switch reason {
-	case models.RejectConfirmScoreLow, models.RejectHTFConflict, models.RejectCompressedRange:
+	case models.RejectConfirmScoreLow, models.RejectScoreEdgeLow, models.RejectShortsDisabled,
+		models.RejectHTFConflict, models.RejectCompressedRange:
 		e.Logger.Info("strategy reject", fields...)
 	default:
 		e.Logger.Debug("strategy reject", fields...)
@@ -510,16 +511,23 @@ func (e *Service) onCandleV3ReadyLocked(
 		}, true
 	}
 
+	longReject := v3EntryRejectReason(longScore, shortScore.Score, minConfirm, minEdge, models.SideBuy, true)
+	shortReject := v3EntryRejectReason(shortScore, longScore.Score, minConfirm, minEdge, models.SideSell, e.cfg.Strategy.V3.AllowShorts)
 	candidateSide := models.SideBuy
-	candidateScore := longScore
+	candidateReject := longReject
 	if shortScore.Score > longScore.Score {
 		candidateSide = models.SideSell
-		candidateScore = shortScore
+		candidateReject = shortReject
 	}
 	e.rejectV3(
 		instID,
-		firstReasonOr(candidateScore.Reasons, models.RejectConfirmScoreLow),
+		candidateReject,
 		zap.String("candidate_side", string(candidateSide)),
+		zap.String("long_entry_reject", string(longReject)),
+		zap.String("short_entry_reject", string(shortReject)),
+		zap.Int("min_confirm", minConfirm),
+		zap.Int("min_score_edge", minEdge),
+		zap.Bool("allow_shorts", e.cfg.Strategy.V3.AllowShorts),
 		zap.String("htf_bias", string(mctx.Bias)),
 		zap.Float64("htf_channel_position", mctx.ChannelPosition),
 		zap.Float64("distance_to_mid_pct", mctx.DistanceToMidPct),
@@ -677,7 +685,9 @@ func (e *Service) AutoTuneV3Now(mode models.TuneMode) models.TuneDecision {
 		}
 
 	// эти причины пока не тюним автоматически
-	case models.RejectOverextendedUp,
+	case models.RejectShortsDisabled,
+		models.RejectScoreEdgeLow,
+		models.RejectOverextendedUp,
 		models.RejectOverextendedDown,
 		models.RejectImpulseTooStrong,
 		models.RejectStructureNotConfirmed,

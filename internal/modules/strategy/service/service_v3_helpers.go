@@ -79,12 +79,6 @@ func minInt(a, b int) int {
 	return b
 }
 
-func firstReasonOr(reasons []models.RejectReason, fallback models.RejectReason) models.RejectReason {
-	if len(reasons) == 0 {
-		return fallback
-	}
-	return reasons[0]
-}
 func rejectReasonsToStrings(in []models.RejectReason) []string {
 	if len(in) == 0 {
 		return nil
@@ -144,6 +138,8 @@ type rejectSnapshot struct {
 func isV3RejectReason(r models.RejectReason) bool {
 	switch r {
 	case models.RejectConfirmScoreLow,
+		models.RejectScoreEdgeLow,
+		models.RejectShortsDisabled,
 		models.RejectRetestNotConfirmed,
 		models.RejectImpulseWeak,
 		models.RejectImpulseTooStrong,
