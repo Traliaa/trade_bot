@@ -63,14 +63,14 @@ func (s *Service) prepareRotation(ctx context.Context, symbols []string) error {
 	for _, sym := range symbols {
 		htf, err := s.mx.GetCandles(ctx, sym, s.hub.HTF(), s.hub.HTFNeed())
 		if err != nil {
-			return err
+			return fmt.Errorf("warmup %s HTF %s: %w", sym, s.hub.HTF(), err)
 		}
 		ltf, err := s.mx.GetCandles(ctx, sym, s.hub.LTF(), s.hub.LTFNeed())
 		if err != nil {
-			return err
+			return fmt.Errorf("warmup %s LTF %s: %w", sym, s.hub.LTF(), err)
 		}
 		if len(htf) < s.hub.HTFNeed() || len(ltf) < s.hub.LTFNeed() {
-			return fmt.Errorf("insufficient closed history for %s", sym)
+			return fmt.Errorf("insufficient closed history for %s: HTF %s %d/%d, LTF %s %d/%d", sym, s.hub.HTF(), len(htf), s.hub.HTFNeed(), s.hub.LTF(), len(ltf), s.hub.LTFNeed())
 		}
 		s.hub.SeedV3(sym, ltf, htf)
 	}
@@ -87,8 +87,8 @@ func (s *Service) Start(ctx context.Context) error {
 		started()
 		defer stopped()
 
-		s.Logger.Info("strategy loop started")
-		defer s.Logger.Info("strategy loop stopped", zap.Error(context.Cause(ctx)))
+		s.Logger.Info("bootstrap started")
+		defer s.Logger.Info("bootstrap finished", zap.Error(context.Cause(ctx)))
 
 		// ✅ если уже прогреты — не делаем ничего
 		if s.hub.IsWarmupDone() {
@@ -102,12 +102,14 @@ func (s *Service) Start(ctx context.Context) error {
 			return
 		}
 
-		symbols := s.mx.UniverseStatus(time.Now()).Symbols
-		if err := s.Warmup(ctx, symbols); err != nil {
-			s.Logger.Info("[BOOT] warmup error: %v", zap.Error(err))
+		if err := retryWarmup(ctx, 30*time.Second, func(ctx context.Context) error {
+			return s.Warmup(ctx, s.mx.UniverseStatus(time.Now()).Symbols)
+		}, func(err error) {
+			s.Logger.Error("warmup failed; retry scheduled", zap.Error(err), zap.Duration("retry_in", 30*time.Second))
+		}); err != nil {
 			return
 		}
-		s.Logger.Info("warmup done", zap.Strings("symbols", symbols))
+		s.Logger.Info("warmup done", zap.Int("instruments", len(s.mx.UniverseStatus(time.Now()).Symbols)))
 
 	}()
 
@@ -117,6 +119,7 @@ func (s *Service) waitUntilSymbolsReady(ctx context.Context, poll time.Duration)
 	t := time.NewTicker(poll)
 	defer t.Stop()
 
+	var lastLog time.Time
 	for {
 		n := len(s.mx.UniverseStatus(time.Now()).Symbols)
 		target := 1 // A valid selection may be smaller than the requested cap.
@@ -126,7 +129,10 @@ func (s *Service) waitUntilSymbolsReady(ctx context.Context, poll time.Duration)
 			return nil
 		}
 
-		s.Logger.Info("waiting symbols", zap.Int("have", n), zap.Int("need", target))
+		if time.Since(lastLog) >= 30*time.Second {
+			s.Logger.Info("waiting symbols", zap.Int("have", n), zap.Int("need", target))
+			lastLog = time.Now()
+		}
 
 		select {
 		case <-ctx.Done():
@@ -142,8 +148,7 @@ func (s *Service) Warmup(ctx context.Context, symbols []string) error {
 		return nil
 	}
 	if !s.started.CompareAndSwap(false, true) {
-		s.Logger.Info("skip: already running")
-		return nil
+		return fmt.Errorf("warmup already running")
 	}
 	defer func() {
 		// если упали с ошибкой — разрешим повтор
@@ -153,7 +158,7 @@ func (s *Service) Warmup(ctx context.Context, symbols []string) error {
 	}()
 
 	if len(symbols) == 0 {
-		return nil
+		return fmt.Errorf("warmup requires at least one instrument")
 	}
 	ltfTF := s.hub.LTF()
 	htfTF := s.hub.HTF()
@@ -224,7 +229,11 @@ func (s *Service) Warmup(ctx context.Context, symbols []string) error {
 			defer wg.Done()
 
 			// ограничитель параллелизма
-			s.sem <- struct{}{}
+			select {
+			case s.sem <- struct{}{}:
+			case <-ctx.Done():
+				return
+			}
 			defer func() { <-s.sem }()
 			if s.cfg.Strategy.Name == "donchian_v3_smart" {
 				if err := s.prepareRotation(ctx, []string{sym}); err != nil {
@@ -296,6 +305,9 @@ func (s *Service) Warmup(ctx context.Context, symbols []string) error {
 	wg.Wait()
 	close(stopProgress)
 	<-progressStopped
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 
 	if firstErr != nil {
 		// 2) Ошибка: понятное человеку сообщение
