@@ -343,10 +343,16 @@ func (e *Service) OnCandleV3(t models.CandleTick) (models.Signal, bool) {
 
 	switch tf {
 	case helper.NormTF(e.cfg.Strategy.HTF):
+		if len(mst.HTFCandles) > 0 && !t.End.After(mst.HTFCandles[len(mst.HTFCandles)-1].End) {
+			return models.Signal{}, false
+		}
 		mst.HTFCandles = appendCappedCandles(mst.HTFCandles, t, 200)
 		return models.Signal{}, false
 
 	case helper.NormTF(e.cfg.Strategy.LTF):
+		if len(mst.LTFCandles) > 0 && !t.End.After(mst.LTFCandles[len(mst.LTFCandles)-1].End) {
+			return models.Signal{}, false
+		}
 		mst.LTFCandles = appendCappedCandles(mst.LTFCandles, t, 200)
 		return e.onCandleV3ReadyLocked(t, mst)
 
@@ -455,7 +461,9 @@ func (e *Service) onCandleV3ReadyLocked(
 		ltfDur := tfDuration(helper.NormTF(e.cfg.Strategy.LTF))
 		mst.CooldownUntil = last.End.Add(4 * ltfDur)
 
+		e.tuneMu.Lock()
 		e.lastSignalAt = time.Now()
+		e.tuneMu.Unlock()
 
 		return models.Signal{
 			InstID:     instID,
@@ -488,7 +496,9 @@ func (e *Service) onCandleV3ReadyLocked(
 		ltfDur := tfDuration(helper.NormTF(e.cfg.Strategy.LTF))
 		mst.CooldownUntil = last.End.Add(4 * ltfDur)
 
+		e.tuneMu.Lock()
 		e.lastSignalAt = time.Now()
+		e.tuneMu.Unlock()
 
 		return models.Signal{
 			InstID:     instID,
@@ -551,7 +561,10 @@ func (e *Service) AutoTuneV3Now(mode models.TuneMode) models.TuneDecision {
 		minTuneGap = 5 * time.Minute
 	}
 
-	if !e.lastTuneAt.IsZero() && now.Sub(e.lastTuneAt) < minTuneGap {
+	e.tuneMu.RLock()
+	lastTuneAt := e.lastTuneAt
+	e.tuneMu.RUnlock()
+	if !lastTuneAt.IsZero() && now.Sub(lastTuneAt) < minTuneGap {
 		return models.TuneDecision{
 			Changed: false,
 			Why:     models.TuneWhyCooldown,

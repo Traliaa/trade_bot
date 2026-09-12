@@ -53,7 +53,8 @@ type Config struct {
 }
 
 type StrategyConfig struct {
-	Name string `yaml:"name"`
+	Universe UniverseConfig `yaml:"universe"`
+	Name     string         `yaml:"name"`
 
 	LTF string `yaml:"ltf"`
 	HTF string `yaml:"htf"`
@@ -119,6 +120,16 @@ type StrategyConfig struct {
 }
 
 // V3Config holds parameters specific to the V3 Donchian strategy.
+type UniverseConfig struct {
+	TotalLimit      int           `yaml:"total_limit"`
+	MinQuoteVolume  float64       `yaml:"min_quote_volume_usdt"`
+	MaxSpreadBPS    float64       `yaml:"max_spread_bps"`
+	MinListingDays  int           `yaml:"min_listing_days"`
+	RefreshInterval time.Duration `yaml:"refresh_interval"`
+	MinResidence    time.Duration `yaml:"min_residence"`
+	RetainBonus     float64       `yaml:"retain_bonus"`
+}
+
 type V3Config struct {
 	MinConfirmScore         int     `yaml:"min_confirm_score"`
 	RetestTolerancePct      float64 `yaml:"retest_tolerance_pct"`

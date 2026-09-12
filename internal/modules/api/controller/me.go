@@ -19,5 +19,6 @@ func (c *MeController) Me(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"tg_user_id": claims.TgUserID,
 		"username":   claims.TgUsername,
+		"is_admin":   auth.IsAdmin(claims.TgUserID),
 	})
 }

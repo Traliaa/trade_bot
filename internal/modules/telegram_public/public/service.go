@@ -11,88 +11,80 @@ type Service struct {
 	n PublicNotifier
 	r Repo
 
-	heartbeatEvery time.Duration
-
-	mu   sync.Mutex
-	last Status
-
-	stop chan struct{}
+	mu             sync.Mutex
+	last           Status
+	events         []Status
+	incidentActive bool
+	history        HistoryStore
 }
 
 func NewService(n PublicNotifier, r Repo) *Service {
 	return &Service{
-		n:              n,
-		r:              r,
-		heartbeatEvery: 1 * time.Second,
-		stop:           make(chan struct{}),
+		n:    n,
+		r:    r,
+		last: Status{State: StateRestarting, UpdatedAt: time.Now()},
 	}
 }
 
 func (s *Service) Start(ctx context.Context) {
-	t := time.NewTicker(s.heartbeatEvery)
-	go func() {
-		defer t.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-s.stop:
-				return
-			case <-t.C:
-				s.Heartbeat(context.Background())
-			}
-		}
-	}()
+	// Status is read on demand by the mini app, not republished to Telegram.
 }
 
-func (s *Service) Stop() { close(s.stop) }
+func (s *Service) Stop() {}
 
 func (s *Service) Set(ctx context.Context, st Status) {
-	st.UpdatedAt = time.Now()
-
-	s.mu.Lock()
-	s.last = st
-	s.mu.Unlock()
-
 	if err := s.SendOrEdit(ctx, st); err != nil {
 		logger.Error("public status send/edit failed: %v", err)
 	}
 }
 
 func (s *Service) Heartbeat(ctx context.Context) {
-	s.mu.Lock()
-	st := s.last
-	s.mu.Unlock()
-
-	if st.State == "" {
-		return
-	}
-
-	st.UpdatedAt = time.Now()
-	if err := s.SendOrEdit(ctx, st); err != nil {
-		logger.Error("public status heartbeat failed: %v", err)
-	}
+	// Compatibility only. A timer must not manufacture a fresh health timestamp.
 }
 
 func (s *Service) SendOrEdit(ctx context.Context, st Status) error {
-	meta, ok, err := s.r.Get(ctx)
-	if err != nil {
-		return err
+	st.UpdatedAt = time.Now()
+	s.mu.Lock()
+	previous := s.last.State
+	history := s.history
+	s.last = st
+	alert := false
+	if st.State == StateError && !s.incidentActive {
+		s.incidentActive = true
+		alert = true
+	} else if st.State == StateReady && s.incidentActive {
+		s.incidentActive = false
+		alert = true
 	}
-
-	text := st.RenderHTML()
-
-	// если сообщения ещё нет — отправляем
-	if !ok || meta.MessageID == 0 {
-		id, err := s.n.SendServiceText(ctx, text)
-		if err != nil {
-			return err
+	if previous != st.State {
+		s.events = append(s.events, st)
+		if len(s.events) > 50 {
+			s.events = s.events[len(s.events)-50:]
 		}
-		return s.r.Upsert(ctx, Meta{MessageID: id})
 	}
+	s.mu.Unlock()
+	if previous != st.State && history != nil {
+		historyCtx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
+		if err := history.Append(historyCtx, st); err != nil {
+			logger.Error("status history write failed: %v", err)
+		}
+		cancel()
+	}
+	// Send one startup failure and one recovery; routine progress is silent.
+	if s.n != nil && alert {
+		notifyCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		if _, err := s.n.SendServiceText(notifyCtx, st.RenderHTML()); err != nil {
+			logger.Error("public status alert failed: %v", err)
+		}
+	}
+	return nil // Telegram must never gate strategy readiness.
+}
 
-	// иначе редактируем
-	return s.n.EditServiceText(ctx, meta.MessageID, text)
+func (s *Service) Snapshot() (Status, []Status) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.last, append([]Status(nil), s.events...)
 }
 func (s *Service) SendServiceText(ctx context.Context, text string) (messageID int, err error) {
 	return s.n.SendServiceText(ctx, text)

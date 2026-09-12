@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"sync"
 	"time"
 	"trade_bot/internal/modules/runner_old/sessions"
 
@@ -41,7 +42,8 @@ func (c *TradeController) SetRouter(r TradeRouter) {
 }
 
 type TradeController struct {
-	r TradeRouter
+	r          TradeRouter
+	settingsMu sync.Mutex // Serialize web settings and credential read-modify-write operations.
 }
 
 func NewTradeController() *TradeController {
@@ -55,7 +57,8 @@ type applySettingsRequest struct {
 }
 
 type settingResponse struct {
-	Setting models.UserSettings `json:"setting"`
+	Setting    models.UserSettings `json:"setting"`
+	Connection connectionStatus    `json:"connection"`
 }
 
 type autoTuneResponse struct {
@@ -131,6 +134,8 @@ func (c *TradeController) ApplySettings(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "user.settings is required", http.StatusBadRequest)
 		return
 	}
+	c.settingsMu.Lock()
+	defer c.settingsMu.Unlock()
 	user, err := c.r.GetUser(r.Context(), userID)
 	if err != nil || user == nil {
 		http.Error(w, "could not load user", http.StatusInternalServerError)
@@ -139,6 +144,11 @@ func (c *TradeController) ApplySettings(w http.ResponseWriter, r *http.Request) 
 	// Preserve server-owned identity, subscription and bot status.
 	updated := *user
 	updated.Settings = *req.User.Settings
+	// Credentials are write-only through the dedicated connection endpoint.
+	// Empty or stale fields from an old form must never erase or replace them.
+	updated.Settings.TradingSettings.OKXAPIKey = user.Settings.TradingSettings.OKXAPIKey
+	updated.Settings.TradingSettings.OKXAPISecret = user.Settings.TradingSettings.OKXAPISecret
+	updated.Settings.TradingSettings.OKXPassphrase = user.Settings.TradingSettings.OKXPassphrase
 	if err := c.r.ApplySettings(r.Context(), &updated); err != nil {
 		http.Error(w, "could not save settings", http.StatusInternalServerError)
 		return
@@ -183,7 +193,8 @@ func (c *TradeController) GetSetting(w http.ResponseWriter, r *http.Request) {
 	if ok && session != nil && session.User != nil {
 		user := *session.User
 		user.Settings = session.SettingsSnapshot()
-		writeJSON(w, settingResponse{Setting: user})
+		w.Header().Set("Cache-Control", "no-store")
+		writeJSON(w, publicSettings(user))
 		return
 	}
 
@@ -193,7 +204,8 @@ func (c *TradeController) GetSetting(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	writeJSON(w, settingResponse{Setting: *user})
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, publicSettings(*user))
 }
 
 func (c *TradeController) AutoTuneNow(w http.ResponseWriter, r *http.Request) {

@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"time"
 	"trade_bot/internal/models"
+	"trade_bot/internal/universe"
 )
 
 // CandleRow: OKX data row: [ts, o, h, l, c, vol, volCcy, volCcyQuote, confirm]
@@ -19,7 +20,11 @@ func (s *Service) GetCandles(ctx context.Context, instID, bar string, limit int)
 	if limit <= 0 {
 		limit = 100
 	}
-	time.Sleep(1000 * time.Millisecond)
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-time.After(time.Second):
+	}
 	bar, err := okxBar(bar) // cfg.HTF = "1h" -> "1H"
 	if err != nil {
 		return nil, err
@@ -62,7 +67,7 @@ func (s *Service) GetCandles(ctx context.Context, instID, bar string, limit int)
 	out := make([]models.CandleTick, 0, len(r.Data))
 	for i := len(r.Data) - 1; i >= 0; i-- {
 		row := r.Data[i]
-		if len(row) < 5 {
+		if len(row) < 9 || row[8] != "1" {
 			continue
 		}
 
@@ -74,12 +79,15 @@ func (s *Service) GetCandles(ctx context.Context, instID, bar string, limit int)
 		high, _ := strconv.ParseFloat(row[2], 64)
 		low, _ := strconv.ParseFloat(row[3], 64)
 		closep, _ := strconv.ParseFloat(row[4], 64)
-		if closep <= 0 {
+		if !universe.FinitePositive(open) || !universe.FinitePositive(high) || !universe.FinitePositive(low) || !universe.FinitePositive(closep) || high < open || high < closep || low > open || low > closep {
 			continue
 		}
 
 		start := time.UnixMilli(tsMs)
 		end := start.Add(tfDur)
+		if end.After(time.Now()) {
+			continue
+		}
 
 		var vol float64
 		if len(row) >= 6 {

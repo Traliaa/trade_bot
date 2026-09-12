@@ -21,6 +21,14 @@ strategy:
   expected_symbols: 100
   progress_every: 2m
   watch_top_n: 100
+  universe:
+    total_limit: 100 # Hard total cap, no unconditional core additions.
+    min_quote_volume_usdt: 10000000 # Estimated base volume * current price.
+    max_spread_bps: 20
+    min_listing_days: 30
+    refresh_interval: 0s # Opt-in after staging validation; e.g. 1h.
+    min_residence: 6h
+    retain_bonus: 0.15
   tune_mode: 0
   min_retest_depth_pct: 0.001
   max_breakout_body_pct: 0.012

@@ -96,12 +96,11 @@ func (s Status) RenderHTML() string {
 	case StateError:
 		b.WriteString("🔴 Ошибка запуска\n\n")
 		b.WriteString("Не удалось подготовиться к работе.\n")
-		b.WriteString("Бот попробует восстановиться автоматически.\n")
+		b.WriteString("Проверьте состояние сервиса в мини-приложении.\n")
 		if strings.TrimSpace(hint) != "" {
 			b.WriteString("\nПодсказка: " + hint + "\n")
 		}
-		b.WriteString("\nЕсли вы пользователь — откройте бота и нажмите\n")
-		b.WriteString("«▶️ Запустить бота».\n")
+		b.WriteString("\nПереключение торговли аккаунта не перезапускает сервис.\n")
 	}
 
 	if !s.UpdatedAt.IsZero() {

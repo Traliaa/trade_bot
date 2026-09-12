@@ -28,6 +28,7 @@ func Module() fx.Option {
 			controller.NewMeController,
 			controller.NewHealthController,
 			controller.NewTradeController,
+			controller.NewServiceStatusController,
 		),
 		fx.Invoke(
 			func(t *controller.TradeController, r *service.Service) {
@@ -54,8 +55,10 @@ func registerRoutes(
 	jwtSecret []byte,
 	health *controller.HealthController,
 	trade *controller.TradeController,
+	serviceStatus *controller.ServiceStatusController,
 ) {
 	p.Router.Get("/health", health.Live)
+	p.Router.Get("/ready", serviceStatus.Ready)
 
 	p.Router.Route("/api", func(r chi.Router) {
 		r.Use(middleware.CORS(middleware.CORSConfig{
@@ -82,8 +85,10 @@ func registerRoutes(
 
 			pr.Get("/settings", trade.GetSetting)
 			pr.Post("/settings", trade.ApplySettings)
+			pr.Post("/connection/okx", trade.SaveOKXKeys)
 
 			pr.Get("/status", trade.StatusForUser)
+			pr.Get("/service/status", serviceStatus.Get)
 
 			pr.Get("/positions", trade.Positions)
 			pr.Get("/open_trades", trade.OpenTrades)
@@ -94,8 +99,10 @@ func registerRoutes(
 			pr.Get("/stats", trade.TradeStats)
 
 			pr.Route("/strategy", func(sr chi.Router) {
+				sr.Use(middleware.RequireAdmin)
 				sr.Get("/runtime", trade.StrategyTuning)
 				sr.Get("/rejects", trade.StrategyRejects)
+				sr.Get("/execution", trade.ExecutionStats)
 
 				sr.Route("/tune", func(tr chi.Router) {
 					tr.Post("/auto", trade.AutoTuneNow)

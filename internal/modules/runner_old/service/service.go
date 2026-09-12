@@ -47,6 +47,9 @@ type Service struct {
 	TelegramNotifier TelegramNotifier
 	config           *config.Config
 	strategy         *strategy.Service
+	diagnosticsMu    sync.Mutex
+	diagnostics      map[string]uint64
+	notices          map[string]noticeWindow
 }
 
 func NewService(
@@ -115,6 +118,11 @@ func (r *Service) Start(ctx context.Context, sigs chan models.Signal, candles ch
 }
 
 func (r *Service) OnSignal(ctx context.Context, sig models.Signal) {
+	r.countDecision("signals_received")
+	if r.strategy != nil && !r.strategy.EntryAllowed(sig.InstID) {
+		r.countDecision("universe_or_stale_stream")
+		return
+	}
 	r.mu.Lock()
 	r.lastSignal = &models.SignalSnapshot{Symbol: sig.InstID, Side: sig.Side, Price: sig.Price, CreatedAt: sig.CreatedAt}
 	r.mu.Unlock()
@@ -130,11 +138,13 @@ func (r *Service) OnSignal(ctx context.Context, sig models.Signal) {
 	if sig.Strategy == models.StrategyDonchianV3 &&
 		sig.Side == models.SideSell &&
 		!r.config.Strategy.V3.AllowShorts {
+		r.countDecision("shorts_disabled")
 		r.Logger.Info("short signal blocked by v3 safety profile", zap.String("instId", sig.InstID))
 		return
 	}
 
 	for _, sess := range r.users {
+		r.countDecision("account_candidates")
 		// 1. лимит по открытым позициям
 		maxOpenPositions := sess.User.Settings.TradingSettings.MaxOpenPositions
 		if sig.Strategy == models.StrategyDonchianV3 {
@@ -144,8 +154,11 @@ func (r *Service) OnSignal(ctx context.Context, sig models.Signal) {
 			}
 		}
 		if maxOpenPositions > 0 {
-			if len(sess.TrailStates) >= maxOpenPositions {
-				sess.Notifier.SendF(ctx, sess.User.TelegramID,
+			sess.TrailMu.RLock()
+			openCount := len(sess.TrailStates)
+			sess.TrailMu.RUnlock()
+			if openCount >= maxOpenPositions {
+				r.notifyReject(ctx, sess, "position_limit",
 					"⚠️ [%s] Лимит открытых позиций (%d) достигнут, сигнал пропущен",
 					sig.InstID, maxOpenPositions,
 				)
@@ -170,7 +183,7 @@ func (r *Service) OnSignal(ctx context.Context, sig models.Signal) {
 
 		// 1.05 Один инструмент = одна открытая позиция.
 		if hasSameInst {
-			sess.Notifier.SendF(ctx, sess.User.TelegramID,
+			r.notifyReject(ctx, sess, "position_exists",
 				"⚠️ [%s] Уже есть открытая позиция по инструменту, сигнал пропущен",
 				sig.InstID,
 			)
@@ -179,7 +192,7 @@ func (r *Service) OnSignal(ctx context.Context, sig models.Signal) {
 
 		// Дополнительный guard на ту же сторону.
 		if hasSameInstSide {
-			sess.Notifier.SendF(ctx, sess.User.TelegramID,
+			r.notifyReject(ctx, sess, "position_exists",
 				"⚠️ [%s] Уже есть открытая %s позиция, сигнал пропущен",
 				sig.InstID,
 				strings.ToUpper(posSide),
@@ -192,7 +205,7 @@ func (r *Service) OnSignal(ctx context.Context, sig models.Signal) {
 			sess.User.Settings.TradingSettings.MaxLongPositions > 0 &&
 			longs >= sess.User.Settings.TradingSettings.MaxLongPositions {
 
-			sess.Notifier.SendF(ctx, sess.User.TelegramID,
+			r.notifyReject(ctx, sess, "long_limit",
 				"⚠️ [%s] Лимит LONG позиций (%d) достигнут, сигнал пропущен",
 				sig.InstID,
 				sess.User.Settings.TradingSettings.MaxLongPositions,
@@ -204,7 +217,7 @@ func (r *Service) OnSignal(ctx context.Context, sig models.Signal) {
 			sess.User.Settings.TradingSettings.MaxShortPositions > 0 &&
 			shorts >= sess.User.Settings.TradingSettings.MaxShortPositions {
 
-			sess.Notifier.SendF(ctx, sess.User.TelegramID,
+			r.notifyReject(ctx, sess, "short_limit",
 				"⚠️ [%s] Лимит SHORT позиций (%d) достигнут, сигнал пропущен",
 				sig.InstID,
 				sess.User.Settings.TradingSettings.MaxShortPositions,
@@ -220,6 +233,7 @@ func (r *Service) OnSignal(ctx context.Context, sig models.Signal) {
 		case models.StrategyDonchianV3:
 			params, err = sess.CalcTradeParamsV3(ctx, sig, sig.LTFCandles, sig.HTFCandles)
 			if err != nil {
+				r.countDecision("parameter_error")
 				sess.Notifier.SendF(ctx, sess.User.TelegramID,
 					"❗️ [%s] Ошибка расчёта параметров сделки: %v",
 					sig.InstID, err,
@@ -229,6 +243,7 @@ func (r *Service) OnSignal(ctx context.Context, sig models.Signal) {
 		default:
 			params, err = sess.CalcTradeParams(ctx, sig.InstID, string(sig.Side), sig.Price)
 			if err != nil {
+				r.countDecision("parameter_error")
 				sess.Notifier.SendF(ctx, sess.User.TelegramID,
 					"❗️ [%s] Ошибка расчёта параметров сделки: %v",
 					sig.InstID, err,
@@ -238,8 +253,10 @@ func (r *Service) OnSignal(ctx context.Context, sig models.Signal) {
 		}
 
 		// 3. открытие позиции
+		r.countDecision("order_attempts")
 		res, err := sess.OpenPositionWithTpSl(ctx, sig, params)
 		if err != nil {
+			r.countDecision("order_error")
 			sess.Notifier.SendF(ctx, sess.User.TelegramID,
 				"❗️ [%s] Ошибка открытия ордера: %v",
 				sig.InstID, err,
@@ -247,6 +264,7 @@ func (r *Service) OnSignal(ctx context.Context, sig models.Signal) {
 			continue
 		}
 
+		r.countDecision("opened")
 		now := res.EntryAt
 		if now.IsZero() {
 			now = time.Now().UTC()

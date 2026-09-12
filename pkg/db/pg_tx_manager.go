@@ -29,6 +29,8 @@ func (m *PgTxManager) Close() {
 	m.poolMaster.Close()
 }
 
+func (m *PgTxManager) Ping(ctx context.Context) error { return m.poolMaster.Ping(ctx) }
+
 func NewPool(ctx context.Context, conf PoolConfig) (*pgxpool.Pool, error) {
 	return pgxpool.New(ctx, conf.DSN)
 }

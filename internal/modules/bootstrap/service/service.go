@@ -44,13 +44,37 @@ type Service struct {
 
 func NewService(params Params, mx *okxws.Service, hub *strategy.Service, publicNotifier PublicNotifier) *Service {
 
-	return &Service{
+	s := &Service{
 		mx:             mx,
 		hub:            hub,
 		publicNotifier: publicNotifier,
 		cfg:            params.Config.cfg,
 		sem:            make(chan struct{}, 8), // 8 параллельных символов
 	}
+	mx.ConfigureRotation(hub.IsWarmupDone, s.prepareRotation)
+	hub.ConfigureUniverse(mx.Selected, mx.EntryAllowed)
+	return s
+}
+
+func (s *Service) prepareRotation(ctx context.Context, symbols []string) error {
+	if s.cfg.Strategy.Name != "donchian_v3_smart" {
+		return fmt.Errorf("rotation currently requires V3")
+	}
+	for _, sym := range symbols {
+		htf, err := s.mx.GetCandles(ctx, sym, s.hub.HTF(), s.hub.HTFNeed())
+		if err != nil {
+			return err
+		}
+		ltf, err := s.mx.GetCandles(ctx, sym, s.hub.LTF(), s.hub.LTFNeed())
+		if err != nil {
+			return err
+		}
+		if len(htf) < s.hub.HTFNeed() || len(ltf) < s.hub.LTFNeed() {
+			return fmt.Errorf("insufficient closed history for %s", sym)
+		}
+		s.hub.SeedV3(sym, ltf, htf)
+	}
+	return nil
 }
 
 func (s *Service) Start(ctx context.Context) error {
@@ -78,28 +102,24 @@ func (s *Service) Start(ctx context.Context) error {
 			return
 		}
 
-		if err := s.Warmup(ctx, s.cfg.Strategy.Symbols); err != nil {
+		symbols := s.mx.UniverseStatus(time.Now()).Symbols
+		if err := s.Warmup(ctx, symbols); err != nil {
 			s.Logger.Info("[BOOT] warmup error: %v", zap.Error(err))
 			return
 		}
-		s.Logger.Info("[BOOT] warmup done: %d symbols", zap.Strings("sym", s.cfg.Strategy.Symbols))
+		s.Logger.Info("warmup done", zap.Strings("symbols", symbols))
 
 	}()
 
 	return nil
 }
 func (s *Service) waitUntilSymbolsReady(ctx context.Context, poll time.Duration) error {
-	if s.cfg.Strategy.WatchTopN <= 0 {
-		s.Logger.Info("waitUntilSymbolsReady skipped: WatchTopN <= 0")
-		return nil
-	}
-
 	t := time.NewTicker(poll)
 	defer t.Stop()
 
 	for {
-		n := len(s.cfg.Strategy.Symbols)
-		target := s.cfg.Strategy.WatchTopN
+		n := len(s.mx.UniverseStatus(time.Now()).Symbols)
+		target := 1 // A valid selection may be smaller than the requested cap.
 
 		if n >= target {
 			s.Logger.Info("symbols ready", zap.Int("have", n), zap.Int("need", target))
@@ -143,13 +163,13 @@ func (s *Service) Warmup(ctx context.Context, symbols []string) error {
 	total := len(symbols)
 
 	// 1) Старт: понятное “мы подготавливаемся”
-	_, err := s.publicNotifier.SendServiceText(ctx, public.Status{
+	_ = s.publicNotifier.SendOrEdit(ctx, public.Status{
 		State:       public.StatePreparing,
 		Exchange:    "OKX",
 		Instruments: total,
 		Progress:    0,
 		UpdatedAt:   time.Now(),
-	}.RenderHTML())
+	})
 
 	var (
 		wg       sync.WaitGroup
@@ -164,9 +184,10 @@ func (s *Service) Warmup(ctx context.Context, symbols []string) error {
 
 	// Отдельная горутина, которая иногда публикует прогресс
 	stopProgress := make(chan struct{})
-	defer close(stopProgress)
+	progressStopped := make(chan struct{})
 
 	go func() {
+		defer close(progressStopped)
 		for {
 			select {
 			case <-stopProgress:
@@ -181,7 +202,7 @@ func (s *Service) Warmup(ctx context.Context, symbols []string) error {
 					pct = 99
 				}
 
-				err = s.publicNotifier.SendOrEdit(ctx, public.Status{
+				err := s.publicNotifier.SendOrEdit(ctx, public.Status{
 					State:       public.StatePreparing,
 					Exchange:    "OKX",
 					Instruments: total,
@@ -205,6 +226,18 @@ func (s *Service) Warmup(ctx context.Context, symbols []string) error {
 			// ограничитель параллелизма
 			s.sem <- struct{}{}
 			defer func() { <-s.sem }()
+			if s.cfg.Strategy.Name == "donchian_v3_smart" {
+				if err := s.prepareRotation(ctx, []string{sym}); err != nil {
+					mu.Lock()
+					if firstErr == nil {
+						firstErr = err
+					}
+					mu.Unlock()
+					return
+				}
+				atomic.AddInt64(&done, 1)
+				return
+			}
 
 			// 1) HTF (внутри — как было, это не в паблик)
 			htf, err := s.mx.GetCandles(ctx, sym, htfTF, htfNeed)
@@ -261,21 +294,17 @@ func (s *Service) Warmup(ctx context.Context, symbols []string) error {
 	}
 
 	wg.Wait()
-
-	// Остановить прогресс-горутину (и избежать лишних апдейтов)
-	// close(stopProgress) уже в defer выше — но wg.Wait() уже прошёл, можно просто выйти.
+	close(stopProgress)
+	<-progressStopped
 
 	if firstErr != nil {
 		// 2) Ошибка: понятное человеку сообщение
-		err = s.publicNotifier.SendOrEdit(ctx, public.Status{
+		_ = s.publicNotifier.SendOrEdit(ctx, public.Status{
 			State:       public.StateError,
 			Exchange:    "OKX",
 			Instruments: total,
 			UpdatedAt:   time.Now(),
 		})
-		if err != nil {
-			return err
-		}
 
 		// (Опционально) подробности об ошибке — лучше в dev-лог, а не в публичный канал:
 		// s.log.Error("warmup failed", zap.Error(firstErr))
@@ -284,19 +313,15 @@ func (s *Service) Warmup(ctx context.Context, symbols []string) error {
 	}
 
 	// 3) Готово: финальный статус
-	err = s.publicNotifier.SendOrEdit(ctx, public.Status{
+	s.hub.SetWarmupDone()
+	s.done.Store(true)
+	_ = s.publicNotifier.SendOrEdit(ctx, public.Status{
 		State:       public.StateReady,
 		Exchange:    "OKX",
 		Instruments: total,
 		Progress:    100,
 		UpdatedAt:   time.Now(),
 	})
-	if err != nil {
-		return err
-	}
-
-	s.hub.SetWarmupDone()
-	s.done.Store(true)
 
 	return nil
 }

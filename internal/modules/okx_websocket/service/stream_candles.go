@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 	"trade_bot/internal/models"
+	"trade_bot/internal/universe"
 
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
@@ -95,7 +96,7 @@ func (s *Service) StreamCandlesBatch(ctx context.Context, instIDs []string, time
 			reconnects++
 			s.Logger.Info("ws connect", zap.Int("attempt", reconnects))
 
-			conn, _, err := s.wsDialer.Dial(url, nil)
+			conn, _, err := s.wsDialer.DialContext(ctx, url, nil)
 			if err != nil {
 				s.Logger.Warn("ws dial error", zap.Error(err))
 				time.Sleep(time.Second)
@@ -104,6 +105,7 @@ func (s *Service) StreamCandlesBatch(ctx context.Context, instIDs []string, time
 
 			// per-connection cancel
 			connCtx, cancel := context.WithCancel(ctx)
+			context.AfterFunc(connCtx, func() { _ = conn.Close() })
 
 			// subscribe
 			sub := map[string]any{"op": "subscribe", "args": args}
@@ -160,6 +162,7 @@ func (s *Service) StreamCandlesBatch(ctx context.Context, instIDs []string, time
 					default:
 					}
 
+					_ = conn.SetReadDeadline(time.Now().Add(90 * time.Second))
 					_, msg, err := conn.ReadMessage()
 					if err != nil {
 						return err
@@ -204,11 +207,7 @@ func (s *Service) StreamCandlesBatch(ctx context.Context, instIDs []string, time
 					}
 
 					for _, row := range frame.Data {
-						if len(row) < 6 {
-							continue
-						}
-						// confirm = last element
-						if row[len(row)-1] != "1" {
+						if len(row) < 9 {
 							continue
 						}
 
@@ -226,7 +225,14 @@ func (s *Service) StreamCandlesBatch(ctx context.Context, instIDs []string, time
 						high, e2 := strconv.ParseFloat(row[2], 64)
 						low, e3 := strconv.ParseFloat(row[3], 64)
 						closep, e4 := strconv.ParseFloat(row[4], 64)
-						if e1 != nil || e2 != nil || e3 != nil || e4 != nil || closep <= 0 {
+						if e1 != nil || e2 != nil || e3 != nil || e4 != nil || !universe.FinitePositive(closep) || !universe.FinitePositive(open) || !universe.FinitePositive(high) || !universe.FinitePositive(low) || high < low || closep > high || closep < low {
+							continue
+						}
+						now := time.Now()
+						if !start.After(now.Add(2*time.Second)) && !end.Before(now.Add(-90*time.Second)) {
+							s.markMarketData(okxBar, now, frame.Arg.InstID)
+						}
+						if row[8] != "1" || end.After(now.Add(2*time.Second)) {
 							continue
 						}
 

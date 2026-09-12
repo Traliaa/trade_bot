@@ -8,7 +8,6 @@ import (
 	"trade_bot/internal/base"
 	"trade_bot/internal/models"
 	"trade_bot/internal/modules/config"
-	"trade_bot/internal/modules/telegram_public/public"
 
 	"github.com/gorilla/websocket"
 	"go.uber.org/fx"
@@ -34,9 +33,18 @@ type Service struct {
 	client          http.Client
 	wsDialer        *websocket.Dialer
 
-	mu    sync.RWMutex
-	subs  map[string]map[chan models.CandleTick]struct{}
-	watch []string // общий watchlist, который мы стримим
+	mu                 sync.RWMutex
+	subs               map[string]map[chan models.CandleTick]struct{}
+	watch              []string // общий watchlist, который мы стримим
+	marketLastSeen     map[string]time.Time
+	instrumentLastSeen map[string]map[string]time.Time
+	dynamicRequested   int
+	selectedSince      map[string]time.Time
+	rotationReady      func() bool
+	prepareRotation    func(context.Context, []string) error
+	rotationAt         time.Time
+	rotationError      string
+	retainedCount      int
 
 	cfg       *config.Config
 	apiKey    string
@@ -53,11 +61,12 @@ func NewService(params Params, n ServiceNotifier) *Service {
 		apiSecret: params.Config.cfg.OKXWS.APISecret,
 		passph:    params.Config.cfg.OKXWS.Passphrase,
 
-		ServiceNotifier: n,
-		wsDialer:        &websocket.Dialer{},
-		client:          http.Client{Timeout: 10 * time.Second},
-		subs:            make(map[string]map[chan models.CandleTick]struct{}),
-		watch:           nil,
+		ServiceNotifier:  n,
+		wsDialer:         &websocket.Dialer{},
+		client:           http.Client{Timeout: 10 * time.Second},
+		subs:             make(map[string]map[chan models.CandleTick]struct{}),
+		watch:            nil,
+		dynamicRequested: params.Config.cfg.Strategy.WatchTopN,
 	}
 }
 
@@ -75,30 +84,42 @@ func (s *Service) Start(ctx context.Context, out chan<- models.CandleTick) error
 		s.Logger.Debug("Цикл запуска начат")
 		defer s.Logger.Debug("Цикл запуска остановлен")
 
-		var err error
-
-		s.cfg.Strategy.Symbols, err = s.SelectUniverse(s.cfg.Strategy.WatchTopN, models.UniverseConservative)
-		if err != nil {
-			s.Logger.Info("[MARKET] ошибка SelectUniverse: %v", zap.Error(err))
-			return
+		var symbols []string
+		for {
+			r, err := s.rankedUniverse(ctx, s.cfg.Strategy.WatchTopN, models.UniverseConservative)
+			if err == nil && len(r.Selected) > 0 {
+				for _, c := range r.Selected {
+					symbols = append(symbols, c.Symbol)
+				}
+				break
+			}
+			s.mu.Lock()
+			s.rotationError = "Не удалось выбрать монеты для анализа; повтор через 30 секунд"
+			s.mu.Unlock()
+			s.Logger.Warn("initial universe unavailable", zap.Error(err))
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(30 * time.Second):
+			}
 		}
-		if len(s.cfg.Strategy.Symbols) == 0 {
-			s.Logger.Info("[MARKET] пустой список волатильных инструментов")
-			return
+		s.mu.Lock()
+		s.watch = append([]string(nil), symbols...)
+		s.rotationError = ""
+		s.selectedSince = map[string]time.Time{}
+		for _, symbol := range symbols {
+			s.selectedSince[symbol] = time.Now()
 		}
+		s.mu.Unlock()
 
 		timeframes := uniqTimeframes("1m", s.cfg.Strategy.LTF, s.cfg.Strategy.HTF)
 
-		_, _ = s.ServiceNotifier.SendServiceText(ctx, public.Status{
-			State:       public.StateConnecting,
-			Exchange:    "OKX",
-			Instruments: len(s.cfg.Strategy.Symbols),
-			UpdatedAt:   time.Now(),
-		}.RenderHTML())
+		s.Logger.Info("market streams starting", zap.Int("instruments", len(symbols)))
 
 		for _, tf := range timeframes {
-			go s.runTimeframe(ctx, toOKXBar(tf), s.cfg.Strategy.Symbols, out)
+			go s.runTimeframe(ctx, toOKXBar(tf), symbols, out)
 		}
+		s.runRotation(ctx, symbols, out)
 	}()
 	return nil
 }

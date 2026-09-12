@@ -86,23 +86,19 @@ func (c *TgSessionController) CreateSession(w http.ResponseWriter, r *http.Reque
 }
 
 func (c *TgSessionController) CreateDevSession(w http.ResponseWriter, r *http.Request) {
-	// Разрешаем только для локальной/дев среды
-	//appEnv := os.Getenv("APP_ENV")
-	//if appEnv != "dev" && appEnv != "local" {
-	//	http.Error(w, "forbidden", http.StatusForbidden)
-	//	return
-	//}
-
-	// По умолчанию твой admin/test user
-	var userID int64 = 213532199
+	appEnv := os.Getenv("APP_ENV")
+	if (appEnv != "dev" && appEnv != "local") || os.Getenv("ENABLE_DEV_AUTH") != "true" {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	userID, err := strconv.ParseInt(os.Getenv("DEV_TELEGRAM_USER_ID"), 10, 64)
+	if err != nil || userID <= 0 {
+		http.Error(w, "dev user is not configured", http.StatusServiceUnavailable)
+		return
+	}
 	username := "dev"
 
 	// Можно переопределить через env
-	if s := os.Getenv("DEV_TELEGRAM_USER_ID"); s != "" {
-		if v, err := strconv.ParseInt(s, 10, 64); err == nil && v > 0 {
-			userID = v
-		}
-	}
 	if s := os.Getenv("DEV_TELEGRAM_USERNAME"); s != "" {
 		username = s
 	}

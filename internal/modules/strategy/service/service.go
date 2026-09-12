@@ -47,6 +47,8 @@ type Service struct {
 	stV3             map[string]*models.V3MarketState
 	stateV3          map[string]*models.StrategyState
 	positionProvider PositionProvider
+	selected         func(string) bool
+	entryAllowed     func(string) bool
 }
 type PositionProvider interface {
 	GetOpenPosition(instID string) (side string, entryPrice float64, ok bool)
@@ -177,11 +179,14 @@ func (e *Service) OnTick(ctx context.Context, t models.CandleTick) {
 	}
 
 	// 2) стратегия
+	if e.warmupDone.Load() && e.selected != nil && !e.selected(t.InstID) {
+		return
+	}
 
 	sig, ok := e.OnCandle(t)
 
 	// 3) блок сигналов пока warmup не done
-	if !ok || !e.warmupDone.Load() || e.out == nil {
+	if !ok || !e.warmupDone.Load() || e.out == nil || !e.EntryAllowed(t.InstID) || time.Since(t.End) > 90*time.Second || t.End.After(time.Now().Add(2*time.Second)) {
 		return
 	}
 
