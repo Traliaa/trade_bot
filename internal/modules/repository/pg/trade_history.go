@@ -164,23 +164,11 @@ func (u *User) ListAllClosedTradesByUser(ctx context.Context, userID int64) (out
 }
 
 func (r *User) GetTradeStats(ctx context.Context, userID int64) (models.TradeStats, error) {
-	trades, err := r.ListAllClosedTradesByUser(ctx, userID)
+	snapshots, checkedAt, err := r.readTradeReportSnapshot(ctx, userID)
 	if err != nil {
 		return models.TradeStats{}, err
 	}
-
-	openTrades, err := r.ListOpenTrades(ctx, userID)
-	if err != nil {
-		return models.TradeStats{}, err
-	}
-
-	stats := buildTradeStats(trades)
-	stats.OpenTrades = int64(len(openTrades))
-	stats.TotalTrades = stats.ClosedTrades + stats.OpenTrades
-	for _, trade := range openTrades {
-		stats.OpenPnL += trade.Payload.UnrealizedPnL
-	}
-	return stats, nil
+	return buildReconciledTradeStats(snapshots, checkedAt), nil
 }
 func buildTradeStats(trades []models.TradeRecord) models.TradeStats {
 	var st models.TradeStats
@@ -227,9 +215,9 @@ func buildTradeStats(trades []models.TradeRecord) models.TradeStats {
 		}
 
 		switch {
-		case p.RMultiple > 0:
+		case p.RealizedPnL > 0:
 			st.Wins++
-		case p.RMultiple < 0:
+		case p.RealizedPnL < 0:
 			st.Losses++
 		default:
 			st.BreakevenTrades++
@@ -357,9 +345,9 @@ func buildStatsBreakdown(trades []models.TradeRecord, keyFn func(models.TradeRec
 		acc.stats.TotalPnL += p.RealizedPnL
 		acc.stats.TotalR += p.RMultiple
 		switch {
-		case p.RMultiple > 0:
+		case p.RealizedPnL > 0:
 			acc.stats.Wins++
-		case p.RMultiple < 0:
+		case p.RealizedPnL < 0:
 			acc.stats.Losses++
 		}
 		if p.RealizedPnL > 0 {
@@ -432,9 +420,9 @@ func performanceWindow(key string, trades []models.TradeRecord) models.TradePerf
 		p := trade.Payload
 		window.TotalR += p.RMultiple
 		window.TotalPnL += p.RealizedPnL
-		if p.RMultiple > 0 {
+		if p.RealizedPnL > 0 {
 			window.Wins++
-		} else if p.RMultiple < 0 {
+		} else if p.RealizedPnL < 0 {
 			window.Losses++
 		}
 		if p.RealizedPnL > 0 {

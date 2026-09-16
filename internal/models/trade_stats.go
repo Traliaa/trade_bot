@@ -1,9 +1,10 @@
 package models
 
 type TradeStats struct {
-	TotalTrades  int64 `json:"total_trades"`
-	OpenTrades   int64 `json:"open_trades"`
-	ClosedTrades int64 `json:"closed_trades"`
+	Reconciliation *TradeReconciliationReport `json:"reconciliation,omitempty"`
+	TotalTrades    int64                      `json:"total_trades"`
+	OpenTrades     int64                      `json:"open_trades"`
+	ClosedTrades   int64                      `json:"closed_trades"`
 
 	Wins            int64   `json:"wins"`
 	Losses          int64   `json:"losses"`

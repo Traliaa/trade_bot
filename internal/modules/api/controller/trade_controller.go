@@ -317,6 +317,7 @@ func (c *TradeController) Positions(w http.ResponseWriter, r *http.Request) {
 }
 
 func (c *TradeController) TradeStats(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	userID, ok := mustAuthUserID(w, r)
 	if !ok {
 		return

@@ -107,6 +107,8 @@ type TradePayload struct {
 	PriceMovePct       float64   `json:"price_move_pct,omitempty"`
 	ExchangeUPLRatio   float64   `json:"exchange_upl_ratio,omitempty"`
 	PendingCloseReason string    `json:"pending_close_reason,omitempty"`
+	CloseIntentReason  string    `json:"close_intent_reason,omitempty"`
+	CloseReasonSource  string    `json:"close_reason_source,omitempty"`
 	BEPrice            float64   `json:"be_price,omitempty"`
 	IsStale            bool      `json:"is_stale,omitempty"`
 	StaleSince         time.Time `json:"stale_since,omitempty"`

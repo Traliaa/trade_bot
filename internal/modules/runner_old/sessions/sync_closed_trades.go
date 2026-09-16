@@ -39,74 +39,7 @@ func (s *UserSession) SyncClosedTrades(ctx context.Context) error {
 		key := tradeKey(tr.InstID, tr.Payload.PosSide)
 		pos, stillOpen := okxOpen[key]
 		if stillOpen {
-			payload := tr.Payload
-
-			currentPrice := openPositionCurrentPrice(pos, tr)
-			currentSize := openPositionSize(pos, tr)
-
-			payload.CurrentPrice = currentPrice
-			payload.CurrentSize = currentSize
-			payload.DurationSec = int64(now.Sub(tr.EntryAt).Seconds())
-
-			payload.UnrealizedPnL = openPositionUnrealizedPnL(pos, payload, currentPrice)
-			payload.UnrealizedPnLPct = openPositionUnrealizedPnLPct(pos, payload, currentPrice)
-			payload.PriceMovePct = calcPriceMovePct(payload, currentPrice)
-			payload.CtVal = pos.CtVal
-			if pos.UnrealizedPct != 0 {
-				payload.ExchangeUPLRatio = pos.UnrealizedPct
-			}
-
-			// partial tracking
-			if payload.EntrySize > 0 && currentSize > 0 && currentSize < payload.EntrySize {
-				payload.TookPartial = true
-				payload.ClosedSize = payload.EntrySize - currentSize
-				if payload.PartialCount == 0 {
-					payload.PartialCount = 1
-				}
-			}
-
-			if payload.StopLoss > 0 && currentPrice > 0 {
-				payload.RMultiple = models.CalcRMultiple(
-					payload.EntryPrice,
-					currentPrice,
-					payload.StopLoss,
-					payload.PosSide,
-				)
-			}
-
-			switch payload.PosSide {
-			case "long":
-				if currentPrice > payload.MFEPrice {
-					payload.MFEPrice = currentPrice
-				}
-				if payload.MAEPrice == 0 || currentPrice < payload.MAEPrice {
-					payload.MAEPrice = currentPrice
-				}
-			case "short":
-				if payload.MFEPrice == 0 || currentPrice < payload.MFEPrice {
-					payload.MFEPrice = currentPrice
-				}
-				if currentPrice > payload.MAEPrice {
-					payload.MAEPrice = currentPrice
-				}
-			}
-
-			if payload.MFEPrice > 0 {
-				payload.MFER = models.CalcMFER(
-					payload.EntryPrice,
-					payload.MFEPrice,
-					payload.StopLoss,
-					payload.PosSide,
-				)
-			}
-			if payload.MAEPrice > 0 {
-				payload.MAER = models.CalcMAER(
-					payload.EntryPrice,
-					payload.MAEPrice,
-					payload.StopLoss,
-					payload.PosSide,
-				)
-			}
+			payload := openTradeReportPayload(tr, pos, now)
 
 			if err := s.Repo.UpdatePayload(ctx, tr.GUID, payload); err != nil {
 				s.Logger.Warn("update open trade payload failed",
@@ -143,6 +76,82 @@ func (s *UserSession) SyncClosedTrades(ctx context.Context) error {
 
 	return nil
 }
+
+// openTradeReportPayload updates reporting fields without changing live recovery inputs.
+func openTradeReportPayload(tr models.TradeRecord, pos models.OpenPosition, now time.Time) models.TradePayload {
+	payload := tr.Payload
+	// Reporting fallback must not change the risk restored by live trailing.
+	initialRiskDist := payload.InitialRiskDist()
+
+	currentPrice := openPositionCurrentPrice(pos, tr)
+	currentSize := openPositionSize(pos, tr)
+
+	payload.CurrentPrice = currentPrice
+	payload.CurrentSize = currentSize
+	payload.DurationSec = int64(now.Sub(tr.EntryAt).Seconds())
+
+	payload.UnrealizedPnL = openPositionUnrealizedPnL(pos, payload, currentPrice)
+	payload.UnrealizedPnLPct = openPositionUnrealizedPnLPct(pos, payload, currentPrice)
+	payload.PriceMovePct = calcPriceMovePct(payload, currentPrice)
+	payload.CtVal = pos.CtVal
+	if pos.UnrealizedPct != 0 {
+		payload.ExchangeUPLRatio = pos.UnrealizedPct
+	}
+
+	// partial tracking
+	if payload.EntrySize > 0 && currentSize > 0 && currentSize < payload.EntrySize {
+		payload.TookPartial = true
+		payload.ClosedSize = payload.EntrySize - currentSize
+		if payload.PartialCount == 0 {
+			payload.PartialCount = 1
+		}
+	}
+
+	if currentPrice > 0 {
+		payload.RMultiple = models.CalcPriceR(
+			payload.EntryPrice,
+			currentPrice,
+			initialRiskDist,
+			payload.PosSide,
+		)
+	}
+
+	switch payload.PosSide {
+	case "long":
+		if currentPrice > payload.MFEPrice {
+			payload.MFEPrice = currentPrice
+		}
+		if payload.MAEPrice == 0 || currentPrice < payload.MAEPrice {
+			payload.MAEPrice = currentPrice
+		}
+	case "short":
+		if payload.MFEPrice == 0 || currentPrice < payload.MFEPrice {
+			payload.MFEPrice = currentPrice
+		}
+		if currentPrice > payload.MAEPrice {
+			payload.MAEPrice = currentPrice
+		}
+	}
+
+	if payload.MFEPrice > 0 {
+		payload.MFER = models.CalcPriceR(
+			payload.EntryPrice,
+			payload.MFEPrice,
+			initialRiskDist,
+			payload.PosSide,
+		)
+	}
+	if payload.MAEPrice > 0 {
+		payload.MAER = models.CalcPriceR(
+			payload.EntryPrice,
+			payload.MAEPrice,
+			initialRiskDist,
+			payload.PosSide,
+		)
+	}
+	return payload
+}
+
 func tradeKey(instID, posSide string) string {
 	return instID + ":" + posSide
 }

@@ -1,10 +1,41 @@
 package pg
 
 import (
+	"math"
 	"testing"
 
 	"trade_bot/internal/models"
 )
+
+func TestWinCountsUseMoneyInsteadOfPriceR(t *testing.T) {
+	trades := []models.TradeRecord{
+		{Payload: models.TradePayload{PosSide: "long", RMultiple: 0.1, RealizedPnL: -0.01}},
+		{Payload: models.TradePayload{PosSide: "long", RMultiple: -0.1, RealizedPnL: 0.02}},
+		{Payload: models.TradePayload{PosSide: "long", RMultiple: 1, RealizedPnL: 0}},
+	}
+	stats := buildTradeStats(trades)
+	if stats.Wins != 1 || stats.Losses != 1 || stats.BreakevenTrades != 1 {
+		t.Fatalf("wrong net counts: %+v", stats)
+	}
+	if math.Abs(stats.TotalPnL-0.01) > 1e-12 || stats.TotalR != 1 {
+		t.Fatalf("money/R changed: %+v", stats)
+	}
+	check := func(wins, losses int64, rate float64) {
+		t.Helper()
+		if wins != 1 || losses != 1 || math.Abs(rate-100.0/3) > 1e-10 {
+			t.Fatalf("wrong outcome counts: %d/%d/%v", wins, losses, rate)
+		}
+	}
+	check(stats.Wins, stats.Losses, stats.WinRate)
+	for _, groups := range [][]models.TradeStatsBreakdown{stats.ByDirection, stats.BySignalScore, stats.ByImpulse, stats.ByCloseReason, stats.ByMonth} {
+		for _, g := range groups {
+			check(g.Wins, g.Losses, g.WinRate)
+		}
+	}
+	for _, w := range stats.Windows {
+		check(w.Wins, w.Losses, w.WinRate)
+	}
+}
 
 func TestBuildTradeStatsIncludesOptimizationBreakdowns(t *testing.T) {
 	trades := []models.TradeRecord{

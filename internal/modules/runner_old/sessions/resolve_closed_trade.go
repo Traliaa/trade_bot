@@ -25,7 +25,7 @@ func (s *UserSession) resolveClosedTrade(
 	if err != nil {
 		return models.TradeCloseInput{}, err
 	}
-	exitPrice, exitSize, exitAt := execution.ExitPrice, execution.ExitSize, execution.ExitAt
+	exitSize := execution.ExitSize
 
 	// Защита от битого учёта закрытия.
 	if p.EntrySize > 0 && exitSize > p.EntrySize {
@@ -38,27 +38,31 @@ func (s *UserSession) resolveClosedTrade(
 		)
 	}
 
-	state, _ := s.getTrailStateForTrade(tr)
-	reason := classifyCloseReason(tr, p, state, execution.FinalFillPrice)
+	closeInput := closedTradeInput(tr, execution)
+	if len(execution.Fills) > 0 {
+		if err := s.Repo.UpsertTradeFills(ctx, tradeFillRecordsForSession(tr, execution.Fills, models.TradeFillRoleExit)); err != nil {
+			return models.TradeCloseInput{}, fmt.Errorf("persist exit fills: %w", err)
+		}
+	}
+	return closeInput, nil
+}
+
+// Pure report finalization, shared by production and regression fixtures.
+func closedTradeInput(tr models.TradeRecord, execution closedTradeExecution) models.TradeCloseInput {
+	p := tr.Payload
+	exitPrice, exitSize, exitAt := execution.ExitPrice, execution.ExitSize, execution.ExitAt
+	reason, source := classifyCloseEvidence(p, nil, execution.FinalFillPrice)
 
 	payload := p
+	payload.CloseIntentReason = p.PendingCloseReason
+	payload.CloseReasonSource = source
 	payload.ExitPrice = exitPrice
 	payload.ExitSize = exitSize
 	payload.DurationSec = models.CalcDurationSec(tr.EntryAt, &exitAt)
 
-	if payload.RiskDist <= 0 {
-		payload.RiskDist = models.CalcRiskDist(payload.EntryPrice, payload.StopLoss, payload.PosSide)
-	}
-
-	if payload.StopLoss > 0 && exitPrice > 0 {
-		payload.ExitPriceR = models.CalcRMultiple(
-			payload.EntryPrice,
-			exitPrice,
-			payload.StopLoss,
-			payload.PosSide,
-		)
-		payload.RMultiple = payload.ExitPriceR
-	}
+	payload.RiskDist = payload.InitialRiskDist()
+	payload.ExitPriceR = models.CalcPriceR(payload.EntryPrice, exitPrice, payload.RiskDist, payload.PosSide)
+	payload.RMultiple = payload.ExitPriceR
 
 	realizedPnL, priceMovePct, realizedPnLPct := calcClosedTradeMetrics(payload)
 	payload.GrossRealizedPnL = execution.GrossRealizedPnL
@@ -78,18 +82,18 @@ func (s *UserSession) resolveClosedTrade(
 	}
 
 	if payload.MFEPrice > 0 {
-		payload.MFER = models.CalcMFER(
+		payload.MFER = models.CalcPriceR(
 			payload.EntryPrice,
 			payload.MFEPrice,
-			payload.StopLoss,
+			payload.RiskDist,
 			payload.PosSide,
 		)
 	}
 	if payload.MAEPrice > 0 {
-		payload.MAER = models.CalcMAER(
+		payload.MAER = models.CalcPriceR(
 			payload.EntryPrice,
 			payload.MAEPrice,
-			payload.StopLoss,
+			payload.RiskDist,
 			payload.PosSide,
 		)
 	}
@@ -97,17 +101,11 @@ func (s *UserSession) resolveClosedTrade(
 	// Закрытие уже финализировано, pending больше не нужен.
 	payload.PendingCloseReason = ""
 
-	if len(execution.Fills) > 0 {
-		if err := s.Repo.UpsertTradeFills(ctx, tradeFillRecordsForSession(tr, execution.Fills, models.TradeFillRoleExit)); err != nil {
-			return models.TradeCloseInput{}, fmt.Errorf("persist exit fills: %w", err)
-		}
-	}
-
 	return models.TradeCloseInput{
 		ExitAt:      exitAt,
 		CloseReason: reason,
 		Payload:     payload,
-	}, nil
+	}
 }
 
 type closedTradeExecution struct {
@@ -229,89 +227,8 @@ func classifyCloseReason(
 	state *models.PositionTrailState,
 	exitPrice float64,
 ) models.CloseReason {
-	_ = tr
-
-	if payload.PendingCloseReason != "" {
-		return models.NormalizeCloseReason(payload.PendingCloseReason)
-	}
-
-	const epsMul = 0.4 // БЫЛО: 0.15. Увеличили для лучшего распознавания при проскальзывании
-
-	riskDist := payload.RiskDist
-	if riskDist <= 0 {
-		riskDist = models.CalcRiskDist(payload.EntryPrice, payload.StopLoss, payload.PosSide)
-	}
-
-	if riskDist > 0 {
-		eps := riskDist * epsMul
-
-		// 1. Сначала фактическое закрытие около уровней TP / SL.
-		if payload.TakeProfit > 0 && approxLevel(exitPrice, payload.TakeProfit, eps) {
-			return models.CloseReasonTP
-		}
-		if payload.StopLoss > 0 && approxLevel(exitPrice, payload.StopLoss, eps) {
-			return models.CloseReasonSL
-		}
-
-		// 2. Потом break-even по фактическому уровню.
-		if payload.MovedToBE {
-			if payload.BEPrice > 0 && approxLevel(exitPrice, payload.BEPrice, eps) {
-				return models.CloseReasonBreakEven
-			}
-			// fallback на entry для старых сделок
-			if payload.BEPrice <= 0 && approxLevel(exitPrice, payload.EntryPrice, eps) {
-				return models.CloseReasonBreakEven
-			}
-		}
-
-		// 3. Потом lock-profit, только если реально закрылись в плюс.
-		// ... (логика lock profit)
-	}
-
-	// 4. Time stop — если был взведен флаг в payload.
-	// БОТ ТЕПЕРЬ ВСЕГДА ПРИЗНАЕТ TIMESTOP, ЕСЛИ ОН БЫЛ ВЗВЕДЕН В PAYLOAD
-	if payload.TimeStopTriggered {
-		return models.CloseReasonTimeStopStale
-	}
-
-	// 5. Состояния trail/state как fallback, чтобы не терять классификацию.
-	if payload.IsStale || (state != nil && state.IsStale) {
-		return models.CloseReasonTimeStopStale
-	}
-	if payload.TookPartial || (state != nil && state.TookPartial) {
-		return models.CloseReasonPartialExit
-	}
-	if payload.LockedProfit || (state != nil && state.LockedProfit) {
-		return models.CloseReasonLockProfit
-	}
-	if payload.MovedToBE || (state != nil && state.MovedToBE) {
-		return models.CloseReasonBreakEven
-	}
-
-	// 6. Последний fallback: если есть валидный exit относительно entry/stop,
-	// пытаемся классифицировать по знаку и масштабу результата вместо unknown.
-	if riskDist > 0 && payload.EntryPrice > 0 && exitPrice > 0 {
-		r := models.CalcRMultiple(
-			payload.EntryPrice,
-			exitPrice,
-			payload.StopLoss,
-			payload.PosSide,
-		)
-		if r >= 0.8 {
-			return models.CloseReasonTP
-		}
-		if r <= -0.8 {
-			return models.CloseReasonSL
-		}
-		if r > 0 {
-			return models.CloseReasonLockProfit
-		}
-		if r > -0.25 {
-			return models.CloseReasonBreakEven
-		}
-	}
-
-	return models.CloseReasonUnknown
+	reason, _ := classifyCloseEvidence(payload, state, exitPrice)
+	return reason
 }
 func calcClosedTradeMetrics(p models.TradePayload) (realizedPnL, priceMovePct, realizedPnLPct float64) {
 	if p.EntryPrice <= 0 || p.ExitPrice <= 0 || p.ExitSize <= 0 {
