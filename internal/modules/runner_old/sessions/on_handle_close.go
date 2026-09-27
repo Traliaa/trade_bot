@@ -51,16 +51,25 @@ func (s *UserSession) checkV3PartialForSide(ctx context.Context, ct models.Candl
 		return
 	}
 
-	closeSz := st.Size * cfg.PartialCloseFrac
+	positionSize := st.Size
+	closeSz := positionSize * cfg.PartialCloseFrac
 	if closeSz <= 0 {
 		s.TrailMu.Unlock()
 		return
 	}
 	s.TrailMu.Unlock()
 
-	dec := closeSz // closeSz = amount to close
+	meta, err := s.Okx.GetInstrumentMeta(ctx, st.InstID)
+	if err != nil {
+		s.Logger.Warn("v3 partial metadata unavailable", zap.Error(err), zap.String("instId", st.InstID))
+		return
+	}
+	dec := normalizedPartialSize(positionSize, closeSz, meta)
+	if dec <= 0 {
+		return
+	}
 
-	_, err := s.Okx.CloseMarket(ctx, st.InstID, st.PosSide, dec)
+	_, err = s.Okx.CloseMarket(ctx, st.InstID, st.PosSide, dec)
 	if err != nil {
 		s.Logger.Warn("v3 partial close failed",
 			zap.Error(err),

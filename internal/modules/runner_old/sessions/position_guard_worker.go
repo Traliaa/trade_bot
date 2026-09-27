@@ -50,9 +50,8 @@ func (s *UserSession) guardOnce(ctx context.Context) {
 		key := posKey(p.Symbol, p.Side)
 
 		st := s.User.Settings.PositionGuard[key]
-		if st.Blacklisted {
-			continue
-		}
+		// Legacy warning exhaustion must not disable safety checks forever.
+		st.Blacklisted = false
 
 		// анти-спам: чаще чем раз в час не пишем
 		if !st.LastWarnAt.IsZero() && now.Sub(st.LastWarnAt) < 1*time.Hour {
@@ -62,7 +61,11 @@ func (s *UserSession) guardOnce(ctx context.Context) {
 		// 3) проверяем TP/SL
 		hasTP, hasSL, err := s.Okx.HasTpSl(ctx, p.Symbol, p.Side)
 		if err != nil {
-			// если не можем проверить — лучше не помечать, просто пропускаем (или пишем редко)
+			st.LastWarnAt = now
+			s.User.Settings.PositionGuard[key] = st
+			_ = s.saveSettings(ctx)
+			s.Notifier.SendF(ctx, s.User.TelegramID,
+				"⚠️ [%s %s] Не удалось проверить защитные ордера TP/SL: %v. Наличие защиты не подтверждено.", p.Symbol, strings.ToUpper(p.Side), err)
 			continue
 		}
 
@@ -83,31 +86,12 @@ func (s *UserSession) guardOnce(ctx context.Context) {
 			missing = append(missing, "TP")
 		}
 
-		// после 5 предупреждений — в блэклист
-		if st.WarnCount >= 5 {
-			st.Blacklisted = true
-		}
-
 		s.User.Settings.PositionGuard[key] = st
 		_ = s.saveSettings(ctx) // см. ниже
 
-		if st.Blacklisted {
-			s.Notifier.SendF(ctx, s.User.TelegramID,
-				"⛔️ [%s %s] Нет %s. Я предупреждал уже 5 раз.\n"+
-					"Эту позицию больше не трогаю и не напоминаю.\n"+
-					"Если хочешь — закрой её или выставь SL/TP вручную.",
-				p.Symbol, strings.ToUpper(p.Side), strings.Join(missing, "+"),
-			)
-		} else {
-			s.Notifier.SendF(ctx, s.User.TelegramID,
-				"⚠️ [%s %s] В позиции НЕ выставлены: *%s*\n"+
-					"Я не буду сопровождать эту позицию (BE/Lock/Partial/TimeStop не применяются),\n"+
-					"пока ты не поставишь SL и TP на OKX.\n\n"+
-					"Напоминание %d/5. (Потом замолчу)",
-				p.Symbol, strings.ToUpper(p.Side), strings.Join(missing, "+"),
-				st.WarnCount,
-			)
-		}
+		s.Notifier.SendF(ctx, s.User.TelegramID,
+			"⚠️ [%s %s] Не найдены активные защитные ордера: %s. Проверь позицию на OKX. Автоматически восстанавливать старые уровни небезопасно; сопровождение ботом не отключено.",
+			p.Symbol, strings.ToUpper(p.Side), strings.Join(missing, "+"))
 	}
 }
 

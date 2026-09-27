@@ -227,6 +227,7 @@ func (s *UserSession) syncTradeCloseIntent(
 	}
 
 	return s.syncTradePayloadFromTrail(ctx, st.InstID, st.PosSide, func(p *models.TradePayload) {
+		applyTrailReportState(p, st, st.Size)
 		p.MovedToBE = st.MovedToBE
 		p.LockedProfit = st.LockedProfit
 		p.TookPartial = st.TookPartial
@@ -252,27 +253,34 @@ func (s *UserSession) syncTradeFlagsFromState(
 	}
 
 	return s.syncTradePayloadFromTrail(ctx, st.InstID, st.PosSide, func(p *models.TradePayload) {
-		p.MovedToBE = st.MovedToBE
-		p.LockedProfit = st.LockedProfit
-		p.TookPartial = st.TookPartial
+		applyTrailReportState(p, st, currentSize)
+	})
+}
 
-		p.IsStale = st.IsStale
-		p.StaleSince = st.StaleSince
-		p.StaleMarkedAtR = st.StaleMarkedAtR
+func applyTrailReportState(p *models.TradePayload, st *models.PositionTrailState, currentSize float64) {
+	p.AlgoID = st.AlgoID
+	p.TPAlgoID = st.TPAlgoID
+	p.CurrentStopLoss = st.SL
+	p.MovedToBE = st.MovedToBE
+	p.LockedProfit = st.LockedProfit
+	p.TookPartial = st.TookPartial
 
-		if st.MovedToBE && st.SL > 0 {
-			p.BEPrice = st.SL
-		}
+	p.IsStale = st.IsStale
+	p.StaleSince = st.StaleSince
+	p.StaleMarkedAtR = st.StaleMarkedAtR
 
-		if currentSize > 0 {
-			p.CurrentSize = currentSize
-			if p.EntrySize > 0 && currentSize < p.EntrySize {
-				p.TookPartial = true
-				p.ClosedSize = p.EntrySize - currentSize
-				if p.PartialCount == 0 {
-					p.PartialCount = 1
-				}
+	if st.MovedToBE && st.SL > 0 {
+		p.BEPrice = st.SL
+	}
+
+	if currentSize > 0 {
+		p.CurrentSize = currentSize
+		if p.EntrySize > 0 && currentSize < p.EntrySize {
+			p.TookPartial = true
+			p.ClosedSize = p.EntrySize - currentSize
+			if p.PartialCount == 0 {
+				p.PartialCount = 1
 			}
 		}
-	})
+	}
 }

@@ -305,10 +305,7 @@ func (c *Client) PlaceMarket(
 	d := r.Data[0]
 
 	if r.Code != "0" || d.SCode != "0" {
-		return "", fmt.Errorf(
-			"okx trade error: code=%s msg=%s sCode=%s sMsg=%s",
-			r.Code, r.Msg, d.SCode, d.SMsg,
-		)
+		return "", &TradeError{Code: r.Code, Msg: r.Msg, SCode: d.SCode, SMsg: d.SMsg}
 	}
 
 	return d.OrdID, nil

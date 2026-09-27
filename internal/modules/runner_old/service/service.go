@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -145,6 +146,15 @@ func (r *Service) OnSignal(ctx context.Context, sig models.Signal) {
 
 	for _, sess := range r.users {
 		r.countDecision("account_candidates")
+		if err := sess.CheckEntryAllowed(ctx, sig.InstID); err != nil {
+			if errors.Is(err, sessions.ErrEntryBlocked) {
+				r.countDecision("instrument_restricted")
+			} else {
+				r.countDecision("restriction_check_failed")
+				r.Logger.Warn("entry restriction check failed; entry skipped", zap.Error(err), zap.String("instId", sig.InstID))
+			}
+			continue
+		}
 		// 1. лимит по открытым позициям
 		maxOpenPositions := sess.User.Settings.TradingSettings.MaxOpenPositions
 		if sig.Strategy == models.StrategyDonchianV3 {
@@ -257,6 +267,17 @@ func (r *Service) OnSignal(ctx context.Context, sig models.Signal) {
 		res, err := sess.OpenPositionWithTpSl(ctx, sig, params)
 		if err != nil {
 			r.countDecision("order_error")
+			var blocked *sessions.EntryBlockedError
+			if errors.As(err, &blocked) {
+				r.countDecision("instrument_restricted")
+				if blocked.PersistenceErr != nil {
+					r.Logger.Error("persist instrument restriction failed", zap.Error(blocked.PersistenceErr), zap.String("instId", sig.InstID))
+				}
+				if blocked.First {
+					sess.Notifier.SendF(ctx, sess.User.TelegramID, "⛔️ [%s] OKX запретила торговлю для этого аккаунта (51155). Новые входы исключены; сопровождение открытых позиций продолжается.", sig.InstID)
+				}
+				continue
+			}
 			sess.Notifier.SendF(ctx, sess.User.TelegramID,
 				"❗️ [%s] Ошибка открытия ордера: %v",
 				sig.InstID, err,

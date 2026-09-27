@@ -72,6 +72,11 @@ func trailStateFromTrade(tr models.TradeRecord) *models.PositionTrailState {
 		TookPartial:  p.TookPartial,
 		OpenedAt:     tr.EntryAt,
 	}
+	if p.CurrentStopLoss > 0 {
+		st.SL = p.CurrentStopLoss
+	} else if p.MovedToBE && p.BEPrice > 0 {
+		st.SL = p.BEPrice
+	}
 
 	if st.RiskDist <= 0 {
 		st.RiskDist = models.CalcRiskDist(p.EntryPrice, p.StopLoss, p.PosSide)

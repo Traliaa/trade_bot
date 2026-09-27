@@ -40,6 +40,17 @@ func (s *UserSession) trailOne(ctx context.Context, ct models.CandleTick, p mode
 	currentSize = st.Size
 	s.TrailMu.Unlock()
 
+	if dec.CloseSize > 0 {
+		meta, err := s.Okx.GetInstrumentMeta(ctx, st.InstID)
+		if err != nil {
+			s.Logger.Warn("partial metadata unavailable; continuing stop protection", zap.Error(err), zap.String("instId", st.InstID))
+			meta = models.Instrument{}
+		}
+		s.TrailMu.Lock()
+		dec = normalizePartialDecision(st, s.User.Settings, ct.Close, ct.End, dec, meta)
+		s.TrailMu.Unlock()
+	}
+
 	// Даже если торгового действия нет, stale/BE/partial флаги могут измениться.
 	if err := s.syncTradeFlagsFromState(ctx, st, currentSize); err != nil {
 		s.Logger.Warn("sync trail state failed",
@@ -76,7 +87,10 @@ func (s *UserSession) trailOne(ctx context.Context, ct models.CandleTick, p mode
 				zap.String("posSide", st.PosSide),
 				zap.Float64("closeSize", dec.CloseSize),
 			)
-			return
+			s.TrailMu.Lock()
+			dec = decisionWithoutPartial(st, s.User.Settings, ct.Close, ct.End)
+			s.TrailMu.Unlock()
+			goto protectRemaining
 		}
 
 		actualCloseSize := dec.CloseSize
@@ -143,6 +157,9 @@ func (s *UserSession) trailOne(ctx context.Context, ct models.CandleTick, p mode
 				s.TrailMu.Lock()
 				st.TPAlgoID = newTPAlgoID
 				s.TrailMu.Unlock()
+				if err := s.syncTradeFlagsFromState(ctx, st, newSize); err != nil {
+					s.Logger.Warn("persist replacement TP failed", zap.Error(err), zap.String("instId", st.InstID))
+				}
 			}
 		}
 
@@ -216,6 +233,10 @@ func (s *UserSession) trailOne(ctx context.Context, ct models.CandleTick, p mode
 		return
 	}
 
+protectRemaining:
+	if !dec.MoveSL && !dec.Close {
+		return
+	}
 	// --- CLOSE ---
 	if dec.Close {
 		if st.Size <= 0 {

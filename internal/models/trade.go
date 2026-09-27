@@ -54,12 +54,13 @@ type TradePayload struct {
 	PosSide string `json:"pos_side"`
 	Side    string `json:"side"`
 
-	EntryPrice  float64 `json:"entry_price"`
-	SignalPrice float64 `json:"signal_price,omitempty"`
-	EntrySize   float64 `json:"entry_size"`
-	StopLoss    float64 `json:"stop_loss"`
-	TakeProfit  float64 `json:"take_profit"`
-	Leverage    int64   `json:"leverage"`
+	EntryPrice      float64 `json:"entry_price"`
+	SignalPrice     float64 `json:"signal_price,omitempty"`
+	EntrySize       float64 `json:"entry_size"`
+	StopLoss        float64 `json:"stop_loss"`
+	CurrentStopLoss float64 `json:"current_stop_loss,omitempty"`
+	TakeProfit      float64 `json:"take_profit"`
+	Leverage        int64   `json:"leverage"`
 
 	OpenOrderID string  `json:"open_order_id,omitempty"`
 	AlgoID      string  `json:"algo_id,omitempty"`    // Тут ID Стоп-Лосса

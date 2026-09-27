@@ -65,7 +65,8 @@ type UserSession struct {
 
 	WG sync.WaitGroup
 
-	stopCh chan struct{}
+	stopCh            chan struct{}
+	entryRestrictions entryRestrictionGuard
 
 	// V3PartialCheck опциональный коллбэк для проверки, зафиксировала ли V3-стратегия частичное закрытие.
 	// Устанавливается runner-сервисом.
@@ -123,6 +124,9 @@ func (s *UserSession) OpenPositionWithTpSl(
 	sig models.Signal,
 	params *models.TradeParams,
 ) (*models.OpenResult, error) {
+	if err := s.CheckEntryAllowed(ctx, sig.InstID); err != nil {
+		return nil, err
+	}
 	if params == nil {
 		return nil, fmt.Errorf("params is nil")
 	}
@@ -194,6 +198,16 @@ func (s *UserSession) OpenPositionWithTpSl(
 		ts.OKXPassphrase != "",
 	)
 
+	// Fresh exchange state, not the local cache: manual/untracked positions
+	// must never be merged into a new bot trade.
+	positions, err := s.Okx.OpenPositions(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("verify exchange positions before entry: %w", err)
+	}
+	if err := rejectExistingExchangePosition(positions, sig.InstID); err != nil {
+		return nil, err
+	}
+
 	orderID, err := s.Okx.PlaceMarket(
 		ctx,
 		sig.InstID,
@@ -203,7 +217,7 @@ func (s *UserSession) OpenPositionWithTpSl(
 		openType,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("PlaceMarket: %w", err)
+		return nil, s.entryRestrictions.record(ctx, s.Repo, s.User.TelegramID, sig.InstID, fmt.Errorf("PlaceMarket: %w", err))
 	}
 
 	entryPrice := params.Entry
