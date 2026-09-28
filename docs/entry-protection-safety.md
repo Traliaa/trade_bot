@@ -46,6 +46,23 @@ partial-fill timeout reconciliation behavior is unchanged.
 
 ## Agreed follow-up: profit runner (not implemented here)
 
+### September 27: existing LOCK-stage correction
+
+`LockedProfit` is a reporting flag: it can already be true after a positive
+break-even move. It no longer prevents evaluating the configured LOCK target.
+The decision compares the target with the current SL and still requires the
+existing minimum improvement, so it neither repeats an achieved target nor
+loosens a more protective stop. Restored positions use the same rule without
+rewriting their original entry, initial stop, risk distance or partial state.
+
+The web app displays a valid `current_stop_loss` for open trades, falling back
+to the original `stop_loss` for legacy records. Closed history retains the
+original stop. This shows the bot's persisted level, not a fresh verification
+that the exchange still has that protective order.
+
+These fixes do not adopt an untracked/merged exchange position or repair AVAX
+orders remotely. They are separate from the future runner behavior below.
+
 The user wants a 3R profit reference for 1R initial risk, retaining partial profit
 taking and trailing the remainder by SL rather than closing all of it at a fixed
 TP. SL must not loosen. TP movement, trigger levels, trail distance and exchange

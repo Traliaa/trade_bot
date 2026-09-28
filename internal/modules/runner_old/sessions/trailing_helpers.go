@@ -255,7 +255,10 @@ func decideTrail15m(
 	}
 
 	// --- LOCK ---
-	if !st.LockedProfit && mfeR >= cfg.TrailingConfig.LockTriggerR {
+	// LockedProfit also becomes true after a positive BE move. It is a
+	// reporting flag, not proof that the configured LOCK level was reached.
+	// Compare against the actual SL below, including after state recovery.
+	if mfeR >= cfg.TrailingConfig.LockTriggerR {
 		var cand float64
 		if st.PosSide == "long" {
 			cand = st.Entry + cfg.TrailingConfig.LockOffsetR*R
