@@ -11,6 +11,8 @@ import (
 )
 
 func (s *UserSession) SyncClosedTrades(ctx context.Context) error {
+	s.TrailExecMu.Lock()
+	defer s.TrailExecMu.Unlock()
 	openTrades, err := s.Repo.ListOpenTrades(ctx, s.User.TelegramID)
 	if err != nil {
 		return err
@@ -261,6 +263,9 @@ func applyTrailReportState(p *models.TradePayload, st *models.PositionTrailState
 	p.AlgoID = st.AlgoID
 	p.TPAlgoID = st.TPAlgoID
 	p.CurrentStopLoss = st.SL
+	p.ProfitRunnerActive = st.ProfitRunnerActive
+	p.RunnerPartialPending = st.RunnerPartialPending
+	p.RunnerPartialSize = st.RunnerPartialSize
 	p.MovedToBE = st.MovedToBE
 	p.LockedProfit = st.LockedProfit
 	p.TookPartial = st.TookPartial

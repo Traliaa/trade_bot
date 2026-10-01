@@ -69,7 +69,12 @@ func (s *UserSession) guardOnce(ctx context.Context) {
 			continue
 		}
 
-		if hasTP && hasSL {
+		s.TrailMu.RLock()
+		trail := s.TrailStates[models.PosKey{InstID: p.Symbol, PosSide: p.Side}]
+		runnerActive := trail != nil && trail.ProfitRunnerActive
+		s.TrailMu.RUnlock()
+		missing := missingProtection(hasTP, hasSL, runnerActive)
+		if len(missing) == 0 {
 			// если всё ок — сбрасывать warnCount не обязательно, но можно
 			continue
 		}
@@ -78,14 +83,6 @@ func (s *UserSession) guardOnce(ctx context.Context) {
 		st.WarnCount++
 		st.LastWarnAt = now
 
-		missing := []string{}
-		if !hasSL {
-			missing = append(missing, "SL")
-		}
-		if !hasTP {
-			missing = append(missing, "TP")
-		}
-
 		s.User.Settings.PositionGuard[key] = st
 		_ = s.saveSettings(ctx) // см. ниже
 
@@ -93,6 +90,17 @@ func (s *UserSession) guardOnce(ctx context.Context) {
 			"⚠️ [%s %s] Не найдены активные защитные ордера: %s. Проверь позицию на OKX. Автоматически восстанавливать старые уровни небезопасно; сопровождение ботом не отключено.",
 			p.Symbol, strings.ToUpper(p.Side), strings.Join(missing, "+"))
 	}
+}
+
+func missingProtection(hasTP, hasSL, runnerActive bool) []string {
+	var missing []string
+	if !hasSL {
+		missing = append(missing, "SL")
+	}
+	if !hasTP && !runnerActive {
+		missing = append(missing, "TP")
+	}
+	return missing
 }
 
 // saveSettings — единая точка сохранения user settings в repo

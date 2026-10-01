@@ -58,19 +58,22 @@ func trailStateFromTrade(tr models.TradeRecord) *models.PositionTrailState {
 	}
 
 	st := &models.PositionTrailState{
-		InstID:       tr.InstID,
-		PosSide:      p.PosSide,
-		Entry:        p.EntryPrice,
-		SL:           p.StopLoss,
-		TP:           p.TakeProfit,
-		RiskDist:     p.RiskDist,
-		AlgoID:       p.AlgoID,
-		TPAlgoID:     p.TPAlgoID,
-		Size:         size,
-		MovedToBE:    p.MovedToBE,
-		LockedProfit: p.LockedProfit,
-		TookPartial:  p.TookPartial,
-		OpenedAt:     tr.EntryAt,
+		InstID:               tr.InstID,
+		PosSide:              p.PosSide,
+		Entry:                p.EntryPrice,
+		SL:                   p.StopLoss,
+		TP:                   p.TakeProfit,
+		RiskDist:             p.RiskDist,
+		AlgoID:               p.AlgoID,
+		TPAlgoID:             p.TPAlgoID,
+		Size:                 size,
+		MovedToBE:            p.MovedToBE,
+		LockedProfit:         p.LockedProfit,
+		TookPartial:          p.TookPartial || p.PartialCount > 0 || (p.CurrentSize > 0 && p.CurrentSize < p.EntrySize),
+		ProfitRunnerActive:   p.ProfitRunnerActive,
+		RunnerPartialPending: p.RunnerPartialPending,
+		RunnerPartialSize:    p.RunnerPartialSize,
+		OpenedAt:             tr.EntryAt,
 	}
 	if p.CurrentStopLoss > 0 {
 		st.SL = p.CurrentStopLoss

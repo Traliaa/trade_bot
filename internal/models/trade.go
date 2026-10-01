@@ -81,18 +81,21 @@ type TradePayload struct {
 	RMultiple   float64 `json:"r_multiple,omitempty"`
 	DurationSec int64   `json:"duration_sec,omitempty"`
 
-	MovedToBE          bool `json:"moved_to_be,omitempty"`
-	LockedProfit       bool `json:"locked_profit,omitempty"`
-	TookPartial        bool `json:"took_partial,omitempty"`
-	PartialCount       int  `json:"partial_count,omitempty"`
-	TimeStopTriggered  bool `json:"time_stop_triggered,omitempty"`
-	SLReplaceAttempts  int  `json:"sl_replace_attempts,omitempty"`
-	SLReplaceFailures  int  `json:"sl_replace_failures,omitempty"`
-	TPReplaceAttempts  int  `json:"tp_replace_attempts,omitempty"`
-	TPReplaceFailures  int  `json:"tp_replace_failures,omitempty"`
-	AlgoCancelFailures int  `json:"algo_cancel_failures,omitempty"`
-	BEReplaceAttempts  int  `json:"be_replace_attempts,omitempty"`
-	BEReplaceFailures  int  `json:"be_replace_failures,omitempty"`
+	MovedToBE            bool    `json:"moved_to_be,omitempty"`
+	LockedProfit         bool    `json:"locked_profit,omitempty"`
+	TookPartial          bool    `json:"took_partial,omitempty"`
+	ProfitRunnerActive   bool    `json:"profit_runner_active,omitempty"`
+	RunnerPartialPending bool    `json:"runner_partial_pending,omitempty"`
+	RunnerPartialSize    float64 `json:"runner_partial_size,omitempty"`
+	PartialCount         int     `json:"partial_count,omitempty"`
+	TimeStopTriggered    bool    `json:"time_stop_triggered,omitempty"`
+	SLReplaceAttempts    int     `json:"sl_replace_attempts,omitempty"`
+	SLReplaceFailures    int     `json:"sl_replace_failures,omitempty"`
+	TPReplaceAttempts    int     `json:"tp_replace_attempts,omitempty"`
+	TPReplaceFailures    int     `json:"tp_replace_failures,omitempty"`
+	AlgoCancelFailures   int     `json:"algo_cancel_failures,omitempty"`
+	BEReplaceAttempts    int     `json:"be_replace_attempts,omitempty"`
+	BEReplaceFailures    int     `json:"be_replace_failures,omitempty"`
 
 	MFEPrice float64 `json:"mfe_price,omitempty"`
 	MAEPrice float64 `json:"mae_price,omitempty"`

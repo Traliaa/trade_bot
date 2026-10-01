@@ -83,9 +83,12 @@ type PositionTrailState struct {
 
 	OpenedAt time.Time // ✅ когда открыли позицию (для тайм-стопа)
 
-	LastTrailEnd time.Time
-	LastTrailAt  time.Time
-	TookPartial  bool
+	LastTrailEnd         time.Time
+	LastTrailAt          time.Time
+	TookPartial          bool
+	ProfitRunnerActive   bool
+	RunnerPartialPending bool
+	RunnerPartialSize    float64
 
 	// 👇 НОВОЕ
 	CloseReason    CloseReason

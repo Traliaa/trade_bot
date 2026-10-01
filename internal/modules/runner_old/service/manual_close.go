@@ -112,6 +112,10 @@ func executeManualClose(ctx context.Context, repo closeRepository, exchange clos
 }
 
 func (r *Service) ManualCloseTrade(ctx context.Context, userID int64, guid, requestID uuid.UUID, fraction float64) (models.ManualClose, error) {
+	if sess, active := r.GetSession(userID); active {
+		sess.TrailExecMu.Lock()
+		defer sess.TrailExecMu.Unlock()
+	}
 	user, err := r.GetUser(ctx, userID)
 	if err != nil || user == nil {
 		return models.ManualClose{}, models.ErrCloseNotFound
@@ -165,14 +169,17 @@ func (r *Service) ManualCloseStatus(ctx context.Context, userID int64, guid, req
 		return m, err
 	}
 	if m.Status == "filled" || m.Status == "canceled" {
-		remaining, posErr := client.ClosingPosition(ctx, tr.InstID, tr.Payload.PosSide)
+		sess, active := r.GetSession(userID)
+		var remaining float64
+		var posErr error
+		if active {
+			remaining, posErr = sess.RefreshManualPositionSnapshot(ctx, tr.InstID, tr.Payload.PosSide)
+		} else {
+			remaining, posErr = client.ClosingPosition(ctx, tr.InstID, tr.Payload.PosSide)
+		}
 		if posErr != nil {
 			m.Message += " Остаток позиции пока не подтверждён."
 			return m, nil
-		}
-		sess, active := r.GetSession(userID)
-		if active {
-			sess.ApplyManualPositionSnapshot(tr.InstID, tr.Payload.PosSide, remaining)
 		}
 		if remaining == 0 {
 			for _, id := range []string{tr.Payload.AlgoID, tr.Payload.TPAlgoID} {

@@ -39,12 +39,13 @@ a live order as a probe. No UI/API for unblocking is introduced here.
   retaining a valid remainder. An impossible or rejected regular partial does not
   prevent an otherwise eligible SL improvement.
 
-This does not automatically repair pre-existing merged positions, attribute their
-fills to individual owners, or restore an old TP that market price already passed.
-Such positions require a separately reviewed management decision. The existing
-partial-fill timeout reconciliation behavior is unchanged.
+Entry-safety changes do not attribute merged fills to individual owners or
+restore an old TP that market price already passed. The October 1 runner below
+can reconcile protective IDs for an eligible tracked residual; it refuses
+externally increased positions. Pre-runner partial-fill timeout behavior is
+unchanged.
 
-## Agreed follow-up: profit runner (not implemented here)
+## Profit runner
 
 ### September 27: existing LOCK-stage correction
 
@@ -63,12 +64,51 @@ that the exchange still has that protective order.
 These fixes do not adopt an untracked/merged exchange position or repair AVAX
 orders remotely. They are separate from the future runner behavior below.
 
-The user wants a 3R profit reference for 1R initial risk, retaining partial profit
-taking and trailing the remainder by SL rather than closing all of it at a fixed
-TP. SL must not loosen. TP movement, trigger levels, trail distance and exchange
-order-race handling need an explicit implementation design and tests before
-enabling this mode. This patch does not change live strategy settings or promise
-that all trades close profitably.
+### October 1: current-price 1R runner
+
+On a closed 1-minute candle at or beyond +3 initial R, tracked positions enter
+the runner path. The activation is rechecked against a fresh OKX last-price
+ticker, using the original stored entry/risk, not a changed exchange average.
+LONG follows `last - R`; SHORT follows `last + R`. Round away from the market
+to tick size and retain any more protective stored or live SL. A reached stop
+is not loosened or replaced with a market close: reconciliation warns instead.
+Runner updates are throttled to once per minute, not the legacy 15m slot.
+
+Each update reads the actual open size and live conditional/OCO IDs. Increased
+positions, unknown protection, unsupported trigger semantics or invalid data
+fail closed. A smaller remainder suppresses further automatic partials. The
+runner intent is persisted before placing a replacement; its live ID/price/size
+must be confirmed and persisted before cancelling old protection, including
+the fixed TP. A failed cancellation is retried on a subsequent reconciliation.
+The guard accepts a missing TP only for runner positions and still requires SL.
+
+Partial settings remain in effect. Unexecuted partials require a valid lot-size
+remainder. Runner partial intent is persisted before submission; ambiguous
+submission/fill outcomes never blindly resubmit, including after restart.
+An unresolved intent requires inspection if no smaller exchange size appears.
+Partial fills are stored when available, and a fresh position size drives SL
+resizing, never the requested order quantity. Runner updates, regular/V3 exits,
+in-app manual submissions and reporting writes are serialized per session.
+An active manual-close request (`pending`, `accepted`, `unknown`) is checked
+before reading the runner's position snapshot. It suppresses automatic partials
+for that entire cycle even if the manual order fills during SL reconciliation;
+failure to read this guard also suppresses partials, but not stop management.
+
+This change does not alter initial TP placement or pre-3R exit rules: positions
+whose existing TP executes below 3R will not reach this mode. Regular/V3 partial
+submission recovery before 3R is unchanged. There is no cross-process lock;
+run only one bot instance per account. External exchange actions can race REST
+snapshots; reduce-only closing semantics prevent a new reverse position but do
+not make those snapshots atomic. Unsupported external position increases are
+not adopted. Existing AVAX is managed only if it is a tracked trade with valid
+original risk, after fresh exchange verification; no live orders are changed by
+tests or by editing this repository. Profit is never guaranteed.
+
+Runner fields are backward-compatible JSON payload fields, so no new migration
+is needed beyond migration 7. Deploying this version enables this behavior for
+eligible existing tracked positions as well as future ones. Do not roll back an
+active runner to an older binary that ignores its mode without reviewing its
+live protection first.
 
 ## Tests
 
@@ -78,3 +118,8 @@ pending-order queries, recovery and rounding. The opt-in integration tests use
 `trade_report_test`. Use a disposable database and run the repository and session
 integration tests sequentially. The repository test recreates its exclusion table.
 The session test uses real SQL and a fully intercepted HTTP transport, never OKX.
+`TestProfitRunnerSessionPostgres` additionally covers minute updates, partial
+resizing, persistent intent, restored state and replacement failures. The helper
+and intercepted-client tests cover LONG/SHORT calculations, rounding, no
+loosening, real-ID reconciliation, confirmation failure, persistence failure,
+hedge closing orders and cancellation failure.

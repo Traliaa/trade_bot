@@ -41,7 +41,9 @@ type UserSession struct {
 	//настройки пользователя
 	User *models.UserSettings
 
-	TrailMu     sync.RWMutex
+	TrailMu sync.RWMutex
+	// Serializes exchange mutations and read/modify/write trade reports.
+	TrailExecMu sync.Mutex
 	TrailStates map[models.PosKey]*models.PositionTrailState
 
 	ExchangeMu          sync.RWMutex

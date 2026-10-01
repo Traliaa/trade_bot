@@ -15,6 +15,15 @@ func readManualClose(row pgx.Row) (m models.ManualClose, err error) {
 
 const closeColumns = "request_id, trade_guid, fraction, size, order_id, status, message"
 
+func (u *User) HasActiveManualClose(ctx context.Context, userID int64, guid uuid.UUID) (active bool, err error) {
+	err = u.db.RunMaster(ctx, func(ctx context.Context, tx pgx.Tx) error {
+		return tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM manual_close_requests m
+		JOIN trade_history t ON t.guid=m.trade_guid
+		WHERE t.guid=$1 AND t.user_id=$2 AND m.status IN ('pending','accepted','unknown'))`, guid, userID).Scan(&active)
+	})
+	return
+}
+
 func (u *User) GetManualClose(ctx context.Context, userID int64, guid, requestID uuid.UUID) (out models.ManualClose, err error) {
 	err = u.db.RunMaster(ctx, func(ctx context.Context, tx pgx.Tx) error {
 		out, err = readManualClose(tx.QueryRow(ctx, "SELECT "+closeColumns+" FROM manual_close_requests WHERE request_id=$1 AND trade_guid=$2 AND EXISTS (SELECT 1 FROM trade_history WHERE guid=$2 AND user_id=$3)", requestID, guid, userID))

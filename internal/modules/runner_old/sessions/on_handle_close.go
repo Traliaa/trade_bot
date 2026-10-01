@@ -36,11 +36,13 @@ func (s *UserSession) OnCandleClose(ctx context.Context, ct models.CandleTick) {
 
 // checkV3PartialForSide проверяет и выполняет частичное закрытие по сигналу V3.
 func (s *UserSession) checkV3PartialForSide(ctx context.Context, ct models.CandleTick, posSide string) {
+	s.TrailExecMu.Lock()
+	defer s.TrailExecMu.Unlock()
 	key := models.PosKey{InstID: ct.InstID, PosSide: posSide}
 
 	s.TrailMu.Lock()
 	st, ok := s.TrailStates[key]
-	if !ok || st == nil || st.TookPartial {
+	if !ok || st == nil || st.TookPartial || st.ProfitRunnerActive || st.RunnerPartialPending {
 		s.TrailMu.Unlock()
 		return
 	}

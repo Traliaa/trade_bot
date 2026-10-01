@@ -79,6 +79,19 @@ func decideTrail15m(
 	lastPrice float64,
 	slotEnd time.Time,
 ) models.TrailDecision {
+	if runnerEligible(st, lastPrice) {
+		candidate, err := runnerStop(st, lastPrice, st.TickSz)
+		if err != nil {
+			return models.TrailDecision{}
+		}
+		if cfg.TrailingConfig.PartialEnabled && !st.TookPartial && !st.RunnerPartialPending && models.CalcPriceR(st.Entry, lastPrice, st.RiskDist, st.PosSide) >= cfg.TrailingConfig.PartialTriggerR && cfg.TrailingConfig.PartialCloseFrac > 0 && cfg.TrailingConfig.PartialCloseFrac < 1 {
+			return models.TrailDecision{CloseSize: st.Size * cfg.TrailingConfig.PartialCloseFrac, Reason: models.CloseReasonPartialExit, MoveSLAfterPartial: true, NewSLAfterPartial: candidate, Note: "RUNNER_PARTIAL"}
+		}
+		if shouldImproveSL(st, candidate) {
+			return models.TrailDecision{MoveSL: true, NewSL: candidate, Reason: models.CloseReasonLockProfit, Note: "RUNNER_1R"}
+		}
+		return models.TrailDecision{}
+	}
 	R := st.RiskDist
 	if R <= 0 || st.Entry <= 0 || st.SL <= 0 {
 		return models.TrailDecision{}

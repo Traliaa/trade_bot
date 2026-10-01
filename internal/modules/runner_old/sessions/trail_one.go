@@ -12,11 +12,18 @@ import (
 )
 
 func (s *UserSession) trailOne(ctx context.Context, ct models.CandleTick, p models.CachedPos) {
+	s.TrailExecMu.Lock()
+	defer s.TrailExecMu.Unlock()
 	key := helper.TrailKey(ct.InstID, p.PosSide)
 
 	s.TrailMu.RLock()
 	st := s.TrailStates[key]
+	runner := runnerEligible(st, ct.Close)
 	s.TrailMu.RUnlock()
+	if runner {
+		s.trailProfitRunner(ctx, key, ct.End)
+		return
+	}
 	if st == nil || st.AlgoID == "" || st.RiskDist <= 0 {
 		return
 	}
@@ -31,9 +38,7 @@ func (s *UserSession) trailOne(ctx context.Context, ct models.CandleTick, p mode
 	if p.Size > 0 {
 		st.Size = p.Size
 	}
-	if p.Entry > 0 {
-		st.Entry = p.Entry
-	}
+	// Keep the original entry and R; exchange average entry can change.
 	st.UpdateMFE(ct.High, ct.Low)
 
 	dec = decideTrail15m(st, s.User.Settings, ct.Close, ct.End)
