@@ -1,0 +1,110 @@
+{
+  "schema": 1,
+  "provenance": "synthetic fixture; not market performance",
+  "manifest": {
+    "version": "exit-policies-v1",
+    "config": {
+      "be_trigger_r": 1,
+      "be_offset_r": 0.1,
+      "lock_trigger_r": 1.2,
+      "lock_offset_r": 0.6,
+      "time_stop_bars": 12,
+      "time_stop_min_current_r": 0,
+      "fixed_time_stop_bars": 12,
+      "early_time_stop_bars": 0,
+      "early_time_stop_min_mfe_r": 0,
+      "partial_enabled": true,
+      "partial_trigger_r": 1.25,
+      "partial_close_frac": 0.5,
+      "stale_after_bars": 16,
+      "stale_min_mfe_r": 0.35,
+      "stale_exit_profit_r": 0.25,
+      "stale_near_be_r": -0.03,
+      "stale_max_adverse_r": -0.65,
+      "stale_grace_bars": 6,
+      "stale_worse_by_r": 0.3,
+      "stale_tighten_to_be_r": 0.05
+    },
+    "costs": {
+      "exit_fee_bps": 5,
+      "slippage_bps": 3
+    }
+  },
+  "samples": [
+    {
+      "id": "synthetic-long",
+      "symbol": "TEST-USDT-SWAP",
+      "side": "long",
+      "provenance": "synthetic fixture; not market performance",
+      "reconciliation_status": "verified",
+      "fee_currency": "USDT",
+      "entry_at": "2025-01-02T12:00:00.000Z",
+      "end_at": "2025-01-02T12:03:00.000Z",
+      "entry": 100,
+      "initial_stop": 90,
+      "initial_target": 115,
+      "contracts": 2,
+      "contract_value": 1,
+      "tick_size": 0.1,
+      "lot_size": 1,
+      "min_size": 1,
+      "entry_fee": -0.1,
+      "config": {
+        "be_trigger_r": 1,
+        "be_offset_r": 0.1,
+        "lock_trigger_r": 1.2,
+        "lock_offset_r": 0.6,
+        "time_stop_bars": 12,
+        "time_stop_min_current_r": 0,
+        "fixed_time_stop_bars": 12,
+        "early_time_stop_bars": 0,
+        "early_time_stop_min_mfe_r": 0,
+        "partial_enabled": true,
+        "partial_trigger_r": 1.25,
+        "partial_close_frac": 0.5,
+        "stale_after_bars": 16,
+        "stale_min_mfe_r": 0.35,
+        "stale_exit_profit_r": 0.25,
+        "stale_near_be_r": -0.03,
+        "stale_max_adverse_r": -0.65,
+        "stale_grace_bars": 6,
+        "stale_worse_by_r": 0.3,
+        "stale_tighten_to_be_r": 0.05
+      },
+      "spread_bps": 2,
+      "assumed_spread_bps": 0,
+      "funding_complete": true,
+      "bars": [
+        {
+          "start": "2025-01-02T12:00:00.000Z",
+          "end": "2025-01-02T12:01:00.000Z",
+          "open": 100,
+          "high": 114,
+          "low": 99,
+          "close": 113,
+          "source": "synthetic"
+        },
+        {
+          "start": "2025-01-02T12:01:00.000Z",
+          "end": "2025-01-02T12:02:00.000Z",
+          "open": 113,
+          "high": 133,
+          "low": 112,
+          "close": 132,
+          "source": "synthetic"
+        },
+        {
+          "start": "2025-01-02T12:02:00.000Z",
+          "end": "2025-01-02T12:03:00.000Z",
+          "open": 132,
+          "high": 133,
+          "low": 119,
+          "close": 121,
+          "source": "synthetic"
+        }
+      ],
+      "funding": [],
+      "entry_tail": null
+    }
+  ]
+}
