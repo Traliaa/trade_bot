@@ -76,7 +76,10 @@ func ReplayExitSample(s ExitSample, m ExitManifest, p ExitProfile, mult float64)
 			return
 		}
 		st.Stop = px
-		st.BEActivated = sign*(px-st.Entry) >= 0
+		// A smaller stale lock is not the configured break-even level.
+		// Match sessions.approxAtOrBeyondBE, including its absolute tolerance.
+		be := st.Entry + sign*m.Config.BEOffsetR*st.InitialRiskDist
+		st.BEActivated = sign*(px-be) >= -1e-12
 		st.LockedProfit = sign*(px-st.Entry) > 0
 		o.Ledger = append(o.Ledger, ExitLedgerEvent{At: at, Kind: "stop_move", Reason: reason, Price: px, RemainingAfter: st.Remaining})
 	}

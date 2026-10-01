@@ -207,3 +207,46 @@ func TestExitExecutionStressAndFuture(t *testing.T) {
 	}
 	nearExit(t, b.Ledger[0].Fee, .01)
 }
+
+// A stale .05R stop has not reached the configured .1R BE offset.
+// Source: sessions.approxAtOrBeyondBE; the later 1R wick must still upgrade SL.
+func TestExitExecutionStaleStopDoesNotSuppressBE(t *testing.T) {
+	for _, side := range []string{"long", "short"} {
+		for _, profile := range []ExitProfile{ExitConfigured, ExitRunner} {
+			t.Run(side+"/"+string(profile), func(t *testing.T) {
+				rows := make([][4]float64, 257)
+				for i := range rows {
+					px := 100.
+					if i >= 239 {
+						px = 101.5
+					}
+					rows[i] = [4]float64{px, px, px, px}
+				}
+				rows[254][1] = 110
+				rows[256][2] = 100.4
+				s, m := exitExecutionFixture(rows...)
+				if side == "short" {
+					s.Side, s.InitialStop, s.InitialTarget = side, 110, 85
+					for i, b := range s.Bars {
+						s.Bars[i].Open, s.Bars[i].High = 200-b.Open, 200-b.Low
+						s.Bars[i].Low, s.Bars[i].Close = 200-b.High, 200-b.Close
+					}
+				}
+				o, err := ReplayExitSample(s, m, profile, 1)
+				if err != nil {
+					t.Fatal(err)
+				}
+				nearExit(t, o.Gross, 2)
+				moves := []string{}
+				for _, e := range o.Ledger {
+					if e.Kind == "stop_move" {
+						moves = append(moves, e.Reason)
+					}
+				}
+				if !reflect.DeepEqual(moves, []string{"stale_to_be", "break_even"}) {
+					t.Fatalf("expected stale stop followed by BE, got %v", moves)
+				}
+			})
+		}
+	}
+}

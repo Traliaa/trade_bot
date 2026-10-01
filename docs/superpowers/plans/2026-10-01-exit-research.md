@@ -1,6 +1,6 @@
 # Exit Research Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Execution method is awaiting user selection; native execution is recommended for these sequentially dependent tasks.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans. User selected inline execution, with one independent final reviewer. The four implementation tasks below have been completed; their original RED/GREEN steps remain the acceptance checklist.
 
 **Goal:** Воспроизводимо сравнить три модели выхода на одинаковых проверенных входах, не меняя реальную торговлю.
 
@@ -10,7 +10,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-10-01-exit-research-design.md`, согласована пользователем 1 октября 2026. Читать целиком вместе с `docs/strategy-audit-2026-10-01.md`.
 
-**Status:** План на согласовании. Ни один implementation step не выполнен.
+**Status:** Tasks 1–4 implemented (commits e35ba16, 2007860, f8c5721, 5c4409d). Independent review completed; the Important BE-state defect was reproduced and fixed with LONG/SHORT regression tests. FIFO input blocking was also reproduced and fixed. Full suite (17 tested packages), command builds, new-package race checks and synthetic CLI run passed again with Go 1.26.7 / temporary modfile; native Go 1.27 remains unverified. One deferred Minor: missing diagnostic reason when minimum size prevents partial, although protective fallback works. Real dataset not available: see `docs/exit-research-coverage-2026-10-01.md`; no live change or profitability claim.
 
 ## Global Constraints
 
@@ -68,17 +68,17 @@ Go 1.26.7 с временным modfile вне репозитория, но не
 - `ExitBar`: `Start, End time.Time`, `Open, High, Low, Close float64`, `Source string`. Основные бары ровно 1m; EntryTail допускает короткий сегмент от точного EntryAt до следующей минутной границы, полученный из более детальных данных, с непустым Source.
 - `ExitValidation`: `Accepted []ExitSample`, `Excluded []ExitExclusion`, `Warnings []string`; `ExitExclusion`: `SampleID, Reason string`. Accepted — детерминированная копия, отсортированная по ID; входные данные не мутировать.
 
-- [ ] **1. Write failing tests** в `exit_dataset_test.go`:
+- [x] **1. Write failing tests** в `exit_dataset_test.go`:
   - `TestExitDatasetStrictJSON`: round-trip example успешен; неизвестное поле, лишний JSON, неизвестная схема/manifest, пустое provenance, повтор ID и файл >128 MiB возвращают error. Тест лимита — генерируемый reader, не файл в 128 MiB.
   - `TestExitDatasetNumericAndGeometry`: NaN/Inf через прямой Go API, отрицательная цена/размер, неверные OHLC, SL/TP не с той стороны, некратный лоту объём, нулевой tick и переполнение `contracts*ctVal*riskDist` дают error.
   - `TestExitDatasetCoverage`: duplicate/перекрывающиеся/пропущенные 1m внутри `[EntryAt, EndAt)` дают error; данные после EndAt не влияют на принятую траекторию; нет покрытия до EndAt — exclusion `insufficient_coverage`.
   - `TestExitDatasetIntraminuteEntry`: вход 12:00:02 без EntryTail исключён с `intraminute_entry_coverage_missing`; полный 12:00 OHLC не заменяет tail; tail 12:00:02—12:01 + дальнейшие 1m принят; tail с началом до входа отвергнут.
   - `TestExitDatasetEligibility`: mismatch/incomplete исключаются с `reconciliation_not_verified`; USDC fee исключается с `unsupported_fee_currency`; неизвестный статус — error; другой Config исключается с `config_snapshot_mismatch`; funding incomplete и null spread оставляют предупреждения, а не «нулевые расходы».
   - `TestExitDefaultManifest`: точные значения всех Global Constraints; `EntryFee` может быть положительным rebate; ошибочные enabled partial fraction вне `(0,1)` отвергнуты.
-- [ ] **2. Run RED:** `go test ./internal/research -run 'TestExit(Dataset|Default)' -count=1`; ожидается FAIL из-за отсутствующих типов/функций.
-- [ ] **3. Implement** перечисленные интерфейсы. Decode проверяет наличие обязательных JSON-полей (в том числе нулевых fee/config) до преобразования в значения: отсутствующее не равно нулю. Для missing spread использовать только явно заданный `AssumedSpreadBPS` и warning. Проверять funding currency через USDT-область sample, конечность rate/mark, symbol и уникальность timestamp. EndAt — граница минутного покрытия; не сдвигать её молча.
-- [ ] **4. Run GREEN:** та же команда и `go test ./internal/research -count=1`; ожидается PASS, старые тесты без изменения.
-- [ ] **5. Commit:** добавить только файлы Task 1; `git commit -m "feat: define validated exit research datasets"`.
+- [x] **2. Run RED:** `go test ./internal/research -run 'TestExit(Dataset|Default)' -count=1`; ожидается FAIL из-за отсутствующих типов/функций.
+- [x] **3. Implement** перечисленные интерфейсы. Decode проверяет наличие обязательных JSON-полей (в том числе нулевых fee/config) до преобразования в значения: отсутствующее не равно нулю. Для missing spread использовать только явно заданный `AssumedSpreadBPS` и warning. Проверять funding currency через USDT-область sample, конечность rate/mark, symbol и уникальность timestamp. EndAt — граница минутного покрытия; не сдвигать её молча.
+- [x] **4. Run GREEN:** та же команда и `go test ./internal/research -count=1`; ожидается PASS, старые тесты без изменения.
+- [x] **5. Commit:** добавить только файлы Task 1; `git commit -m "feat: define validated exit research datasets"`.
 
 ## Task 2: Чистая модель решений и ограничения partial/SL
 
@@ -93,7 +93,7 @@ Go 1.26.7 с временным modfile вне репозитория, но не
 - `ExitState`: `Profile ExitProfile`, `Side string`, `EntryAt, LastActionSlot, LastRunnerActionAt, StaleSince time.Time`; `Entry, InitialRiskDist, InitialContracts, ContractValue, Remaining, Stop, Target, TickSize, LotSize, MinSize, MFEPrice, StaleMarkedAtR float64`; `PartialDone, BEActivated, LockedProfit, RunnerActive, IsStale bool`.
 - `ExitDecision`: `Kind string` (`none`, `move_stop`, `partial`, `close`), `Reason string`, `At time.Time`, `Size, NewStop float64`. NewStop у partial применяется только после исполнения; первоначальный Stop остаётся действующим до этого.
 
-- [ ] **1. Write failing tests:**
+- [x] **1. Write failing tests:**
   - `TestExitPolicyRunnerThreshold`: LONG entry100/SL90, partial выключен: close129.99 не активирует runner, close130 активирует со SL120; SHORT entry100/SL110, close70 -> SL80. Предварительные BE/LOCK проверяются отдельно и не отменяются.
   - `TestExitPolicyNeverLoosensAndRounds`: активный LONG stop125, close132 ->125; SHORT зеркально. Tick0.3, LONG close130.1 ->120, SHORT close69.9 ->80.1; 1R остаётся10.
   - `TestExitPolicyPartialMinimum`: qty1/min1/lot1, requested0.5 -> без partial, но допустимый BE сохранён; qty2 -> partial1, остаток1; PartialDone=true запрещает повтор.
@@ -101,10 +101,10 @@ Go 1.26.7 с временным modfile вне репозитория, но не
   - `TestExitPolicySlotsAndState`: использованный 15m-slot запрещает второе configured-действие, следующий разрешает; runner обходит 15m-slot, но не повторяет минуту; stale state сохраняется даже при `none`.
   - `TestExitPolicyProfileSeparation`: fixed не переносит SL; configured оставляет initial TP; runner target отключён с начала. После RunnerActive time/stale не закрывают позицию, даже при откате ниже3R.
   - `TestExitPolicyMFEVsClose`: configured partial/BE оцениваются по MFE, runner активируется по close; будущие бары не доступны функции.
-- [ ] **2. Run RED:** `go test ./internal/research -run TestExitPolicy -count=1`; ожидается FAIL из-за отсутствующего evaluator.
-- [ ] **3. Implement** evaluator: порядок reference из спецификации, clamp остатка по lot вниз, fallback без partial к защитному решению, монотонный SL. Для откатившей цены нельзя устанавливать новый SL по неправильную сторону текущего close; вернуть `none` с причиной `stop_not_placeable`, не расширять риск. Успешность действия/LastActionSlot фиксирует исполнитель Task 3, не сам факт предложенного partial.
-- [ ] **4. Run GREEN:** та же команда, затем все `./internal/research`; PASS. Fixtures называют источник правил, но не утверждают полную parity с V3 callback или биржевым исполнением.
-- [ ] **5. Commit:** только файлы Task 2; `git commit -m "feat: model configured exits and three-R runners"`.
+- [x] **2. Run RED:** `go test ./internal/research -run TestExitPolicy -count=1`; ожидается FAIL из-за отсутствующего evaluator.
+- [x] **3. Implement** evaluator: порядок reference из спецификации, clamp остатка по lot вниз, fallback без partial к защитному решению, монотонный SL. Для откатившей цены нельзя устанавливать новый SL по неправильную сторону текущего close; вернуть `none` с причиной `stop_not_placeable`, не расширять риск. Успешность действия/LastActionSlot фиксирует исполнитель Task 3, не сам факт предложенного partial.
+- [x] **4. Run GREEN:** та же команда, затем все `./internal/research`; PASS. Fixtures называют источник правил, но не утверждают полную parity с V3 callback или биржевым исполнением.
+- [x] **5. Commit:** только файлы Task 2; `git commit -m "feat: model configured exits and three-R runners"`.
 
 ## Task 3: Исполнение по времени и полный денежный ledger
 
@@ -117,7 +117,7 @@ Go 1.26.7 с временным modfile вне репозитория, но не
 - `ExitLedgerEvent`: `At time.Time`, `Kind, Reason string`, `Price, Size, Gross, Fee, Funding, RemainingAfter float64`; Kind=`entry`, `partial`, `exit`, `funding`, `stop_move`; один entry event на исходную sample. Нулевые денежные поля не скрывать.
 - `recordExitFill(*ExitState, *[]ExitLedgerEvent, time.Time, float64, float64, float64, string) error` — цена, размер, signed fee, reason; единственное место расчёта gross/остатка. Не принимает внешние биржевые fills.
 
-- [ ] **1. Write failing tests:**
+- [x] **1. Write failing tests:**
   - `TestExitExecutionLedgerConservation`: entry100×2/ctVal1/fee−0.1, partial1@112.5/fee−0.05625, exit1@120/fee−0.06, funding−0.12: gross32.5, fees−0.21625, net32.16375, остаток0; риск20, NetR=net/20. Отдельно положительный rebate и запрет sell размера больше Remaining.
   - `TestExitExecutionNoRetroactiveStop`: high пересёк3R, close тоже, low ниже будущего SL но выше старого; в этой свече новый стоп не срабатывает, в следующей — может. Зеркально SHORT.
   - `TestExitExecutionStopFirstAndGap`: entry100/SL90/TP115, OHLC100/116/89/110 -> SL90; следующая open85 ->85 до расходов. Оба касания увеличивают Ambiguities.
@@ -125,14 +125,14 @@ Go 1.26.7 с временным modfile вне репозитория, но не
   - `TestExitExecutionFundingSizes`: на timestamp входа funding0; при rate0.001/mark120 и остатке1 -> LONG−0.12, SHORT+0.12; timestamp partial начисляет на размер до partial; timestamp полного закрытия — на удержанный до него остаток. Funding внутри свечи с неизвестным временем SL/TP помечается `intrabar_funding_ambiguous`, не заявляется точная биржевая сумма.
   - `TestExitExecutionCensoring`: на EndAt есть остаток -> censored, без фиктивного exit fee/gross; pending market-action после последнего close не исполняется; mark-to-market остатка отдельно от реализованного ledger.
   - `TestExitExecutionStressAndFuture`: x2 удваивает отрицательные комиссии и slippage; не удваивает положительный rebate, spread или funding; фактическая entry price/qty не меняются. Добавление баров после EndAt не меняет output; повторный прогон DeepEqual.
-- [ ] **2. Run RED:** `go test ./internal/research -run TestExitExecution -count=1`; ожидается FAIL из-за отсутствующего replay.
-- [ ] **3. Implement** event ordering: funding на границе для старого остатка -> уже нарушенный защитный SL/TP на open -> pending market action -> действующие intrabar SL/TP (stop-first) -> close-наблюдение/решение. Новый SL начинает действовать только на следующем open; partial+SL применяются согласованно после частичного fill. Защитный выход при неоднозначном внутриминутном времени датируется End и помечается как модельное допущение.
+- [x] **2. Run RED:** `go test ./internal/research -run TestExitExecution -count=1`; ожидается FAIL из-за отсутствующего replay.
+- [x] **3. Implement** event ordering: funding на границе для старого остатка -> уже нарушенный защитный SL/TP на open -> pending market action -> действующие intrabar SL/TP (stop-first) -> close-наблюдение/решение. Новый SL начинает действовать только на следующем open; partial+SL применяются согласованно после частичного fill. Защитный выход при неоднозначном внутриминутном времени датируется End и помечается как модельное допущение.
   - Цена выхода корректируется неблагоприятно на `(slippageBPS*multiplier + spreadBPS/2)/10000`, fee считается с фактического exit notional. Вход уже исполнен: не начислять повторный entry spread/slippage.
   - Funding внутри свечи обрабатывается на известный до неопределённого выхода размер с warning; если точный порядок не восстановить, результат sensitivity-only.
   - Для `fixed_v1` таймер `FixedTimeStopBars*15m` без условия currentR; для других — правила Task 2. У censored Net — реализованная часть с уже списанными расходами; NetR так же, MTM остатка отдельно.
   - Проверять конечность каждого денежного произведения и сумму событий; числовая ошибка возвращает error, не NaN JSON. Толеранс инвариантов: `1e-8 + 1e-9*max(abs(a),abs(b))`.
-- [ ] **4. Run GREEN:** та же команда; `go test -race ./internal/research -count=1`; PASS, старый replay неизменён.
-- [ ] **5. Commit:** только файлы Task 3; `git commit -m "feat: replay exit fills and funding without lookahead"`.
+- [x] **4. Run GREEN:** та же команда; `go test -race ./internal/research -count=1`; PASS, старый replay неизменён.
+- [x] **5. Commit:** только файлы Task 3; `git commit -m "feat: replay exit fills and funding without lookahead"`.
 
 ## Task 4: Парный отчёт, offline CLI и пользовательская инструкция
 
@@ -146,22 +146,22 @@ Go 1.26.7 с временным modfile вне репозитория, но не
 - `ExitPairedDelta`: `Against ExitProfile`, `SampleID string`, `CostMultiplier, NetDifference, RDifference float64`; runner сравнивается с fixed и configured на общем cohort. Профиль runner подразумевается и явно описывается в JSON schema/docs.
 - CLI `run(args []string, stdout, stderr io.Writer) error`, собственный `flag.FlagSet`; `main` только выводит ошибку и возвращает nonzero. Флаги `-input <path>`, `-example`, `-stress=true`; default input отсутствует, URL не открываются.
 
-- [ ] **1. Write failing tests:**
+- [x] **1. Write failing tests:**
   - `TestExitComparisonCommonCohort`: один пример закрыт во всех профилях, другой censored только в runner -> Count1 в каждой сводке; второй остаётся в Outcomes со статусом, не пропадает. Пустой common cohort -> статус `no_common_closed_samples`, Profiles пустой, предупреждение; не три «прибыль=0» сводки.
   - `TestExitComparisonMetrics`: net `[2,-1,1]` -> PF3, winrate2/3, top1share2/3, top3share1; без losses PF null; без wins shares null. NetR использует исходный денежный риск, не margin/leverage. Переполнение сумм/отношений возвращает error, не NaN/Inf JSON.
   - `TestExitComparisonPairedStress`: сортировка по multiplier/profile/ID стабильна; результаты base/stress разделены; нет смешивания ID между cohort. Смена порядка samples/bars не меняет расчёт после канонизации; duplicate bars остаются ошибкой.
   - `TestExitComparisonWarnings`: retained exclusions, funding/spread assumptions, missing V3 callback, intrabar ambiguity, censoring и непортфельная область всегда видны. Поля `eligible_for_live`/«рекомендуемые live-настройки» отсутствуют.
   - `TestExitCLIExampleRoundTrip`: example -> Decode -> Compare -> JSON success; SHA-256 соответствует исходным bytes; версия модели присутствует, revision включает dirty либо явно unknown; build info не выдумывается.
   - `TestExitCLIRejectsInvalidInput`: missing flags/file, malformed/trailing JSON, size limit, URL input -> error, stdout без частичного success JSON. Проверка нового CLI через Go AST/imports запрещает DB/OKX/net/http-клиенты, exec и чтение env-ключей; синтетический прогон не требует credentials.
-- [ ] **2. Run RED:** `go test ./internal/research ./cmd/research-exits -run 'TestExit(Comparison|CLI)' -count=1`; ожидается FAIL до создания отчёта/CLI.
-- [ ] **3. Implement** перечисленные контракты, расчёты по ledger/outcomes и детерминированный pretty JSON. Все показатели вычислять только на заявленной выборке. В `docs/exit-research.md` описать schema, команды, profiles, время исполнения, signed fees, ограничения и причины исключения; привести синтетический пример, не обещание доходности.
-- [ ] **4. Run GREEN and branch verification:**
+- [x] **2. Run RED:** `go test ./internal/research ./cmd/research-exits -run 'TestExit(Comparison|CLI)' -count=1`; ожидается FAIL до создания отчёта/CLI.
+- [x] **3. Implement** перечисленные контракты, расчёты по ledger/outcomes и детерминированный pretty JSON. Все показатели вычислять только на заявленной выборке. В `docs/exit-research.md` описать schema, команды, profiles, время исполнения, signed fees, ограничения и причины исключения; привести синтетический пример, не обещание доходности.
+- [x] **4. Run GREEN and branch verification:**
   - `go test ./internal/research ./cmd/research-exits -count=1` — PASS.
   - `go test -race ./internal/research ./cmd/research-exits -count=1` — PASS.
   - `go run ./cmd/research-exits -input internal/research/testdata/exits-v1.json -stress=true` — JSON с base/x2 outcomes всех профилей и предупреждением synthetic.
   - `go test ./... -count=1`, `go build ./cmd/...`, `git diff --check` — PASS; при toolchain/environment blocker сообщить точную невыполненную проверку.
   - Просмотреть diff: отсутствуют изменения live-кода, старого replay, env/keys, миграций и production-параметров.
-- [ ] **5. Commit:** только файлы Task 4; `git commit -m "feat: expose reproducible paired exit research reports"`. Независимое ревью по выбранному workflow, замечания покрывать тестами. Не push/deploy без запроса.
+- [x] **5. Commit:** только файлы Task 4; `git commit -m "feat: expose reproducible paired exit research reports"`. Независимое ревью по выбранному workflow, замечания покрывать тестами. Не push/deploy без запроса.
 
 ## После реализации: реальные данные и пределы вывода
 

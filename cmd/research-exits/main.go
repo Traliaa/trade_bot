@@ -50,12 +50,20 @@ func run(args []string, stdout, stderr io.Writer) error {
 	if *input == "" || strings.Contains(*input, "://") {
 		return fmt.Errorf("-input must name a local regular file")
 	}
+	// Opening a FIFO can block before f.Stat; reject special files first.
+	st, e := os.Stat(*input)
+	if e != nil {
+		return e
+	}
+	if !st.Mode().IsRegular() || st.Size() > 128<<20 {
+		return fmt.Errorf("input must be a regular file <=128 MiB")
+	}
 	f, e := os.Open(*input)
 	if e != nil {
 		return e
 	}
 	defer f.Close()
-	st, e := f.Stat()
+	st, e = f.Stat()
 	if e != nil {
 		return e
 	}
