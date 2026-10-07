@@ -16,7 +16,7 @@ import (
 
 func TestCaptureFillEvidence(t *testing.T) {
 	at := time.Date(2026, 10, 7, 8, 0, 0, 0, time.UTC)
-	good := models.TradeFill{FillPx: 101, FillSz: 2, FillTime: at}
+	good := models.TradeFill{FillPx: 101, FillSz: 2, FillTime: at, ResearchExecutionTime: &at}
 	for _, tc := range []struct {
 		name  string
 		fills []models.TradeFill
@@ -41,7 +41,8 @@ func TestCaptureFillEvidence(t *testing.T) {
 			}
 		})
 	}
-	fills := []models.TradeFill{{FillPx: 101, FillSz: .1, FillTime: at}, {FillPx: 101, FillSz: 1.1, FillTime: at}, {FillPx: 101, FillSz: .6, FillTime: at.Add(time.Millisecond)}}
+	later := at.Add(time.Millisecond)
+	fills := []models.TradeFill{{FillPx: 101, FillSz: .1, FillTime: at, ResearchExecutionTime: &at}, {FillPx: 101, FillSz: 1.1, FillTime: at, ResearchExecutionTime: &at}, {FillPx: 101, FillSz: .6, FillTime: later, ResearchExecutionTime: &later}}
 	e := researchFillEvidence(fills, 1.8, nil)
 	if e.FilledSize <= 1.8 || e.Status != "incomplete" || e.FirstFillAt.Equal(*e.LastFillAt) {
 		t.Fatalf("ambiguous volume/time hidden: %+v", e)
@@ -105,5 +106,24 @@ func TestCapturePreservesPlannedBeforeFillMutation(t *testing.T) {
 	p.RiskDist = 6
 	if p.ResearchEntry.Planned.Entry != 100 || p.ResearchEntry.Planned.Size != 2 || p.ResearchEntry.Planned.RiskDist != 5 {
 		t.Fatal("planned values alias mutated params")
+	}
+}
+
+func TestCaptureRecordTimeIsNotExecutionTime(t *testing.T) {
+	record := time.UnixMilli(1791356400002)
+	first := record.Add(-2 * time.Millisecond)
+	last := record.Add(-time.Millisecond)
+	fills := []models.TradeFill{{FillPx: 100, FillSz: 1, FillTime: record, ResearchExecutionTime: &first}, {FillPx: 100, FillSz: 1, FillTime: record, ResearchExecutionTime: &last}}
+	e := researchFillEvidence(fills, 2, nil)
+	if e.TimeSource != "exchange_record" || e.Status != "incomplete" || e.FirstFillAt == nil || e.FirstFillAt.UnixMilli() != 1791356400000 || e.LastFillAt.UnixMilli() != 1791356400001 {
+		t.Fatalf("record timestamp misrepresented: %+v", e)
+	}
+	if !strings.Contains(strings.Join(e.Reasons, ","), "multi_time_entry") {
+		t.Fatal("multi-time executions hidden by equal record times")
+	}
+	fills[0].ResearchExecutionTime = nil
+	e = researchFillEvidence(fills[:1], 1, nil)
+	if e.Status != "incomplete" || e.FirstFillAt != nil || e.LastFillAt != nil {
+		t.Fatal("missing execution time silently replaced by ts")
 	}
 }

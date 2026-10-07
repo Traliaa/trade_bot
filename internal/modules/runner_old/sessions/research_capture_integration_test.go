@@ -81,7 +81,7 @@ func TestCaptureOnOffTradeParity(t *testing.T) {
 					case "/api/v5/trade/order":
 						body = `{"code":"0","data":[{"ordId":"fixture-order","sCode":"0"}]}`
 					case "/api/v5/trade/fills":
-						body = `{"code":"0","data":[{"instId":"ETH-USDT-SWAP","posSide":"long","side":"buy","ordId":"fixture-order","fillPx":"101","fillSz":"2","fee":"-0.01","fillPnl":"0","tradeId":"fixture-fill","ts":"1791356400000"}]}`
+						body = `{"code":"0","data":[{"instId":"ETH-USDT-SWAP","posSide":"long","side":"buy","ordId":"fixture-order","fillPx":"101","fillSz":"2","fee":"-0.01","fillPnl":"0","tradeId":"fixture-fill","ts":"1791356400001","fillTime":"1791356400000"}]}`
 					case "/api/v5/trade/order-algo":
 						algos++
 						if failSL {
@@ -106,7 +106,7 @@ func TestCaptureOnOffTradeParity(t *testing.T) {
 					if p.Entry != 101 || p.Size != 2 || algos != 2 {
 						t.Fatal("changed fill/protection behavior")
 					}
-					if enabled && (p.ResearchEntry.Planned.Entry != 100 || p.ResearchEntry.Planned.Size != 2 || result.ResearchEvidence.TimeSource != "exchange_fills" || len(p.ResearchEntry.Settings) != 3) {
+					if enabled && (p.ResearchEntry.Planned.Entry != 100 || p.ResearchEntry.Planned.Size != 2 || result.ResearchEvidence.TimeSource != "exchange_record" || result.ResearchEvidence.Status != "incomplete" || len(p.ResearchEntry.Settings) != 3) {
 						t.Fatal("entry observations not wired")
 					}
 				} else if algos != 1 || !strings.Contains(calls[len(calls)-1], `"reduceOnly":true`) {

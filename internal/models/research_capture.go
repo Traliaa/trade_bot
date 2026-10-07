@@ -224,12 +224,12 @@ func BuildResearchEntrySnapshot(in ResearchCaptureInput) (json.RawMessage, strin
 	if e.Status != "reported_complete" && e.Status != "incomplete" {
 		return nil, "invalid_evidence"
 	}
-	if e.TimeSource != "exchange_fills" && e.TimeSource != "local_fallback" {
+	if e.TimeSource != "exchange_fills" && e.TimeSource != "exchange_record" && e.TimeSource != "local_fallback" {
 		return nil, "invalid_evidence"
 	}
 	for _, r := range e.Reasons {
 		switch r {
-		case "fills_unavailable", "fill_volume_unverified", "fill_time_missing", "invalid_fill", "multi_time_entry":
+		case "fills_unavailable", "fill_volume_unverified", "fill_time_missing", "invalid_fill", "multi_time_entry", "entry_time_not_execution":
 			add(r)
 		default:
 			return nil, "invalid_evidence"
@@ -237,7 +237,7 @@ func BuildResearchEntrySnapshot(in ResearchCaptureInput) (json.RawMessage, strin
 	}
 	e.FirstFillAt = researchUTC(e.FirstFillAt)
 	e.LastFillAt = researchUTC(e.LastFillAt)
-	if e.Status != "reported_complete" || e.TimeSource != "exchange_fills" || e.FillCount <= 0 || e.FirstFillAt == nil || e.LastFillAt == nil {
+	if e.Status != "reported_complete" || e.TimeSource == "local_fallback" || e.FillCount <= 0 || e.FirstFillAt == nil || e.LastFillAt == nil {
 		add("fills_incomplete")
 	}
 	if e.FirstFillAt != nil && e.LastFillAt != nil && !e.FirstFillAt.Equal(*e.LastFillAt) {

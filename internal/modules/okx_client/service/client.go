@@ -449,17 +449,18 @@ func (c *Client) RecentFills(ctx context.Context, instID string, limit int) ([]m
 		Code string `json:"code"`
 		Msg  string `json:"msg"`
 		Data []struct {
-			InstID  string `json:"instId"`
-			PosSide string `json:"posSide"`
-			Side    string `json:"side"`
-			OrdID   string `json:"ordId"`
-			AlgoID  string `json:"algoId"`
-			FillPx  string `json:"fillPx"`
-			FillSz  string `json:"fillSz"`
-			Fee     string `json:"fee"`
-			FillPnl string `json:"fillPnl"`
-			TradeID string `json:"tradeId"`
-			Ts      string `json:"ts"`
+			InstID   string `json:"instId"`
+			PosSide  string `json:"posSide"`
+			Side     string `json:"side"`
+			OrdID    string `json:"ordId"`
+			AlgoID   string `json:"algoId"`
+			FillPx   string `json:"fillPx"`
+			FillSz   string `json:"fillSz"`
+			Fee      string `json:"fee"`
+			FillPnl  string `json:"fillPnl"`
+			TradeID  string `json:"tradeId"`
+			Ts       string `json:"ts"`
+			FillTime string `json:"fillTime"`
 		} `json:"data"`
 	}
 
@@ -491,18 +492,24 @@ func (c *Client) RecentFills(ctx context.Context, instID string, limit int) ([]m
 
 	out := make([]models.TradeFill, 0, len(wrap.Data))
 	for _, d := range wrap.Data {
+		var executionTime *time.Time
+		if ms, err := strconv.ParseInt(d.FillTime, 10, 64); err == nil && ms > 0 {
+			at := time.UnixMilli(ms).UTC()
+			executionTime = &at
+		}
 		out = append(out, models.TradeFill{
-			InstID:      d.InstID,
-			PosSide:     strings.ToLower(d.PosSide),
-			Side:        strings.ToLower(d.Side),
-			OrderID:     d.OrdID,
-			AlgoID:      d.AlgoID,
-			FillPx:      parseF(d.FillPx),
-			FillSz:      parseF(d.FillSz),
-			Fee:         parseF(d.Fee),
-			RealizedPnL: parseF(d.FillPnl),
-			TradeID:     d.TradeID,
-			FillTime:    parseMs(d.Ts),
+			ResearchExecutionTime: executionTime,
+			InstID:                d.InstID,
+			PosSide:               strings.ToLower(d.PosSide),
+			Side:                  strings.ToLower(d.Side),
+			OrderID:               d.OrdID,
+			AlgoID:                d.AlgoID,
+			FillPx:                parseF(d.FillPx),
+			FillSz:                parseF(d.FillSz),
+			Fee:                   parseF(d.Fee),
+			RealizedPnL:           parseF(d.FillPnl),
+			TradeID:               d.TradeID,
+			FillTime:              parseMs(d.Ts),
 		})
 	}
 

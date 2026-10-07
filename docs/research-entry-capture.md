@@ -49,6 +49,14 @@ PostgreSQL JSONB меняет порядок ключей: нельзя пров
 молча до ожидаемого размера; точная decimal-сверка принадлежит collector.
 Локальное fallback-время не называется биржевым.
 
+Существующая торговая `FillTime` берётся из OKX `ts` (время записи), и capture
+не меняет эту семантику. Настоящее время исполнения из `fillTime` сохраняется
+отдельно только для исследования; `FirstFillAt`/`LastFillAt` используют его.
+Источник времени входа обозначается `exchange_record`. Отсутствующий или
+невалидный `fillTime` даёт `fill_time_missing`, отличие последнего исполнения
+от торгового времени входа — `entry_time_not_execution`; оба случая incomplete.
+Источник различия полей: [OKX transaction details](https://www.okx.com/docs-v5/en/#order-book-trading-trade-get-transaction-details-last-3-days).
+
 Нет Settings целиком, API-ключей, DSN, account/Telegram/order/private trade IDs
 или текстов приватных ошибок. Research-снимок исключён из JSON TradeRecord.
 Счётчики доступны через существующий ExecutionStats: `research_capture_complete`,

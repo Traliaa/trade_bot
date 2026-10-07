@@ -34,25 +34,29 @@ func (s *UserSession) researchEntryObservation(p *models.TradeParams, meta model
 // Source-reported float fills are evidence, not decimal archive reconciliation.
 // In particular WaitOrderFills can return a shortfall with nil error on timeout.
 func researchFillEvidence(fills []models.TradeFill, expected float64, fillErr error) *models.ResearchEntryEvidence {
-	e := &models.ResearchEntryEvidence{Status: "reported_complete", TimeSource: "exchange_fills", FillCount: len(fills), Reasons: []string{}}
+	e := &models.ResearchEntryEvidence{Status: "reported_complete", TimeSource: "exchange_record", FillCount: len(fills), Reasons: []string{}}
 	incomplete := func(r string) { e.Status = "incomplete"; e.Reasons = append(e.Reasons, r) }
 	if fillErr != nil || len(fills) == 0 {
 		incomplete("fills_unavailable")
 		e.TimeSource = "local_fallback"
 	}
 	validPrice := false
+	var lastRecord time.Time
 	for _, f := range fills {
+		if f.FillTime.After(lastRecord) {
+			lastRecord = f.FillTime
+		}
 		if f.FillPx <= 0 || f.FillSz <= 0 || math.IsNaN(f.FillPx) || math.IsNaN(f.FillSz) || math.IsInf(f.FillPx, 0) || math.IsInf(f.FillSz, 0) {
 			incomplete("invalid_fill")
 			continue
 		}
 		validPrice = true
 		e.FilledSize += f.FillSz
-		if f.FillTime.IsZero() {
+		if f.ResearchExecutionTime == nil || f.ResearchExecutionTime.IsZero() {
 			incomplete("fill_time_missing")
 			continue
 		}
-		at := f.FillTime.UTC()
+		at := f.ResearchExecutionTime.UTC()
 		if e.FirstFillAt == nil || at.Before(*e.FirstFillAt) {
 			v := at
 			e.FirstFillAt = &v
@@ -62,8 +66,11 @@ func researchFillEvidence(fills []models.TradeFill, expected float64, fillErr er
 			e.LastFillAt = &v
 		}
 	}
-	if !validPrice || e.LastFillAt == nil {
+	if !validPrice || lastRecord.IsZero() {
 		e.TimeSource = "local_fallback"
+	}
+	if e.LastFillAt != nil && !lastRecord.Equal(*e.LastFillAt) {
+		incomplete("entry_time_not_execution")
 	}
 	if e.FilledSize != expected || expected <= 0 {
 		incomplete("fill_volume_unverified")
