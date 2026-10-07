@@ -4,26 +4,6 @@
 
 package sql
 
-import (
-	"github.com/google/uuid"
-	"github.com/jackc/pgx/v5/pgtype"
-)
-
-type TradeHistory struct {
-	Guid        uuid.UUID          `db:"guid"`
-	UserID      int64              `db:"user_id"`
-	InstID      string             `db:"inst_id"`
-	Strategy    string             `db:"strategy"`
-	Timeframe   string             `db:"timeframe"`
-	Status      string             `db:"status"`
-	CloseReason string             `db:"close_reason"`
-	EntryAt     pgtype.Timestamptz `db:"entry_at"`
-	ExitAt      pgtype.Timestamptz `db:"exit_at"`
-	Payload     string             `db:"payload"`
-	CreatedAt   pgtype.Timestamptz `db:"created_at"`
-	UpdatedAt   pgtype.Timestamptz `db:"updated_at"`
-}
-
 type UserSetting struct {
 	ID       int64   `db:"id"`
 	Chatid   int64   `db:"chatid"`

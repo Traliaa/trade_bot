@@ -56,6 +56,7 @@ INSERT INTO public.trade_history (
     entry_at,
     exit_at,
     payload,
+    research_entry_snapshot,
     created_at,
     updated_at
 ) VALUES (
@@ -70,23 +71,25 @@ INSERT INTO public.trade_history (
              $9,
              $10,
              $11,
-             $12
+             $12,
+             $13
          )
 `
 
 type CreateTradeHistoryParams struct {
-	Guid        uuid.UUID          `db:"guid"`
-	UserID      int64              `db:"user_id"`
-	InstID      string             `db:"inst_id"`
-	Strategy    string             `db:"strategy"`
-	Timeframe   string             `db:"timeframe"`
-	Status      string             `db:"status"`
-	CloseReason string             `db:"close_reason"`
-	EntryAt     pgtype.Timestamptz `db:"entry_at"`
-	ExitAt      pgtype.Timestamptz `db:"exit_at"`
-	Payload     string             `db:"payload"`
-	CreatedAt   pgtype.Timestamptz `db:"created_at"`
-	UpdatedAt   pgtype.Timestamptz `db:"updated_at"`
+	Guid                  uuid.UUID          `db:"guid"`
+	UserID                int64              `db:"user_id"`
+	InstID                string             `db:"inst_id"`
+	Strategy              string             `db:"strategy"`
+	Timeframe             string             `db:"timeframe"`
+	Status                string             `db:"status"`
+	CloseReason           string             `db:"close_reason"`
+	EntryAt               pgtype.Timestamptz `db:"entry_at"`
+	ExitAt                pgtype.Timestamptz `db:"exit_at"`
+	Payload               string             `db:"payload"`
+	ResearchEntrySnapshot *string            `db:"research_entry_snapshot"`
+	CreatedAt             pgtype.Timestamptz `db:"created_at"`
+	UpdatedAt             pgtype.Timestamptz `db:"updated_at"`
 }
 
 func (q *Queries) CreateTradeHistory(ctx context.Context, db DBTX, arg *CreateTradeHistoryParams) error {
@@ -101,6 +104,7 @@ func (q *Queries) CreateTradeHistory(ctx context.Context, db DBTX, arg *CreateTr
 		arg.EntryAt,
 		arg.ExitAt,
 		arg.Payload,
+		arg.ResearchEntrySnapshot,
 		arg.CreatedAt,
 		arg.UpdatedAt,
 	)
@@ -218,9 +222,24 @@ type GetOpenTradeByUserAndInstParams struct {
 	InstID string `db:"inst_id"`
 }
 
-func (q *Queries) GetOpenTradeByUserAndInst(ctx context.Context, db DBTX, arg *GetOpenTradeByUserAndInstParams) (*TradeHistory, error) {
+type GetOpenTradeByUserAndInstRow struct {
+	Guid        uuid.UUID          `db:"guid"`
+	UserID      int64              `db:"user_id"`
+	InstID      string             `db:"inst_id"`
+	Strategy    string             `db:"strategy"`
+	Timeframe   string             `db:"timeframe"`
+	Status      string             `db:"status"`
+	CloseReason string             `db:"close_reason"`
+	EntryAt     pgtype.Timestamptz `db:"entry_at"`
+	ExitAt      pgtype.Timestamptz `db:"exit_at"`
+	Payload     string             `db:"payload"`
+	CreatedAt   pgtype.Timestamptz `db:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `db:"updated_at"`
+}
+
+func (q *Queries) GetOpenTradeByUserAndInst(ctx context.Context, db DBTX, arg *GetOpenTradeByUserAndInstParams) (*GetOpenTradeByUserAndInstRow, error) {
 	row := db.QueryRow(ctx, getOpenTradeByUserAndInst, arg.UserID, arg.InstID)
-	var i TradeHistory
+	var i GetOpenTradeByUserAndInstRow
 	err := row.Scan(
 		&i.Guid,
 		&i.UserID,
@@ -267,9 +286,24 @@ type GetOpenTradeByUserAndInstSideParams struct {
 	Payload string `db:"payload"`
 }
 
-func (q *Queries) GetOpenTradeByUserAndInstSide(ctx context.Context, db DBTX, arg *GetOpenTradeByUserAndInstSideParams) (*TradeHistory, error) {
+type GetOpenTradeByUserAndInstSideRow struct {
+	Guid        uuid.UUID          `db:"guid"`
+	UserID      int64              `db:"user_id"`
+	InstID      string             `db:"inst_id"`
+	Strategy    string             `db:"strategy"`
+	Timeframe   string             `db:"timeframe"`
+	Status      string             `db:"status"`
+	CloseReason string             `db:"close_reason"`
+	EntryAt     pgtype.Timestamptz `db:"entry_at"`
+	ExitAt      pgtype.Timestamptz `db:"exit_at"`
+	Payload     string             `db:"payload"`
+	CreatedAt   pgtype.Timestamptz `db:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `db:"updated_at"`
+}
+
+func (q *Queries) GetOpenTradeByUserAndInstSide(ctx context.Context, db DBTX, arg *GetOpenTradeByUserAndInstSideParams) (*GetOpenTradeByUserAndInstSideRow, error) {
 	row := db.QueryRow(ctx, getOpenTradeByUserAndInstSide, arg.UserID, arg.InstID, arg.Payload)
-	var i TradeHistory
+	var i GetOpenTradeByUserAndInstSideRow
 	err := row.Scan(
 		&i.Guid,
 		&i.UserID,
@@ -305,9 +339,24 @@ FROM public.trade_history
 WHERE guid = $1
 `
 
-func (q *Queries) GetTradeHistoryByGUID(ctx context.Context, db DBTX, guid uuid.UUID) (*TradeHistory, error) {
+type GetTradeHistoryByGUIDRow struct {
+	Guid        uuid.UUID          `db:"guid"`
+	UserID      int64              `db:"user_id"`
+	InstID      string             `db:"inst_id"`
+	Strategy    string             `db:"strategy"`
+	Timeframe   string             `db:"timeframe"`
+	Status      string             `db:"status"`
+	CloseReason string             `db:"close_reason"`
+	EntryAt     pgtype.Timestamptz `db:"entry_at"`
+	ExitAt      pgtype.Timestamptz `db:"exit_at"`
+	Payload     string             `db:"payload"`
+	CreatedAt   pgtype.Timestamptz `db:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `db:"updated_at"`
+}
+
+func (q *Queries) GetTradeHistoryByGUID(ctx context.Context, db DBTX, guid uuid.UUID) (*GetTradeHistoryByGUIDRow, error) {
 	row := db.QueryRow(ctx, getTradeHistoryByGUID, guid)
-	var i TradeHistory
+	var i GetTradeHistoryByGUIDRow
 	err := row.Scan(
 		&i.Guid,
 		&i.UserID,
@@ -376,15 +425,30 @@ WHERE user_id = $1
 ORDER BY exit_at DESC NULLS LAST
 `
 
-func (q *Queries) ListAllClosedTradesByUser(ctx context.Context, db DBTX, userID int64) ([]*TradeHistory, error) {
+type ListAllClosedTradesByUserRow struct {
+	Guid        uuid.UUID          `db:"guid"`
+	UserID      int64              `db:"user_id"`
+	InstID      string             `db:"inst_id"`
+	Strategy    string             `db:"strategy"`
+	Timeframe   string             `db:"timeframe"`
+	Status      string             `db:"status"`
+	CloseReason string             `db:"close_reason"`
+	EntryAt     pgtype.Timestamptz `db:"entry_at"`
+	ExitAt      pgtype.Timestamptz `db:"exit_at"`
+	Payload     string             `db:"payload"`
+	CreatedAt   pgtype.Timestamptz `db:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `db:"updated_at"`
+}
+
+func (q *Queries) ListAllClosedTradesByUser(ctx context.Context, db DBTX, userID int64) ([]*ListAllClosedTradesByUserRow, error) {
 	rows, err := db.Query(ctx, listAllClosedTradesByUser, userID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []*TradeHistory
+	var items []*ListAllClosedTradesByUserRow
 	for rows.Next() {
-		var i TradeHistory
+		var i ListAllClosedTradesByUserRow
 		if err := rows.Scan(
 			&i.Guid,
 			&i.UserID,
@@ -435,15 +499,30 @@ type ListClosedTradesByUserParams struct {
 	UserID int64 `db:"user_id"`
 }
 
-func (q *Queries) ListClosedTradesByUser(ctx context.Context, db DBTX, arg *ListClosedTradesByUserParams) ([]*TradeHistory, error) {
+type ListClosedTradesByUserRow struct {
+	Guid        uuid.UUID          `db:"guid"`
+	UserID      int64              `db:"user_id"`
+	InstID      string             `db:"inst_id"`
+	Strategy    string             `db:"strategy"`
+	Timeframe   string             `db:"timeframe"`
+	Status      string             `db:"status"`
+	CloseReason string             `db:"close_reason"`
+	EntryAt     pgtype.Timestamptz `db:"entry_at"`
+	ExitAt      pgtype.Timestamptz `db:"exit_at"`
+	Payload     string             `db:"payload"`
+	CreatedAt   pgtype.Timestamptz `db:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `db:"updated_at"`
+}
+
+func (q *Queries) ListClosedTradesByUser(ctx context.Context, db DBTX, arg *ListClosedTradesByUserParams) ([]*ListClosedTradesByUserRow, error) {
 	rows, err := db.Query(ctx, listClosedTradesByUser, arg.Limit, arg.UserID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []*TradeHistory
+	var items []*ListClosedTradesByUserRow
 	for rows.Next() {
-		var i TradeHistory
+		var i ListClosedTradesByUserRow
 		if err := rows.Scan(
 			&i.Guid,
 			&i.UserID,
@@ -522,15 +601,30 @@ WHERE user_id = $1
 ORDER BY entry_at DESC
 `
 
-func (q *Queries) ListOpenTradesByUser(ctx context.Context, db DBTX, userID int64) ([]*TradeHistory, error) {
+type ListOpenTradesByUserRow struct {
+	Guid        uuid.UUID          `db:"guid"`
+	UserID      int64              `db:"user_id"`
+	InstID      string             `db:"inst_id"`
+	Strategy    string             `db:"strategy"`
+	Timeframe   string             `db:"timeframe"`
+	Status      string             `db:"status"`
+	CloseReason string             `db:"close_reason"`
+	EntryAt     pgtype.Timestamptz `db:"entry_at"`
+	ExitAt      pgtype.Timestamptz `db:"exit_at"`
+	Payload     string             `db:"payload"`
+	CreatedAt   pgtype.Timestamptz `db:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `db:"updated_at"`
+}
+
+func (q *Queries) ListOpenTradesByUser(ctx context.Context, db DBTX, userID int64) ([]*ListOpenTradesByUserRow, error) {
 	rows, err := db.Query(ctx, listOpenTradesByUser, userID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []*TradeHistory
+	var items []*ListOpenTradesByUserRow
 	for rows.Next() {
-		var i TradeHistory
+		var i ListOpenTradesByUserRow
 		if err := rows.Scan(
 			&i.Guid,
 			&i.UserID,
@@ -580,15 +674,30 @@ type ListRecentTradesByUserParams struct {
 	UserID int64 `db:"user_id"`
 }
 
-func (q *Queries) ListRecentTradesByUser(ctx context.Context, db DBTX, arg *ListRecentTradesByUserParams) ([]*TradeHistory, error) {
+type ListRecentTradesByUserRow struct {
+	Guid        uuid.UUID          `db:"guid"`
+	UserID      int64              `db:"user_id"`
+	InstID      string             `db:"inst_id"`
+	Strategy    string             `db:"strategy"`
+	Timeframe   string             `db:"timeframe"`
+	Status      string             `db:"status"`
+	CloseReason string             `db:"close_reason"`
+	EntryAt     pgtype.Timestamptz `db:"entry_at"`
+	ExitAt      pgtype.Timestamptz `db:"exit_at"`
+	Payload     string             `db:"payload"`
+	CreatedAt   pgtype.Timestamptz `db:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `db:"updated_at"`
+}
+
+func (q *Queries) ListRecentTradesByUser(ctx context.Context, db DBTX, arg *ListRecentTradesByUserParams) ([]*ListRecentTradesByUserRow, error) {
 	rows, err := db.Query(ctx, listRecentTradesByUser, arg.Limit, arg.UserID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []*TradeHistory
+	var items []*ListRecentTradesByUserRow
 	for rows.Next() {
-		var i TradeHistory
+		var i ListRecentTradesByUserRow
 		if err := rows.Scan(
 			&i.Guid,
 			&i.UserID,
@@ -710,15 +819,30 @@ type ListTradesByUserForPeriodParams struct {
 	DateTo   pgtype.Timestamptz `db:"date_to"`
 }
 
-func (q *Queries) ListTradesByUserForPeriod(ctx context.Context, db DBTX, arg *ListTradesByUserForPeriodParams) ([]*TradeHistory, error) {
+type ListTradesByUserForPeriodRow struct {
+	Guid        uuid.UUID          `db:"guid"`
+	UserID      int64              `db:"user_id"`
+	InstID      string             `db:"inst_id"`
+	Strategy    string             `db:"strategy"`
+	Timeframe   string             `db:"timeframe"`
+	Status      string             `db:"status"`
+	CloseReason string             `db:"close_reason"`
+	EntryAt     pgtype.Timestamptz `db:"entry_at"`
+	ExitAt      pgtype.Timestamptz `db:"exit_at"`
+	Payload     string             `db:"payload"`
+	CreatedAt   pgtype.Timestamptz `db:"created_at"`
+	UpdatedAt   pgtype.Timestamptz `db:"updated_at"`
+}
+
+func (q *Queries) ListTradesByUserForPeriod(ctx context.Context, db DBTX, arg *ListTradesByUserForPeriodParams) ([]*ListTradesByUserForPeriodRow, error) {
 	rows, err := db.Query(ctx, listTradesByUserForPeriod, arg.UserID, arg.DateFrom, arg.DateTo)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []*TradeHistory
+	var items []*ListTradesByUserForPeriodRow
 	for rows.Next() {
-		var i TradeHistory
+		var i ListTradesByUserForPeriodRow
 		if err := rows.Scan(
 			&i.Guid,
 			&i.UserID,

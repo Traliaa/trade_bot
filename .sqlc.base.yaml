@@ -17,6 +17,10 @@ sql:
         emit_db_tags: true
         sql_package: pgx/v5
         overrides:
+          - column: "public.trade_history.research_entry_snapshot"
+            go_type:
+              type: "string"
+              pointer: true
           - db_type: "jsonb"
             go_type: "string"
           - db_type: "json"

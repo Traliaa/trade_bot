@@ -42,6 +42,7 @@ INSERT INTO public.trade_history (
     entry_at,
     exit_at,
     payload,
+    research_entry_snapshot,
     created_at,
     updated_at
 ) VALUES (
@@ -55,6 +56,7 @@ INSERT INTO public.trade_history (
              @entry_at,
              @exit_at,
              @payload,
+             sqlc.narg('research_entry_snapshot'),
              @created_at,
              @updated_at
          );

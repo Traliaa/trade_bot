@@ -185,18 +185,19 @@ type TradeFillRecord struct {
 }
 
 type TradeRecord struct {
-	GUID        uuid.UUID    `json:"guid"`
-	UserID      int64        `json:"user_id"`
-	InstID      string       `json:"inst_id"`
-	Strategy    string       `json:"strategy"`
-	Timeframe   string       `json:"timeframe"`
-	Status      TradeStatus  `json:"status"`
-	CloseReason CloseReason  `json:"close_reason"`
-	EntryAt     time.Time    `json:"entry_at"`
-	ExitAt      *time.Time   `json:"exit_at,omitempty"`
-	Payload     TradePayload `json:"payload"`
-	CreatedAt   time.Time    `json:"created_at"`
-	UpdatedAt   time.Time    `json:"updated_at"`
+	ResearchEntrySnapshot json.RawMessage `json:"-"`
+	GUID                  uuid.UUID       `json:"guid"`
+	UserID                int64           `json:"user_id"`
+	InstID                string          `json:"inst_id"`
+	Strategy              string          `json:"strategy"`
+	Timeframe             string          `json:"timeframe"`
+	Status                TradeStatus     `json:"status"`
+	CloseReason           CloseReason     `json:"close_reason"`
+	EntryAt               time.Time       `json:"entry_at"`
+	ExitAt                *time.Time      `json:"exit_at,omitempty"`
+	Payload               TradePayload    `json:"payload"`
+	CreatedAt             time.Time       `json:"created_at"`
+	UpdatedAt             time.Time       `json:"updated_at"`
 }
 
 func (p TradePayload) Marshal() ([]byte, error) {

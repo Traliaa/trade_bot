@@ -307,20 +307,26 @@ func (u *UserSettings) CreateTradeHistory(ctx context.Context, tx pgx.Tx, tr mod
 	if err != nil {
 		return err
 	}
+	var researchSnapshot *string
+	if len(tr.ResearchEntrySnapshot) != 0 {
+		value := string(tr.ResearchEntrySnapshot)
+		researchSnapshot = &value
+	}
 
 	return u.sql.CreateTradeHistory(ctx, tx, &sql.CreateTradeHistoryParams{
-		Guid:        tr.GUID,
-		UserID:      tr.UserID,
-		InstID:      tr.InstID,
-		Strategy:    tr.Strategy,
-		Timeframe:   tr.Timeframe,
-		Status:      string(tr.Status),
-		CloseReason: string(tr.CloseReason),
-		EntryAt:     ConvertTimeToPgTimestamptz(tr.EntryAt),
-		ExitAt:      ConvertTimeToPgTimestamptz(lo.FromPtr(tr.ExitAt)),
-		Payload:     string(payload),
-		CreatedAt:   ConvertTimeToPgTimestamptz(tr.CreatedAt),
-		UpdatedAt:   ConvertTimeToPgTimestamptz(tr.UpdatedAt),
+		ResearchEntrySnapshot: researchSnapshot,
+		Guid:                  tr.GUID,
+		UserID:                tr.UserID,
+		InstID:                tr.InstID,
+		Strategy:              tr.Strategy,
+		Timeframe:             tr.Timeframe,
+		Status:                string(tr.Status),
+		CloseReason:           string(tr.CloseReason),
+		EntryAt:               ConvertTimeToPgTimestamptz(tr.EntryAt),
+		ExitAt:                ConvertTimeToPgTimestamptz(lo.FromPtr(tr.ExitAt)),
+		Payload:               string(payload),
+		CreatedAt:             ConvertTimeToPgTimestamptz(tr.CreatedAt),
+		UpdatedAt:             ConvertTimeToPgTimestamptz(tr.UpdatedAt),
 	})
 }
 
@@ -425,7 +431,7 @@ func (u *UserSettings) ListOpenTrades(
 
 	res := make([]models.TradeRecord, 0, len(rows))
 	for _, row := range rows {
-		tr, err := mapTradeRow(row)
+		tr, err := mapTradeRow((*sql.GetTradeHistoryByGUIDRow)(row))
 		if err != nil {
 			return nil, err
 		}
@@ -439,7 +445,7 @@ func (u *UserSettings) GetByGUID(ctx context.Context, tx pgx.Tx, guid uuid.UUID)
 	if err != nil {
 		return nil, err
 	}
-	return mapTradeRow(row)
+	return mapTradeRow((*sql.GetTradeHistoryByGUIDRow)(row))
 }
 
 func (u *UserSettings) FindOpenTrade(ctx context.Context, tx pgx.Tx, userID int64, instID string) (*models.TradeRecord, error) {
@@ -450,7 +456,7 @@ func (u *UserSettings) FindOpenTrade(ctx context.Context, tx pgx.Tx, userID int6
 	if err != nil {
 		return nil, err
 	}
-	return mapTradeRow(row)
+	return mapTradeRow((*sql.GetTradeHistoryByGUIDRow)(row))
 }
 
 func (u *UserSettings) FindOpenTradeByUserInstSide(ctx context.Context, tx pgx.Tx, userID int64, instID string, posSide string) (*models.TradeRecord, error) {
@@ -462,7 +468,7 @@ func (u *UserSettings) FindOpenTradeByUserInstSide(ctx context.Context, tx pgx.T
 	if err != nil {
 		return nil, err
 	}
-	return mapTradeRow(row)
+	return mapTradeRow((*sql.GetTradeHistoryByGUIDRow)(row))
 }
 
 func (u *UserSettings) ListRecentTrades(ctx context.Context, tx pgx.Tx, userID int64, limit int32) ([]models.TradeRecord, error) {
@@ -476,7 +482,7 @@ func (u *UserSettings) ListRecentTrades(ctx context.Context, tx pgx.Tx, userID i
 
 	res := make([]models.TradeRecord, 0, len(rows))
 	for _, row := range rows {
-		tr, err := mapTradeRow(row)
+		tr, err := mapTradeRow((*sql.GetTradeHistoryByGUIDRow)(row))
 		if err != nil {
 			return nil, err
 		}
@@ -495,7 +501,7 @@ func (u *UserSettings) ListClosedTradesByUser(ctx context.Context, tx pgx.Tx, us
 
 	res := make([]models.TradeRecord, 0, len(rows))
 	for _, row := range rows {
-		tr, err := mapTradeRow(row)
+		tr, err := mapTradeRow((*sql.GetTradeHistoryByGUIDRow)(row))
 		if err != nil {
 			return nil, err
 		}
@@ -512,7 +518,7 @@ func (u *UserSettings) ListAllClosedTradesByUser(ctx context.Context, tx pgx.Tx,
 
 	res := make([]models.TradeRecord, 0, len(rows))
 	for _, row := range rows {
-		tr, err := mapTradeRow(row)
+		tr, err := mapTradeRow((*sql.GetTradeHistoryByGUIDRow)(row))
 		if err != nil {
 			return nil, err
 		}
@@ -521,7 +527,10 @@ func (u *UserSettings) ListAllClosedTradesByUser(ctx context.Context, tx pgx.Tx,
 	return res, nil
 }
 
-func mapTradeRow(row *sql.TradeHistory) (*models.TradeRecord, error) {
+// Explicit SELECT projections intentionally omit the research column. SQLC
+// therefore emits distinct, structurally identical row types instead of the
+// full table model. Pointer conversions above are checked by the Go compiler.
+func mapTradeRow(row *sql.GetTradeHistoryByGUIDRow) (*models.TradeRecord, error) {
 	payload, err := models.UnmarshalTradePayload([]byte(row.Payload))
 	if err != nil {
 		return nil, err
