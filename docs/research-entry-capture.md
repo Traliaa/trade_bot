@@ -85,6 +85,40 @@ go test ./internal/modules/repository/pg -run '^$' -bench BenchmarkResearchSnaps
 Benchmark сравнивает NULL, 4KiB и near-limit запись. Это локальная оценка
 накладных расходов, не гарантия нулевого влияния в production. SKIP не равен PASS.
 
+### Результат локальной проверки 7 октября 2026
+
+После разрешения пользователя запущен отдельный одноразовый PostgreSQL 17 в
+Docker Desktop: только loopback, данные в tmpfs, синтетические fixtures.
+Production, существующие контейнеры и реальные биржевые ордера не использовались.
+
+- `TestResearchSnapshotPostgresCompatibility` — PASS с реальной БД, не SKIP.
+- `TestCaptureOnOffTradeParity` — PASS для успешной защиты и отказа SL;
+  биржевые HTTP-запросы перехвачены тестом, последовательность on/off совпала.
+- `go test -p 1 -race ./... -count=1` с локальным DSN — PASS, 18 пакетов с
+  тестами. Внешний opt-in тест публичных свечей OKX не включался; PostgreSQL
+  тесты включены. Sonic сообщил о fallback к encoding/json на Go 1.27.
+- Дополнительная ручная проверка реальных Up-миграций 0003 → fixture → 0008
+  в отдельной одноразовой БД: старая строка и payload сохранены, новая колонка
+  SQL NULL. Down не выполнялся.
+
+`BenchmarkResearchSnapshotInsert -benchmem -count=5`, Apple M3 Pro / Go 1.27:
+
+| JSON, байт | INSERT, мс/операцию (min–max) | Медиана, мс | B/op | allocs/op |
+| ---: | ---: | ---: | ---: | ---: |
+| NULL / 0 | 0.676–0.802 | 0.749 | 4236–4250 | 44 |
+| 4107 | 0.778–1.070 | 1.067 | 19392–19397 | 49 |
+| 32751 | 1.250–1.877 | 1.380 | 119640–119670 | 49 |
+
+Это синтетический, хорошо сжимаемый JSON, не настоящие снимки; tmpfs и Docker
+не моделируют production-диск/сеть. Измерение включает создание fixture UUID,
+payload и вызов repository INSERT, исключает DELETE; builder в него не входит.
+Разница медиан с NULL — около +0.318 и +0.632 мс, но это не допустимый бюджет
+для production: порог и контроль p95 требуют отдельного rollout-согласования.
+
+Отложенное небольшое замечание review: автоматический compatibility-тест
+нужно дополнить fixture до миграции и сравнением семантики входного JSON
+с сохранённым. Ручная проверка старой строки не заменяет этот regression-тест.
+
 ## Gate перед production
 
 1. Проверить архивные исполнения/учёт ARB отдельно. Не считать capture его исправлением.
