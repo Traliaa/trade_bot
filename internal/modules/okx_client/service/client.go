@@ -498,6 +498,7 @@ func (c *Client) RecentFills(ctx context.Context, instID string, limit int) ([]m
 			executionTime = &at
 		}
 		out = append(out, models.TradeFill{
+			RawFillSize:           d.FillSz,
 			ResearchExecutionTime: executionTime,
 			InstID:                d.InstID,
 			PosSide:               strings.ToLower(d.PosSide),

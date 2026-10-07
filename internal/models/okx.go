@@ -106,6 +106,9 @@ type TransactionDetailRecord struct {
 	ExecType string `json:"execType"`
 }
 type TradeFill struct {
+	// Original REST fillSz for exact close-volume validation, never reconstructed
+	// from FillSz. Kept out of public JSON and the legacy float trading pipeline.
+	RawFillSize string `json:"-"`
 	// Actual execution time from REST fillTime. FillTime below remains legacy ts
 	// for existing trading behavior; research must not silently equate the two.
 	ResearchExecutionTime *time.Time `json:"-"`

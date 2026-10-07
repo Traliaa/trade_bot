@@ -128,22 +128,12 @@ func (s *UserSession) resolveClosedTradeExecution(
 	if ferr == nil {
 		closeFills := pickCloseFills(fills, tr)
 		if len(closeFills) > 0 {
-			var execution closedTradeExecution
-			var notional float64
-			for _, fill := range closeFills {
-				notional += fill.FillPx * fill.FillSz
-				execution.ExitSize += fill.FillSz
-				execution.GrossRealizedPnL += fill.RealizedPnL
-				execution.TotalFees += fill.Fee
+			if err := validateCloseFillIdentities(fills, closeFills); err != nil {
+				return closedTradeExecution{}, err
 			}
-			last := closeFills[len(closeFills)-1]
-			execution.FinalFillPrice = last.FillPx
-			execution.ExitAt = last.FillTime
-			execution.Fills = closeFills
-			if execution.ExitSize > 0 {
-				execution.ExitPrice = notional / execution.ExitSize
-			}
-			return execution, nil
+			// Reject ambiguous/invalid fills before persisting anything. Never mask
+			// an invalid exchange response with the payload fallback below.
+			return aggregateCloseExecution(closeFills, p.EntrySize)
 		}
 	}
 
