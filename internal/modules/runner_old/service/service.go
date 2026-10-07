@@ -340,7 +340,11 @@ func (r *Service) OnSignal(ctx context.Context, sig models.Signal) {
 			},
 		}
 
-		if err := r.Repository.CreateTradeHistory(ctx, trade); err != nil {
+		recorder := researchEntryRecorder{
+			cfg: r.config.ResearchCapture, build: cachedResearchBuild,
+			newID: newResearchCaptureID, count: r.countDecision, create: r.Repository.CreateTradeHistory,
+		}
+		if err := recorder.save(ctx, trade, params, res); err != nil {
 			r.Logger.Error("create trade history failed",
 				zap.Error(err),
 				zap.String("instId", sig.InstID),
