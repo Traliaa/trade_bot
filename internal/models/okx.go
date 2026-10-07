@@ -11,10 +11,11 @@ const (
 )
 
 type Instrument struct {
-	InstID    string
-	Kind      ContractKind
-	SettleCcy string
-	CtValCcy  string
+	ResearchMetadata *ResearchMetadataObservation `json:"-"`
+	InstID           string
+	Kind             ContractKind
+	SettleCcy        string
+	CtValCcy         string
 
 	LastPx   float64
 	LotSz    float64
@@ -45,23 +46,25 @@ type CandleTick struct {
 
 // TradeParams содержит все рассчитанные параметры сделки.
 type TradeParams struct {
-	Entry     float64
-	SL        float64
-	TP        float64
-	Size      float64
-	TickSize  float64
-	RiskPct   float64
-	RR        float64
-	RiskDist  float64
-	Leverage  int
-	Direction string // "BUY" или "SELL"
-	SizeMeta  *SizeCalcResult
+	ResearchEntry *ResearchEntryObservation `json:"-"`
+	Entry         float64
+	SL            float64
+	TP            float64
+	Size          float64
+	TickSize      float64
+	RiskPct       float64
+	RR            float64
+	RiskDist      float64
+	Leverage      int
+	Direction     string // "BUY" или "SELL"
+	SizeMeta      *SizeCalcResult
 }
 type SizeCalcResult struct {
-	RawRiskSz    float64 `json:"raw_risk_sz"`
-	RawMarginSz  float64 `json:"raw_margin_sz"`
-	RawChosenSz  float64 `json:"raw_chosen_sz"`
-	NormalizedSz float64 `json:"normalized_sz"`
+	ResearchSettings *ResearchSettingsObservation `json:"-"`
+	RawRiskSz        float64                      `json:"raw_risk_sz"`
+	RawMarginSz      float64                      `json:"raw_margin_sz"`
+	RawChosenSz      float64                      `json:"raw_chosen_sz"`
+	NormalizedSz     float64                      `json:"normalized_sz"`
 
 	RiskUSDT   float64 `json:"risk_usdt"`
 	EntryPrice float64 `json:"entry_price"`

@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 	"trade_bot/internal/models"
 )
 
@@ -42,6 +43,7 @@ func (c *Client) GetInstrumentMeta(ctx context.Context, instID string) (models.I
 	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
 		return models.Instrument{}, fmt.Errorf("decode: %w", err)
 	}
+	receivedAt := time.Now().UTC()
 	if payload.Code != "0" {
 		return models.Instrument{}, fmt.Errorf("okx error %s: %s", payload.Code, payload.Msg)
 	}
@@ -113,6 +115,12 @@ func (c *Client) GetInstrumentMeta(ctx context.Context, instID string) (models.I
 	}
 
 	return models.Instrument{
+		ResearchMetadata: &models.ResearchMetadataObservation{
+			RawTickSz: inst.TickSz, RawLotSz: inst.LotSz, RawMinSz: inst.MinSz,
+			RawCtVal: inst.CtVal, RawCtMult: inst.CtMult,
+			TickSz: tickSz, LotSz: lotSz, MinSz: minSz, EffectiveCtVal: ctValEff,
+			Kind: kind, SettleCcy: inst.SettleCcy, CtValCcy: inst.CtValCcy, ReceivedAt: receivedAt,
+		},
 		InstID:    inst.InstID,
 		Kind:      kind,
 		SettleCcy: inst.SettleCcy,

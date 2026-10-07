@@ -19,6 +19,7 @@ func (s *UserSession) CalcTradeParams(
 	entry float64,
 ) (*models.TradeParams, error) {
 	cfg := s.SettingsSnapshot()
+	researchSettings := s.observeResearchSettings("calc", cfg)
 	ts := cfg.TradingSettings
 
 	side = strings.ToUpper(side)
@@ -115,7 +116,7 @@ func (s *UserSession) CalcTradeParams(
 		sizeMeta.MaxMktSz,
 	)
 
-	return &models.TradeParams{
+	params := &models.TradeParams{
 		Entry:     entry,
 		SL:        sl,
 		TP:        tp,
@@ -127,7 +128,9 @@ func (s *UserSession) CalcTradeParams(
 		Leverage:  lev,
 		Direction: side,
 		SizeMeta:  sizeMeta,
-	}, nil
+	}
+	params.ResearchEntry = s.researchEntryObservation(params, instrument, researchSettings)
+	return params, nil
 }
 
 func normalizeSize(sz, lotSz, minSz, maxMktSz float64) (float64, error) {

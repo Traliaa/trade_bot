@@ -169,6 +169,12 @@ func (s *UserSession) OpenPositionWithTpSl(
 
 	cfg := s.SettingsSnapshot()
 	ts := cfg.TradingSettings
+	if observation := s.observeResearchSettings("open", cfg); observation != nil {
+		if params.ResearchEntry == nil {
+			params.ResearchEntry = s.researchEntryObservation(params, models.Instrument{}, nil)
+		}
+		params.ResearchEntry.Settings = append(params.ResearchEntry.Settings, *observation)
+	}
 
 	openType := 1
 	var sideInt int
@@ -224,6 +230,7 @@ func (s *UserSession) OpenPositionWithTpSl(
 
 	entryPrice := params.Entry
 	entryAt := time.Now().UTC()
+	researchExpectedSize := params.Size
 	entryFills, fillErr := s.Okx.WaitOrderFills(ctx, sig.InstID, orderID, params.Size, 3*time.Second)
 	if fillErr != nil {
 		s.Logger.Warn("entry fill reconciliation failed; using signal price",
@@ -258,14 +265,19 @@ func (s *UserSession) OpenPositionWithTpSl(
 			"⚠️ [%s] TP не выставлен на OKX: %v", sig.InstID, err)
 	}
 
+	var researchEvidence *models.ResearchEntryEvidence
+	if s.Config != nil && s.Config.ResearchCapture.Enabled {
+		researchEvidence = researchFillEvidence(entryFills, researchExpectedSize, fillErr)
+	}
 	return &models.OpenResult{
-		PosSide:  posSide,
-		SLAlgoID: slAlgoId,
-		TPAlgoID: tpAlgoId,
-		Entry:    entryPrice,
-		EntryAt:  entryAt,
-		OrderID:  orderID,
-		Fills:    entryFills,
+		ResearchEvidence: researchEvidence,
+		PosSide:          posSide,
+		SLAlgoID:         slAlgoId,
+		TPAlgoID:         tpAlgoId,
+		Entry:            entryPrice,
+		EntryAt:          entryAt,
+		OrderID:          orderID,
+		Fills:            entryFills,
 	}, nil
 }
 

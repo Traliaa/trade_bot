@@ -14,6 +14,7 @@ func (s *UserSession) CalcTradeParamsV3(
 	htf []models.CandleTick,
 ) (*models.TradeParams, error) {
 	cfg := s.SettingsSnapshot()
+	researchSettings := s.observeResearchSettings("calc", cfg)
 	ts := cfg.TradingSettings
 	sc := s.Config.Strategy.V3
 
@@ -121,7 +122,7 @@ func (s *UserSession) CalcTradeParamsV3(
 		return nil, fmt.Errorf("size <= 0")
 	}
 
-	return &models.TradeParams{
+	params := &models.TradeParams{
 		Entry:     entry,
 		SL:        sl,
 		TP:        tp,
@@ -133,5 +134,7 @@ func (s *UserSession) CalcTradeParamsV3(
 		Leverage:  ts.Leverage,
 		Direction: sideFromSignal(signal.Side),
 		SizeMeta:  sizeMeta,
-	}, nil
+	}
+	params.ResearchEntry = s.researchEntryObservation(params, instrument, researchSettings)
+	return params, nil
 }

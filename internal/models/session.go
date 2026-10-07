@@ -19,11 +19,12 @@ type CachedPos struct {
 }
 
 type OpenResult struct {
-	PosSide  string  // "long"/"short"
-	TPAlgoID string  // TP algoId
-	SLAlgoID string  // SL algoId
-	Entry    float64 // если уточнил, иначе params.Entry
-	EntryAt  time.Time
-	OrderID  string
-	Fills    []TradeFill
+	ResearchEvidence *ResearchEntryEvidence `json:"-"`
+	PosSide          string                 // "long"/"short"
+	TPAlgoID         string                 // TP algoId
+	SLAlgoID         string                 // SL algoId
+	Entry            float64                // если уточнил, иначе params.Entry
+	EntryAt          time.Time
+	OrderID          string
+	Fills            []TradeFill
 }

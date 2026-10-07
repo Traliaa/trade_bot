@@ -21,7 +21,8 @@ const (
 )
 
 type Config struct {
-	Telegram struct {
+	ResearchCapture ResearchCaptureConfig `yaml:"-"`
+	Telegram        struct {
 		Token string `yaml:"token"`
 	} `yaml:"telegram"`
 
@@ -252,6 +253,11 @@ func NewConfig() (*Config, error) {
 
 	cfg.Strategy.Name = "donchian_v3_smart"
 	cfg.Strategy.ApplyV3Defaults()
+	var researchCode string
+	cfg.ResearchCapture, researchCode = ParseResearchCaptureConfig(os.LookupEnv)
+	if researchCode != "" {
+		log.Printf("research capture disabled: %s", researchCode)
+	}
 	return cfg, nil
 }
 func intFromEnv(key string, def int) int {

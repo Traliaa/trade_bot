@@ -26,6 +26,7 @@ func (s *UserSession) calcSizeByRiskWithMeta(
 	slPrice float64,
 ) (*models.SizeCalcResult, error) {
 	cfg := s.SettingsSnapshot()
+	researchSettings := s.observeResearchSettings("sizing", cfg)
 	ts := cfg.TradingSettings
 
 	if entryPrice <= 0 || slPrice <= 0 {
@@ -99,18 +100,19 @@ func (s *UserSession) calcSizeByRiskWithMeta(
 	}
 
 	return &models.SizeCalcResult{
-		RawRiskSz:    rawRiskSz,
-		RawMarginSz:  rawMarginSz,
-		RawChosenSz:  rawChosenSz,
-		NormalizedSz: normSz,
-		RiskUSDT:     riskUSDT,
-		EntryPrice:   entryPrice,
-		SLPrice:      slPrice,
-		StopDist:     stopDist,
-		CtVal:        ctVal,
-		LotSz:        lotSz,
-		MinSz:        minSz,
-		MaxMktSz:     maxMktSz,
+		ResearchSettings: researchSettings,
+		RawRiskSz:        rawRiskSz,
+		RawMarginSz:      rawMarginSz,
+		RawChosenSz:      rawChosenSz,
+		NormalizedSz:     normSz,
+		RiskUSDT:         riskUSDT,
+		EntryPrice:       entryPrice,
+		SLPrice:          slPrice,
+		StopDist:         stopDist,
+		CtVal:            ctVal,
+		LotSz:            lotSz,
+		MinSz:            minSz,
+		MaxMktSz:         maxMktSz,
 	}, nil
 }
 
