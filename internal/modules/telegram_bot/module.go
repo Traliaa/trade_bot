@@ -1,13 +1,10 @@
 package telegram
 
 import (
-	"context"
-
 	"trade_bot/internal/modules/bootstrap/lifecyclelog"
 	runner "trade_bot/internal/modules/runner_old/service"
 	"trade_bot/internal/modules/telegram_bot/service"
 	"trade_bot/internal/modules/telegram_public/public"
-	"trade_bot/pkg/logger"
 
 	"go.uber.org/fx"
 )
@@ -27,21 +24,7 @@ func Module() fx.Option {
 				t.SetRouter(r)
 			},
 			func(lc fx.Lifecycle, t *service.Telegram) {
-				lc.Append(lifecyclelog.WrapHook("telegram", fx.Hook{
-					OnStart: func(ctx context.Context) error {
-						go func() {
-							if err := t.Start(ctx); err != nil && ctx.Err() == nil {
-								logger.Error("telegram run failed: %v", err)
-							}
-						}()
-						return nil
-					},
-
-					OnStop: func(ctx context.Context) error {
-						t.Stop()
-						return nil
-					},
-				}))
+				lc.Append(lifecyclelog.WrapHook("telegram", receiverHook(t)))
 			},
 		),
 	)

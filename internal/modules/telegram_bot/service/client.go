@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
 	"sync"
 	"time"
 	"trade_bot/internal/models"
@@ -21,12 +23,14 @@ type pending struct {
 
 // Telegram
 type Telegram struct {
-	bot      *tgbot.BotAPI
-	cfg      *config.Config
-	mu       sync.Mutex
-	pendings map[string]*pending
-	router   Router
-	await    *awaitStore
+	bot        *tgbot.BotAPI
+	cfg        *config.Config
+	mu         sync.Mutex
+	pendings   map[string]*pending
+	router     Router
+	await      *awaitStore
+	pollMu     sync.Mutex
+	pollCancel context.CancelFunc
 }
 
 type Router interface {
@@ -49,9 +53,11 @@ func (t *Telegram) SetRouter(r Router) {
 	t.router = r
 }
 func NewTelegram(cfg *config.Config) (*Telegram, error) {
-	b, err := tgbot.NewBotAPI(cfg.Telegram.Token)
+	client := &receiverHTTPClient{client: &http.Client{Timeout: 40 * time.Second}}
+	b, err := tgbot.NewBotAPIWithClient(cfg.Telegram.Token, tgbot.APIEndpoint, client)
 	if err != nil {
-		return nil, err
+		// Transport errors may include the bot token in the request URL.
+		return nil, errors.New("telegram client initialization failed")
 	}
 
 	return &Telegram{
@@ -196,13 +202,36 @@ func (t *Telegram) handlePositions(ctx context.Context) {
 
 // Start ...
 func (t *Telegram) Start(ctx context.Context) error {
-	u := tgbot.NewUpdate(0)
-	u.Timeout = 30
-	updates := t.bot.GetUpdatesChan(u)
-	for update := range updates {
-		t.handleUpdate(ctx, update)
+	t.pollMu.Lock()
+	if t.pollCancel != nil {
+		t.pollMu.Unlock()
+		return errors.New("telegram polling already started")
 	}
-	return nil
+	runCtx, cancel := context.WithCancel(ctx)
+	t.pollCancel = cancel
+	if client, ok := t.bot.Client.(*receiverHTTPClient); ok {
+		client.bind(runCtx)
+	}
+	t.pollMu.Unlock()
+	defer func() {
+		cancel()
+		t.pollMu.Lock()
+		t.pollCancel = nil
+		t.pollMu.Unlock()
+	}()
+	bot := *t.bot
+	bot.Client = pollingHTTPClient{ctx: runCtx, client: t.bot.Client}
+	return runUpdatePolling(runCtx, &bot, func(update tgbot.Update) {
+		t.handleUpdate(runCtx, update)
+	}, waitForPollingRetry, func(code string) {
+		logger.Info("telegram receiver state: %s", code)
+	})
 }
 
-func (t *Telegram) Stop() {}
+func (t *Telegram) Stop() {
+	t.pollMu.Lock()
+	defer t.pollMu.Unlock()
+	if t.pollCancel != nil {
+		t.pollCancel()
+	}
+}

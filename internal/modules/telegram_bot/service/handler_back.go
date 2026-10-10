@@ -93,8 +93,7 @@ func (t *Telegram) handleStart(ctx context.Context, chatID int64) error {
 	_, err := t.SendMessage(ctx, msg)
 	return err
 }
-func (t *Telegram) handleTextMessage(_ context.Context, msg *tgbotapi.Message) {
-	ctx := context.Background()
+func (t *Telegram) handleTextMessage(ctx context.Context, msg *tgbotapi.Message) {
 	chatID := msg.Chat.ID
 	text := strings.TrimSpace(msg.Text)
 
