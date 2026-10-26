@@ -9,3 +9,6 @@
 !pkg/**
 !configs
 !configs/values_ci.yaml
+!deploy
+!deploy/ci
+!deploy/ci/configcheck.go
