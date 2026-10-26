@@ -41,7 +41,7 @@
             "containers": [
               {
                 "name": "trade-bot",
-                "image": "ghcr.io/traliaa/trade-bot-backend@sha256:d9c62fbd2584769c29bebcdadea8fbf5f5836cb8ccf1e69b0089c9b35d1560ce",
+                "image": "ghcr.io/traliaa/trade-bot-backend@sha256:6c69ccd045b8ef7905033bfb1c576c73bfa1ef6bb38bded0677098ecd8af1417",
                 "imagePullPolicy": "IfNotPresent",
                 "ports": [
                   {
@@ -211,7 +211,7 @@
             "containers": [
               {
                 "name": "trade-webapp",
-                "image": "ghcr.io/traliaa/trade-bot-frontend@sha256:e23fbab77ec84a246a7a8f67e4778cc0bb16a50181242423ae72d7cb83b7eef7",
+                "image": "ghcr.io/traliaa/trade-bot-frontend@sha256:916121a2b496fce46fd2f1f9fa68bbee88b4d9ba713e849981e581a4ef8a01b5",
                 "imagePullPolicy": "IfNotPresent",
                 "ports": [
                   {
