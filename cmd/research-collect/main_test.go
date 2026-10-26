@@ -58,7 +58,7 @@ func TestCLIInheritedPipe(t *testing.T) {
 	}
 }
 func TestCLIInitAndInspect(t *testing.T) {
-	dir, err := os.MkdirTemp("/private/tmp", "research-cli-")
+	dir, err := os.MkdirTemp("", "research-cli-")
 	if err != nil {
 		t.Fatal(err)
 	}
