@@ -1,0 +1,138 @@
+name: k3s images
+on:
+  push:
+    branches: [master, codex/k3s-launch]
+    paths-ignore: ['deploy/k3s/**', 'deploy/argocd/**', '**.md']
+  pull_request:
+    branches: [master, codex/k3s-launch]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: k3s-images-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version: '1.27.3'
+          cache: true
+      - run: go test -race -p 2 -count=1 ./...
+      - run: python3 deploy/ci/test_promote.py
+  images:
+    needs: test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      backend: ${{ steps.backend.outputs.digest }}
+      frontend: ${{ steps.frontend.outputs.digest }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Read pinned frontend source
+        id: source
+        run: |
+          python3 - <<'PY'
+          import json, os, re
+          from pathlib import Path
+          s = json.loads(Path('deploy/ci/frontend-source.json').read_text())
+          assert s['repository'] == 'Traliaa/trade_bot_webapp'
+          assert re.fullmatch('[0-9a-f]{40}', s['revision'])
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              print('revision=' + s['revision'], file=f)
+          PY
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          repository: Traliaa/trade_bot_webapp
+          ref: ${{ steps.source.outputs.revision }}
+          path: webapp
+          persist-credentials: false
+      - name: Prepare frontend build context
+        run: |
+          cp deploy/ci/frontend.Dockerfile webapp/Dockerfile.k3s
+          cp deploy/ci/frontend.Dockerfile.dockerignore webapp/Dockerfile.k3s.dockerignore
+          cp deploy/ci/nginx.conf webapp/.ci-nginx.conf
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9
+        if: github.event_name != 'pull_request'
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build backend
+        id: backend
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        with:
+          context: .
+          file: deploy/ci/backend.Dockerfile
+          platforms: linux/amd64
+          push: ${{ github.event_name != 'pull_request' }}
+          provenance: false
+          tags: ghcr.io/traliaa/trade-bot-backend:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/Traliaa/trade_bot
+            org.opencontainers.image.revision=${{ github.sha }}
+      - name: Build frontend and run its tests
+        id: frontend
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        with:
+          context: webapp
+          file: webapp/Dockerfile.k3s
+          platforms: linux/amd64
+          push: ${{ github.event_name != 'pull_request' }}
+          provenance: false
+          tags: ghcr.io/traliaa/trade-bot-frontend:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/Traliaa/trade_bot
+            org.opencontainers.image.revision=${{ steps.source.outputs.revision }}
+  propose:
+    if: github.event_name != 'pull_request' && (github.ref_name == 'master' || github.ref_name == 'codex/k3s-launch')
+    needs: images
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.ref_name }}
+          persist-credentials: false
+      - name: Propose reviewed image update
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BACKEND_DIGEST: ${{ needs.images.outputs.backend }}
+          FRONTEND_DIGEST: ${{ needs.images.outputs.frontend }}
+          BASE_BRANCH: ${{ github.ref_name }}
+          RUN_ID: ${{ github.run_id }}
+          SOURCE_COMMIT: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          python3 deploy/ci/check_public_images.py
+          python3 deploy/ci/promote.py \
+            --backend-image "ghcr.io/traliaa/trade-bot-backend@$BACKEND_DIGEST" \
+            --frontend-image "ghcr.io/traliaa/trade-bot-frontend@$FRONTEND_DIGEST"
+          git diff --exit-code --quiet && exit 0
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          update_branch="codex/images-$RUN_ID"
+          git switch -c "$update_branch"
+          git add deploy/k3s/workloads.json
+          git commit -m "Update tested k3s images from $SOURCE_COMMIT"
+          git -c 'credential.helper=!gh auth git-credential' push origin "HEAD:refs/heads/$update_branch"
+          printf '%s\n' \
+            "Images built and tested from $SOURCE_COMMIT." \
+            'Review both image digests and confirm anonymous GHCR pull access before syncing.' \
+            'Backend uses OnDelete: stop and verify the old Pod has exited before starting its replacement. No force-delete, migrations, or automatic failover.' > /tmp/image-update-pr.txt
+          gh pr create --base "$BASE_BRANCH" --head "$update_branch" \
+            --title "Update tested k3s images ($RUN_ID)" --body-file /tmp/image-update-pr.txt
