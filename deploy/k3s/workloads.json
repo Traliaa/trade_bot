@@ -211,7 +211,7 @@
             "containers": [
               {
                 "name": "trade-webapp",
-                "image": "localhost/trade-bot-frontend@sha256:8ed5f4b45e623248a8be0d71c838583dac5dc613ad80d44be981ecce77f0d22d8",
+                "image": "localhost/trade-bot-frontend@sha256:8ed5f4b45e623248a8be0d71c838583dac5dc613ad80d44be981ece77f0d22d8",
                 "imagePullPolicy": "Never",
                 "ports": [
                   {
