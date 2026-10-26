@@ -8,7 +8,7 @@ spec:
   project: trade-bot
   source:
     repoURL: https://github.com/Traliaa/trade_bot.git
-    targetRevision: codex/k3s-launch
+    targetRevision: master
     path: deploy/k3s
   destination:
     server: https://kubernetes.default.svc
