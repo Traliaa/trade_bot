@@ -69,6 +69,28 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build backend smoke image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
+        with:
+          context: .
+          file: deploy/ci/backend.Dockerfile
+          platforms: linux/amd64
+          push: false
+          load: true
+          provenance: false
+          tags: trade-bot-smoke:${{ github.sha }}
+      - name: Verify non-root config access in the actual image
+        env:
+          SMOKE_IMAGE: trade-bot-smoke:${{ github.sha }}
+        run: |
+          set -euo pipefail
+          docker buildx build --platform linux/amd64 --target checkbin \
+            --file deploy/ci/backend.Dockerfile \
+            --output "type=local,dest=$RUNNER_TEMP/configcheck" .
+          docker run --rm --network none --read-only --user 65532:65532 \
+            --cap-drop ALL --security-opt no-new-privileges \
+            --mount "type=bind,src=$RUNNER_TEMP/configcheck/configcheck,dst=/configcheck,readonly" \
+            --entrypoint /configcheck "$SMOKE_IMAGE"
       - name: Build backend
         id: backend
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8
