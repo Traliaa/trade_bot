@@ -1,0 +1,315 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "apps/v1",
+      "kind": "StatefulSet",
+      "metadata": {
+        "name": "trade-bot",
+        "namespace": "trade-bot"
+      },
+      "spec": {
+        "replicas": 1,
+        "serviceName": "trade-bot-headless",
+        "selector": {
+          "matchLabels": {
+            "app.kubernetes.io/name": "trade-bot"
+          }
+        },
+        "updateStrategy": {
+          "type": "OnDelete"
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app.kubernetes.io/name": "trade-bot"
+            }
+          },
+          "spec": {
+            "automountServiceAccountToken": false,
+            "terminationGracePeriodSeconds": 120,
+            "securityContext": {
+              "runAsNonRoot": true,
+              "runAsUser": 65532,
+              "runAsGroup": 65532,
+              "fsGroup": 65532,
+              "seccompProfile": {
+                "type": "RuntimeDefault"
+              }
+            },
+            "containers": [
+              {
+                "name": "trade-bot",
+                "image": "localhost/trade-bot-backend@sha256:3662721130cae62818ebc6342d1136781f6009d0ae979f12976d568407ecee91",
+                "imagePullPolicy": "Never",
+                "ports": [
+                  {
+                    "name": "http",
+                    "containerPort": 3000
+                  }
+                ],
+                "securityContext": {
+                  "allowPrivilegeEscalation": false,
+                  "readOnlyRootFilesystem": true,
+                  "capabilities": {
+                    "drop": [
+                      "ALL"
+                    ]
+                  }
+                },
+                "volumeMounts": [
+                  {
+                    "name": "tmp",
+                    "mountPath": "/tmp"
+                  },
+                  {
+                    "name": "ca",
+                    "mountPath": "/etc/patroni-ca.crt",
+                    "subPath": "postgres-ca.crt",
+                    "readOnly": true
+                  }
+                ],
+                "resources": {
+                  "requests": {
+                    "cpu": "250m",
+                    "memory": "256Mi"
+                  },
+                  "limits": {
+                    "cpu": "2",
+                    "memory": "1536Mi"
+                  }
+                },
+                "readinessProbe": {
+                  "httpGet": {
+                    "path": "/ready",
+                    "port": "http"
+                  },
+                  "periodSeconds": 10,
+                  "timeoutSeconds": 3
+                },
+                "livenessProbe": {
+                  "httpGet": {
+                    "path": "/livez",
+                    "port": "http"
+                  },
+                  "initialDelaySeconds": 30,
+                  "periodSeconds": 15,
+                  "timeoutSeconds": 3,
+                  "failureThreshold": 6
+                },
+                "envFrom": [
+                  {
+                    "secretRef": {
+                      "name": "trade-bot-runtime"
+                    }
+                  },
+                  {
+                    "configMapRef": {
+                      "name": "trade-bot-environment"
+                    }
+                  }
+                ]
+              }
+            ],
+            "volumes": [
+              {
+                "name": "tmp",
+                "emptyDir": {
+                  "sizeLimit": "128Mi"
+                }
+              },
+              {
+                "name": "ca",
+                "configMap": {
+                  "name": "patroni-ca"
+                }
+              }
+            ],
+            "nodeSelector": {
+              "kubernetes.io/hostname": "k3s-dacha"
+            }
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "name": "trade-bot-headless",
+        "namespace": "trade-bot"
+      },
+      "spec": {
+        "clusterIP": "None",
+        "selector": {
+          "app.kubernetes.io/name": "trade-bot"
+        },
+        "ports": [
+          {
+            "name": "http",
+            "port": 3000
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "name": "trade-bot",
+        "namespace": "trade-bot"
+      },
+      "spec": {
+        "type": "NodePort",
+        "externalTrafficPolicy": "Cluster",
+        "selector": {
+          "app.kubernetes.io/name": "trade-bot"
+        },
+        "ports": [
+          {
+            "name": "http",
+            "port": 80,
+            "targetPort": "http",
+            "nodePort": 32300
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "trade-webapp",
+        "namespace": "trade-bot"
+      },
+      "spec": {
+        "replicas": 2,
+        "selector": {
+          "matchLabels": {
+            "app.kubernetes.io/name": "trade-webapp"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app.kubernetes.io/name": "trade-webapp"
+            }
+          },
+          "spec": {
+            "automountServiceAccountToken": false,
+            "terminationGracePeriodSeconds": 120,
+            "securityContext": {
+              "runAsNonRoot": true,
+              "runAsUser": 101,
+              "runAsGroup": 101,
+              "fsGroup": 101,
+              "seccompProfile": {
+                "type": "RuntimeDefault"
+              }
+            },
+            "containers": [
+              {
+                "name": "trade-webapp",
+                "image": "localhost/trade-bot-frontend@sha256:8ed5f4b45e623248a8be0d71c838583dac5dc613ad80d44be981ecce77f0d22d8",
+                "imagePullPolicy": "Never",
+                "ports": [
+                  {
+                    "name": "http",
+                    "containerPort": 8080
+                  }
+                ],
+                "securityContext": {
+                  "allowPrivilegeEscalation": false,
+                  "readOnlyRootFilesystem": true,
+                  "capabilities": {
+                    "drop": [
+                      "ALL"
+                    ]
+                  }
+                },
+                "volumeMounts": [
+                  {
+                    "name": "tmp",
+                    "mountPath": "/tmp"
+                  }
+                ],
+                "resources": {
+                  "requests": {
+                    "cpu": "25m",
+                    "memory": "32Mi"
+                  },
+                  "limits": {
+                    "cpu": "500m",
+                    "memory": "128Mi"
+                  }
+                },
+                "readinessProbe": {
+                  "httpGet": {
+                    "path": "/",
+                    "port": "http"
+                  },
+                  "periodSeconds": 10,
+                  "timeoutSeconds": 3
+                },
+                "livenessProbe": {
+                  "httpGet": {
+                    "path": "/",
+                    "port": "http"
+                  },
+                  "initialDelaySeconds": 30,
+                  "periodSeconds": 15,
+                  "timeoutSeconds": 3,
+                  "failureThreshold": 6
+                }
+              }
+            ],
+            "volumes": [
+              {
+                "name": "tmp",
+                "emptyDir": {
+                  "sizeLimit": "128Mi"
+                }
+              }
+            ],
+            "topologySpreadConstraints": [
+              {
+                "maxSkew": 1,
+                "topologyKey": "kubernetes.io/hostname",
+                "whenUnsatisfiable": "DoNotSchedule",
+                "labelSelector": {
+                  "matchLabels": {
+                    "app.kubernetes.io/name": "trade-webapp"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "name": "trade-webapp",
+        "namespace": "trade-bot"
+      },
+      "spec": {
+        "type": "NodePort",
+        "externalTrafficPolicy": "Cluster",
+        "selector": {
+          "app.kubernetes.io/name": "trade-webapp"
+        },
+        "ports": [
+          {
+            "name": "http",
+            "port": 80,
+            "targetPort": "http",
+            "nodePort": 32301
+          }
+        ]
+      }
+    }
+  ]
+}
