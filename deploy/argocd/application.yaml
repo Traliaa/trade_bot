@@ -1,0 +1,38 @@
+# Apply only after deploy/k3s exists in the named GitHub branch.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: trade-bot
+  namespace: argocd
+spec:
+  project: trade-bot
+  source:
+    repoURL: https://github.com/Traliaa/trade_bot.git
+    targetRevision: codex/k3s-launch
+    path: deploy/k3s
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: trade-bot
+  syncPolicy:
+    syncOptions:
+      - Prune=false
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: trade-bot
+  namespace: argocd
+spec:
+  sourceRepos:
+    - https://github.com/Traliaa/trade_bot.git
+  destinations:
+    - namespace: trade-bot
+      server: https://kubernetes.default.svc
+  clusterResourceWhitelist: []
+  namespaceResourceWhitelist:
+    - group: apps
+      kind: StatefulSet
+    - group: apps
+      kind: Deployment
+    - group: ''
+      kind: Service
