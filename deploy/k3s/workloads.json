@@ -41,7 +41,7 @@
             "containers": [
               {
                 "name": "trade-bot",
-                "image": "localhost/trade-bot-backend@sha256:3662721130cae62818ebc6342d1136781f6009d0ae979f12976d568407ecee91",
+                "image": "localhost/trade-bot-backend@sha256:3662721130cae62818ebc6342d11367816f009d0ae979f12976d568407ecee91",
                 "imagePullPolicy": "Never",
                 "ports": [
                   {
