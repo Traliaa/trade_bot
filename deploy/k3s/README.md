@@ -1,6 +1,6 @@
 # Existing single-site deployment
 
-The backend is pinned to k3s-dacha. Images are pinned by digest and use the existing containerd caches on both nodes. There is no image registry CI or automatic site failover yet.
+The backend is pinned to k3s-dacha. Images are pinned by digest; registry images use IfNotPresent, with verified caches on both nodes. CI builds and publishes pinned GHCR images; see ../ci/README.md. Automatic site failover is not enabled.
 
 Apply only to the existing trade-bot namespace. The runtime Secret trade-bot-runtime and ConfigMaps trade-bot-environment/patroni-ca are provisioned separately and are deliberately absent from Git. Existing NetworkPolicy and host NodePort guards must remain in place.
 
